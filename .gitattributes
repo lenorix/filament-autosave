@@ -1,0 +1,13 @@
+# Keep development files and README images out of the distributed package.
+/.github export-ignore
+/art export-ignore
+/tests export-ignore
+/docs export-ignore
+/.idea export-ignore
+/.claude export-ignore
+/.editorconfig export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/phpunit.xml export-ignore
+
+* text=auto eol=lf

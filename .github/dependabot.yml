@@ -1,0 +1,15 @@
+version: 2
+
+updates:
+  # Keep Composer ranges broad; this library has no lockfile.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Allow time to review compromised releases; Actions requires this setting.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns:
+          - '*'

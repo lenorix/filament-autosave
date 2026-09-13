@@ -1,0 +1,139 @@
+# Lenorix Filament Autosave
+
+Debounced autosave and a Filament status indicator.
+
+- Edit pages persist eligible fields to the record.
+- Create/custom pages store drafts in Laravel Cache until explicit submit.
+- There is no polling, continuous remote-change sync, or merge UI during save.
+  Undo detects a concurrent change and reports a conflict instead of restoring
+  over it.
+
+## Install
+
+~~~bash
+composer require lenorix/filament-autosave
+~~~
+
+Register the plugin in the panel:
+
+~~~php
+use Filament\Panel;
+use Lenorix\FilamentAutosave\AutosavePlugin;
+
+public function panel(Panel $panel): Panel
+{
+    return $panel->plugin(AutosavePlugin::make());
+}
+~~~
+
+## Page traits
+
+Use `HasAutosave` on `EditRecord` pages:
+
+~~~php
+use Lenorix\FilamentAutosave\HasAutosave;
+
+class EditArticle extends EditRecord
+{
+    use HasAutosave;
+}
+~~~
+
+Use `HasAutosaveForCreate` on `CreateRecord` or custom pages. Custom pages
+must keep `public ?array $data = [];` and call `clearAutosaveDraft()` after
+explicit persistence:
+
+~~~php
+use Lenorix\FilamentAutosave\HasAutosaveForCreate;
+
+class CreateArticle extends CreateRecord
+{
+    use HasAutosaveForCreate;
+}
+~~~
+
+Do not use `HasAutosaveUploads` directly; `HasAutosave` composes it for edits.
+The indicator reads the form schema state path from the locked
+`autosaveDataPath` property.
+
+## Configuration
+
+Precedence is config → plugin → page method; `except` lists are combined.
+
+~~~php
+AutosavePlugin::make()
+    ->debounce(2000)                 // milliseconds
+    ->except(['internal_notes'])
+    ->exceptPages([EditPayment::class])
+    ->showTimestamp(false)
+    ->indicatorPosition('after')
+    ->cacheTtl(48)                   // draft hours
+    ->undoCacheTtl(45);              // undo minutes
+~~~
+
+Page methods: `shouldAutosave(): bool`, `autosaveDebounce(): ?int`, and
+`autosaveExcept(): array`. Never redeclare public properties supplied by the
+traits.
+
+Hooks:
+
+- Filament lifecycle hooks: `beforeValidate`, `afterValidate`, `beforeSave`,
+  and `afterSave` (edit autosave)
+- `beforeAutosave(array $data): array`
+- `getAutosaveValidationRules(): array` (failed fields are skipped)
+- `afterAutosave(object $record): void` (edit pages)
+- `clearAutosaveDraft()` (create/custom pages)
+
+Declared Filament field rules, including length and numeric limits, are applied
+per field; a failing field is skipped while unrelated fields can still save.
+The indicator lists skipped fields and their validation messages, including the
+pending field paths returned by the validation cycle.
+`beforeAutosave()` sees the complete eligible state. Pending Spatie media fields
+are removed before `mutateFormDataBeforeSave()`; dirty-only filtering happens
+just before the column write.
+Edit autosave calls Filament's `beforeValidate`, `afterValidate`, `beforeSave`,
+and `afterSave` hooks, dispatches `RecordUpdated` and `RecordSaved`, and sends
+the standard saved notification after commit. `mutateFormDataBeforeSave()` runs
+inside the transaction.
+
+## Data and uploads
+
+Edit autosave uses Filament's dehydrated state and runs
+`beforeStateDehydrated()` callbacks. Fields with `saveRelationships()` callbacks
+(including multi-select relationships, Repeater relationships, nested
+containers, and RichEditor attachments) are saved when their raw state changes.
+Relation managers, action/modal forms, table forms, and standalone Livewire
+components are separate components. Use `HasAutosaveForForm` with a
+context-specific draft key and include the indicator in their views.
+Column-backed `FileUpload` fields support add/remove/reorder. Top-level
+`SpatieMediaLibraryFileUpload` fields support add/remove/reorder when the
+Filament Spatie plugin is installed. Create drafts never store uploads/media.
+
+Password fields, `except` fields, temporary uploads, and undeclared client keys
+are excluded. Nested groups/repeaters are one top-level value; an incomplete
+or unsafe child skips the whole container. Upload saves have no Undo because
+filesystem changes cannot be rolled back.
+
+## Dirty-only and concurrency
+
+`config/filament-autosave.php` enables `'dirty_only' => true` by default.
+Edit pages keep a hash per top-level field, not a copy of the original values.
+Only fields changed since the last successful baseline are written; hashes
+advance only for fields actually written. Explicit saves and Undo reset them.
+Different columns edited by two page instances are preserved; the same column
+is last-write-wins. With `refresh_unchanged_fields` enabled, a successful save
+also refreshes clean top-level model-backed fields from the record in the same
+response; local dirty fields, relationships, and uploads are retained. This is
+not polling, so later changes wait for another request. Set `dirty_only` to
+`false` only when the full eligible payload is required.
+
+When changing this behavior, test two edit instances changing different columns
+with `dirty_only` enabled, plus upload add/remove/reorder cases.
+
+## Verify
+
+~~~bash
+composer test
+~~~
+
+Tests are Pest Unit/Integration tests; do not add a Node test runner.
