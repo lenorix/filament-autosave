@@ -6,6 +6,7 @@ use Filament\Forms\Components\BaseFileUpload;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Attributes\Locked;
@@ -78,6 +79,9 @@ trait HasAutosaveUploads
 
     /** @var array<string, array<string>> Newly stored paths to clean on failure. */
     protected array $autosaveStoredUploadPaths = [];
+
+    /** @var array<string, string> Durable cleanup tokens keyed by field path. */
+    protected array $autosaveUploadLedgerTokens = [];
 
     /** @var array<string, array<int, array<string, mixed>>> */
     protected array $autosaveExternalMediaAfter = [];
@@ -229,6 +233,14 @@ trait HasAutosaveUploads
     /** @return array<string, object> */
     protected function autosaveExternalUndoFields(array $uploads = [], array $relationships = []): array
     {
+        if ($uploads === [] && $relationships === []) {
+            $uploads = $this->autosaveUploadFields();
+
+            if (method_exists($this, 'autosaveRelationshipFields')) {
+                $relationships = $this->autosaveRelationshipFields();
+            }
+        }
+
         $fields = [];
 
         foreach ($uploads as $path => $field) {
@@ -569,6 +581,17 @@ trait HasAutosaveUploads
 
             if ($newPaths !== []) {
                 $this->autosaveStoredUploadPaths[$path] = $newPaths;
+                $token = app(AutosaveUploadLedger::class)->register(
+                    array_map(fn (string $storedPath): array => [
+                        'disk' => $field->getDiskName(),
+                        'path' => $storedPath,
+                    ], $newPaths),
+                );
+                $this->autosaveUploadLedgerTokens[$path] = $token;
+
+                if (DB::connection()->transactionLevel() > 0) {
+                    DB::afterCommit(fn () => app(AutosaveUploadLedger::class)->commit($token));
+                }
             }
 
             if ($newPaths !== []) {
@@ -857,10 +880,15 @@ trait HasAutosaveUploads
                 continue;
             }
 
-            $field->getDisk()->delete($files);
+            if (isset($this->autosaveUploadLedgerTokens[$path])) {
+                app(AutosaveUploadLedger::class)->rollback($this->autosaveUploadLedgerTokens[$path]);
+            } else {
+                $field->getDisk()->delete($files);
+            }
         }
 
         $this->autosaveStoredUploadPaths = [];
+        $this->autosaveUploadLedgerTokens = [];
         $this->rollbackAutosaveExternalMedia();
     }
 
@@ -872,17 +900,29 @@ trait HasAutosaveUploads
             $field = $this->autosaveUploadFields()[$path] ?? null;
 
             if ($field !== null && $files !== []) {
-                $field->getDisk()->delete($files);
+                if (isset($this->autosaveUploadLedgerTokens[$path])) {
+                    app(AutosaveUploadLedger::class)->rollback($this->autosaveUploadLedgerTokens[$path]);
+                } else {
+                    $field->getDisk()->delete($files);
+                }
             }
 
             unset($this->autosaveStoredUploadPaths[$path]);
+            unset($this->autosaveUploadLedgerTokens[$path]);
         }
     }
 
     /** Keep files after the database and relationship writes have committed. */
     protected function commitAutosaveStoredUploads(): void
     {
+        $ledger = app(AutosaveUploadLedger::class);
+
+        foreach ($this->autosaveUploadLedgerTokens as $token) {
+            $ledger->commit($token);
+        }
+
         $this->autosaveStoredUploadPaths = [];
+        $this->autosaveUploadLedgerTokens = [];
         $this->captureAutosaveExternalMediaAfter();
         $this->autosaveExternalMediaBaseline = $this->autosaveExternalMediaAfter;
         $this->autosaveRichEditorAttachmentBaseline = $this->captureAutosaveRichEditorAttachments();

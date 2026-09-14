@@ -127,7 +127,7 @@ test('strict generic context mode rejects the fallback context', function () {
     $component->mountHasAutosaveForForm();
 
     expect(fn () => $component->autosave())
-        ->toThrow(\LogicException::class, 'requires an explicit context');
+        ->toThrow(LogicException::class, 'requires an explicit context');
 });
 
 test('the plugin identifies generic autosave form components', function () {

@@ -296,6 +296,11 @@ cover model columns and supported relationship state; file, media, and
 RichEditor attachment operations remain outside Undo and should be coordinated
 by the host action when they have additional side effects.
 
+External Undo can be enabled safely for a provider by registering an
+`AutosaveExternalUndoAdapter` in `external_undo_adapters`. The adapter must
+implement `supports`, `snapshot`, `matches`, and `restore`. Fields without a
+reversible adapter keep Undo disabled.
+
 For a generic form with `dirty_only` enabled, each partial autosave is merged
 into its existing draft so earlier field changes remain available. Empty and
 `null` values are retained as explicit deletions.
@@ -339,6 +344,17 @@ side effects performed by a custom storage callback remain the application's
 responsibility. Removing a normal `FileUpload` path updates the column, and
 physical deletion follows the component's configured behaviour.
 
+Newly stored paths are also recorded in a short-lived cleanup ledger. Register
+the pruning command in the host scheduler so an interrupted PHP process cannot
+leave those paths indefinitely:
+
+```php
+$schedule->command('filament-autosave:prune-uploads')->everyThirtyMinutes();
+```
+
+The ledger is a recovery net for storage providers; database and filesystem
+transactions still cannot commit as one distributed transaction.
+
 ## Configuration
 
 Values are resolved in this order: config, plugin, then page. The last value
@@ -352,6 +368,9 @@ wins, while `except` entries are merged across levels.
 | `undo_ttl` (minutes) | Yes | Yes | No |
 | `dirty_only` | Yes | No | No |
 | `refresh_unchanged_fields` | Yes | No | No |
+| `require_form_context` | Yes | No | No |
+| `relationship_undo_depth` | Yes | No | No |
+| `external_undo_adapters` | Yes | No | No |
 | `show_saved_at` | Yes | Yes | No |
 | `position` | Yes | Yes | No |
 | `exceptPages` | No | Yes | No |

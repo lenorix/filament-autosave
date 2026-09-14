@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave;
 
+use Lenorix\FilamentAutosave\Console\PruneAutosaveUploadsCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -13,6 +14,7 @@ class AutosaveServiceProvider extends PackageServiceProvider
     {
         $this->app->singleton(AutosaveStore::class);
         $this->app->singleton(AutosaveExternalUndoManager::class);
+        $this->app->singleton(AutosaveUploadLedger::class);
     }
 
     public function configurePackage(Package $package): void
@@ -21,6 +23,7 @@ class AutosaveServiceProvider extends PackageServiceProvider
             ->name(static::$name)
             ->hasConfigFile()
             ->hasViews()
-            ->hasTranslations();
+            ->hasTranslations()
+            ->hasCommands([PruneAutosaveUploadsCommand::class]);
     }
 }

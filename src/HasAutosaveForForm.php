@@ -3,7 +3,6 @@
 namespace Lenorix\FilamentAutosave;
 
 use Filament\Forms\Components\RichEditor;
-use Filament\Forms\Components\BaseFileUpload;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
 use Illuminate\Database\Eloquent\Model;
@@ -325,7 +324,7 @@ trait HasAutosaveForForm
         $this->putAutosaveFormUndo('expected-external', $this->autosaveExternalUndoManager()->snapshot($externalFields));
         $this->acknowledgeAutosaveUploads($uploads, $data);
         $this->autosaveCanUndo = ! $this->autosaveExternalUndoHasUnsupported($externalFields)
-            && ($previous !== [] || $relationshipUndo !== []);
+            && ($previous !== [] || $relationshipUndo !== [] || $externalUndo !== []);
         $this->clearAutosaveDraft();
 
         // A relationship callback may have persisted state that is not a
@@ -434,7 +433,8 @@ trait HasAutosaveForForm
 
             if ($record === null
                 || (($snapshot === null || $snapshot === [])
-                    && ($relationshipSnapshot === null || $relationshipSnapshot === []))
+                    && ($relationshipSnapshot === null || $relationshipSnapshot === [])
+                    && ($externalSnapshot === null || $externalSnapshot === []))
                 || $expected === null) {
                 $this->autosaveCanUndo = false;
                 $this->dispatchAutosaveIdle();
@@ -450,7 +450,7 @@ trait HasAutosaveForForm
                 return;
             }
 
-            $externalFields = $this->autosaveExternalUndoFields([], $this->autosaveFormRelationshipFields());
+            $externalFields = $this->autosaveExternalUndoFields();
 
             if (! $this->autosaveExternalUndoMatches($expectedExternal ?? [], $externalFields)) {
                 $this->resetAutosaveFormUndo();
@@ -459,7 +459,7 @@ trait HasAutosaveForForm
                 return;
             }
 
-            $this->autosaveFormWithinTransaction(function () use ($record, $snapshot, $relationshipSnapshot): void {
+            $this->autosaveFormWithinTransaction(function () use ($record, $snapshot, $relationshipSnapshot, $externalSnapshot, $externalFields): void {
                 $this->callAutosaveHook('beforeValidate');
                 $this->callAutosaveHook('afterValidate');
                 $this->callAutosaveHook('beforeSave');
