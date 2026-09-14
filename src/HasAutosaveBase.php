@@ -375,6 +375,39 @@ trait HasAutosaveBase
         return $cycle();
     }
 
+    /** Wrap the autosave write in the database transaction Filament owns. */
+    protected function autosaveWithinDatabaseTransaction(callable $write): mixed
+    {
+        if (! method_exists($this, 'beginDatabaseTransaction')
+            || ! method_exists($this, 'commitDatabaseTransaction')
+            || ! method_exists($this, 'rollBackDatabaseTransaction')) {
+            return $this->autosaveWithoutDatabaseTransaction($write);
+        }
+
+        try {
+            $this->beginDatabaseTransaction();
+            $result = $write();
+            $this->commitDatabaseTransaction();
+
+            return $result;
+        } catch (Halt $exception) {
+            $exception->shouldRollbackDatabaseTransaction()
+                ? $this->rollBackDatabaseTransaction()
+                : $this->commitDatabaseTransaction();
+
+            throw $exception;
+        } catch (\Throwable $exception) {
+            $this->rollBackDatabaseTransaction();
+
+            throw $exception;
+        }
+    }
+
+    protected function autosaveWithoutDatabaseTransaction(callable $write): mixed
+    {
+        return $write();
+    }
+
     protected function queueAutosaveSavedNotification(): void
     {
         $this->autosaveNotificationPending = true;
@@ -388,8 +421,17 @@ trait HasAutosaveBase
 
         $this->autosaveNotificationPending = false;
 
-        if (method_exists($this, 'sendAutosaveSavedNotification')) {
-            $this->sendAutosaveSavedNotification();
+        $this->sendAutosaveSavedNotification();
+    }
+
+    protected function sendAutosaveSavedNotification(): void
+    {
+        $notification = method_exists($this, 'getSavedNotification')
+            ? $this->getSavedNotification()
+            : null;
+
+        if ($notification !== null && method_exists($notification, 'send')) {
+            $notification->send();
         }
     }
 

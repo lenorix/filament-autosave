@@ -5,7 +5,6 @@ namespace Lenorix\FilamentAutosave;
 use Filament\Forms\Components\RichEditor;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
-use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -392,40 +391,17 @@ trait HasAutosaveForForm
         }
     }
 
-    protected function sendAutosaveSavedNotification(): void
-    {
-        if (method_exists($this, 'getSavedNotification')) {
-            $this->getSavedNotification()?->send();
-        }
-    }
-
     protected function autosaveFormWithinTransaction(callable $write): mixed
     {
-        if (! method_exists($this, 'beginDatabaseTransaction')
-            || ! method_exists($this, 'commitDatabaseTransaction')
-            || ! method_exists($this, 'rollBackDatabaseTransaction')) {
-            $record = $this->getAutosaveFormRecord();
+        return $this->autosaveWithinDatabaseTransaction($write);
+    }
 
-            return $record?->exists ? DB::transaction($write) : $write();
-        }
+    /** Records still want a real transaction even without Filament lifecycle methods. */
+    protected function autosaveWithoutDatabaseTransaction(callable $write): mixed
+    {
+        $record = $this->getAutosaveFormRecord();
 
-        try {
-            $this->beginDatabaseTransaction();
-            $result = $write();
-            $this->commitDatabaseTransaction();
-
-            return $result;
-        } catch (Halt $exception) {
-            $exception->shouldRollbackDatabaseTransaction()
-                ? $this->rollBackDatabaseTransaction()
-                : $this->commitDatabaseTransaction();
-
-            throw $exception;
-        } catch (\Throwable $exception) {
-            $this->rollBackDatabaseTransaction();
-
-            throw $exception;
-        }
+        return $record?->exists ? DB::transaction($write) : $write();
     }
 
     public function undoAutosave(): void
@@ -460,8 +436,7 @@ trait HasAutosaveForForm
 
             if ((method_exists($record, 'only') && AutosaveStore::normalizeScalars($record->only(array_keys($expected))) !== $expected)
                 || ($expectedRelationships !== null && $this->autosaveFormRelationshipHasConflict($expectedRelationships))) {
-                $this->clearAutosaveFormUndo();
-                $this->autosaveCanUndo = false;
+                $this->resetAutosaveFormUndo();
                 $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Conflict->value);
 
                 return;
@@ -491,8 +466,7 @@ trait HasAutosaveForForm
                 $this->prepareAutosavePayload($this->getAutosaveData()),
             );
             $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
-            $this->clearAutosaveFormUndo();
-            $this->autosaveCanUndo = false;
+            $this->resetAutosaveFormUndo();
 
             if (method_exists($this, 'rememberData')) {
                 $this->rememberData();
@@ -537,6 +511,13 @@ trait HasAutosaveForForm
         Cache::forget($this->getAutosaveFormUndoKey('expected-relationships'));
     }
 
+    /** Wipe the generic Undo target; the underlying state can no longer be restored. */
+    protected function resetAutosaveFormUndo(): void
+    {
+        $this->clearAutosaveFormUndo();
+        $this->autosaveCanUndo = false;
+    }
+
     /** @return array<string, array<int, object>> */
     protected function autosaveFormRelationshipFields(): array
     {
@@ -572,26 +553,15 @@ trait HasAutosaveForForm
     /** @param array<string, mixed> $data @return array<string, array<string, mixed>> */
     protected function captureAutosaveFormRelationshipUndo(array $data): array
     {
-        $snapshot = [];
+        $fieldsByPath = $this->autosaveFormRelationshipFields();
 
-        foreach ($this->autosaveFormRelationshipFields() as $path => $fields) {
+        foreach (array_keys($fieldsByPath) as $path) {
             if (! array_key_exists(AutosaveFieldTree::topLevelKey($path), $data)) {
-                continue;
-            }
-
-            foreach ($fields as $index => $field) {
-                $snapshotPath = count($fields) === 1
-                    ? $path
-                    : ($this->autosaveFormRelativeFieldPath($field) ?? $path.'.'.$index);
-                $captured = $this->captureAutosaveFormRelationshipField($field);
-
-                if ($captured !== null) {
-                    $snapshot[$snapshotPath] = $captured;
-                }
+                unset($fieldsByPath[$path]);
             }
         }
 
-        return $snapshot;
+        return $this->captureAutosaveFormRelationshipUndoForFields($fieldsByPath);
     }
 
     /** @param array<string, array<int, object>> $fieldsByPath @return array<string, array<string, mixed>> */
@@ -769,10 +739,7 @@ trait HasAutosaveForForm
         $this->deleteAutosaveFormRowsMissingFrom($relationship, $original);
 
         foreach ($original as $attributes) {
-            $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
-                ?? $related->newInstance();
-            $model->forceFill($attributes);
-            $model->save();
+            $this->restoreAutosaveFormRelatedModel($related, $attributes, $keyName)->save();
         }
     }
 
@@ -786,10 +753,7 @@ trait HasAutosaveForForm
         $this->deleteAutosaveFormRowsMissingFrom($relationship, $original);
 
         foreach ($original as $attributes) {
-            $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
-                ?? $related->newInstance();
-            $model->forceFill($attributes);
-            $relationship->save($model);
+            $relationship->save($this->restoreAutosaveFormRelatedModel($related, $attributes, $keyName));
         }
     }
 
@@ -818,6 +782,15 @@ trait HasAutosaveForForm
                 $current->delete();
             }
         }
+    }
+
+    /** @param array<string, mixed> $attributes */
+    protected function restoreAutosaveFormRelatedModel(Model $related, array $attributes, string $keyName): Model
+    {
+        $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
+            ?? $related->newInstance();
+
+        return $model->forceFill($attributes);
     }
 
     protected function fillAutosaveFormFromRecord(Model $record, array $fallback): void

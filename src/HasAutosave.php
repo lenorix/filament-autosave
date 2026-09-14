@@ -6,7 +6,6 @@ use Filament\Forms\Components\BaseFileUpload;
 use Filament\Forms\Components\RichEditor;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
-use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
@@ -1104,11 +1103,7 @@ trait HasAutosave
         $this->deleteAutosaveRowsMissingFrom($relation, $original);
 
         foreach ($original as $attributes) {
-            $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
-                ?? $related->newInstance();
-
-            $model->forceFill($attributes);
-            $model->save();
+            $this->restoreAutosaveRelatedModel($related, $attributes, $keyName)->save();
         }
     }
 
@@ -1122,11 +1117,17 @@ trait HasAutosave
         $this->deleteAutosaveRowsMissingFrom($relation, $original);
 
         foreach ($original as $attributes) {
-            $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
-                ?? $related->newInstance();
-            $model->forceFill($attributes);
-            $relation->save($model);
+            $relation->save($this->restoreAutosaveRelatedModel($related, $attributes, $keyName));
         }
+    }
+
+    /** @param array<string, mixed> $attributes */
+    protected function restoreAutosaveRelatedModel(object $related, array $attributes, string $keyName): object
+    {
+        $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
+            ?? $related->newInstance();
+
+        return $model->forceFill($attributes);
     }
 
     /** Delete current rows that were not part of the original snapshot. */
@@ -1270,19 +1271,6 @@ trait HasAutosave
         }
     }
 
-    protected function sendAutosaveSavedNotification(): void
-    {
-        if (! method_exists($this, 'getSavedNotification')) {
-            return;
-        }
-
-        $notification = $this->getSavedNotification();
-
-        if ($notification !== null && method_exists($notification, 'send')) {
-            $notification->send();
-        }
-    }
-
     /** Fire the record events Filament Edit pages emit after a save. */
     protected function dispatchAutosaveRecordEvents(array $data): void
     {
@@ -1300,30 +1288,7 @@ trait HasAutosave
 
     protected function autosaveWithinTransaction(callable $write): void
     {
-        if (! method_exists($this, 'beginDatabaseTransaction')
-            || ! method_exists($this, 'commitDatabaseTransaction')
-            || ! method_exists($this, 'rollBackDatabaseTransaction')
-        ) {
-            $write();
-
-            return;
-        }
-
-        try {
-            $this->beginDatabaseTransaction();
-            $write();
-            $this->commitDatabaseTransaction();
-        } catch (Halt $e) {
-            $e->shouldRollbackDatabaseTransaction()
-                ? $this->rollBackDatabaseTransaction()
-                : $this->commitDatabaseTransaction();
-
-            throw $e;
-        } catch (\Throwable $e) {
-            $this->rollBackDatabaseTransaction();
-
-            throw $e;
-        }
+        $this->autosaveWithinDatabaseTransaction($write);
     }
 
     /**

@@ -740,7 +740,14 @@ trait HasAutosaveUploads
             return $stored;
         }
 
-        foreach ($this->autosaveUploadStatePaths($record->getAttribute($path)) as $existing) {
+        $recordPath = method_exists($this, 'getAutosaveStatePath')
+            ? $this->autosaveRelativeUploadPath($path)
+            : $path;
+        $existingState = str_contains($recordPath, '.')
+            ? data_get($record->toArray(), $recordPath)
+            : $record->getAttribute($recordPath);
+
+        foreach ($this->autosaveUploadStatePaths($existingState) as $existing) {
             if (! in_array($existing, $stored, true) && $field->getDisk()->exists($existing)) {
                 $stored[] = $existing;
             }
