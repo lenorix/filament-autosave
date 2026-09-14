@@ -9,6 +9,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
@@ -476,4 +477,78 @@ test('a column upload nested in a relationship repeater row is stored', function
     $stored = $item->fresh()->attachment;
     expect($stored)->toBeString()
         ->and(Storage::disk('public')->exists($stored))->toBeTrue();
+});
+
+class MediaItemsRecordForm extends AutosaveUploadRecordForm
+{
+    public function form(Schema $schema): Schema
+    {
+        return $schema
+            ->model($this->record)
+            ->components([
+                TextInput::make('title')->required(),
+                Repeater::make('items')
+                    ->relationship('items')
+                    ->schema([
+                        TextInput::make('label')->required(),
+                        FileUpload::make('attachment')->disk('public')->maxSize(10),
+                        SpatieMediaLibraryFileUpload::make('images')->multiple()->disk('public')->maxSize(10),
+                    ]),
+            ])
+            ->statePath('data');
+    }
+}
+
+test('a generic record form persists media nested in an existing relationship row', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $page = Livewire::test(MediaItemsRecordForm::class, ['record' => $post]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.images", [UploadedFile::fake()->create('row.txt', 1)])
+        ->set("data.items.{$key}.attachment", [UploadedFile::fake()->create('doc.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', false);
+
+    expect($item->fresh()->getMedia())->toHaveCount(1)
+        ->and(Storage::disk('public')->exists($item->fresh()->attachment))->toBeTrue();
+});
+
+test('a generic record form attaches media to a new relationship row without offering undo', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    Livewire::test(MediaItemsRecordForm::class, ['record' => $post])
+        ->set('data.items', ['new-row' => ['label' => 'New', 'images' => []]])
+        ->set('data.items.new-row.images', [UploadedFile::fake()->create('new.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', false);
+
+    expect($post->fresh()->items()->first()?->getMedia())->toHaveCount(1);
+});
+
+test('a generic record form row failing validation stores no nested upload', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $page = Livewire::test(MediaItemsRecordForm::class, ['record' => $post]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.label", '')
+        ->set("data.items.{$key}.attachment", [UploadedFile::fake()->create('doc.txt', 1)])
+        ->call('autosave');
+
+    expect($post->fresh()->items()->count())->toBe(1)
+        ->and($item->fresh()->attachment)->toBeNull()
+        ->and(Storage::disk('public')->allFiles())->toBe([]);
+});
+
+test('a generic record form persists nested row media with dirty_only enabled', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $page = Livewire::test(MediaItemsRecordForm::class, ['record' => $post]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.images", [UploadedFile::fake()->create('row.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($item->fresh()->getMedia())->toHaveCount(1);
 });

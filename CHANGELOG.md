@@ -9,8 +9,12 @@
 - Autosave validated column-backed file uploads and top-level Spatie Media Library
   additions, removals and ordering. Only changed upload fields are processed.
 - Autosave `FileUpload` and `SpatieMediaLibraryFileUpload` fields inside
-  relationship `Repeater` rows on Edit pages together with the relationship write;
-  a row failing validation skips the whole relationship and stores no file.
+  relationship `Repeater` rows together with the relationship write, on Edit
+  pages and record-backed generic forms; a row failing validation skips the
+  whole relationship and stores no file.
+- Add `flushAutosave()`: a synchronous autosave cycle for explicit actions that
+  throws a `ValidationException` instead of writing partially and propagates
+  hook and persistence exceptions to the caller.
 - Disable column-only Undo for autosaves involving file operations.
 - Run Filament Edit lifecycle hooks, events, and saved notifications for
   autosaves.

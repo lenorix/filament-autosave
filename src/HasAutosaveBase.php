@@ -39,6 +39,11 @@ trait HasAutosaveBase
 
     protected bool $autosaveCycleActive = false;
 
+    /** Set by flushAutosave(): fail loudly instead of reporting through the indicator. */
+    protected bool $autosaveThrows = false;
+
+    protected bool $autosaveCycleWrote = false;
+
     /** Notifications are sent only after the surrounding write commits. */
     protected bool $autosaveNotificationPending = false;
 
@@ -149,6 +154,37 @@ trait HasAutosaveBase
         return 'data';
     }
 
+    /**
+     * Run one autosave cycle synchronously and let failures propagate.
+     *
+     * This is the entry point for explicit actions that want the same
+     * dirty-only write, refresh, and Undo behaviour as the background
+     * autosave. Unlike `autosave()`, validation errors abort the cycle before
+     * anything is written and surface as a `ValidationException`, and
+     * exceptions thrown by hooks, custom rules, or persistence reach the
+     * caller. Returns whether anything was written.
+     *
+     * @throws ValidationException
+     * @throws \LogicException when called from inside a running autosave cycle
+     */
+    public function flushAutosave(): bool
+    {
+        if ($this->isAutosaving || $this->autosaveCycleActive) {
+            throw new \LogicException('flushAutosave() cannot be called from inside an autosave cycle.');
+        }
+
+        $this->autosaveThrows = true;
+        $this->autosaveCycleWrote = false;
+
+        try {
+            $this->autosave();
+        } finally {
+            $this->autosaveThrows = false;
+        }
+
+        return $this->autosaveCycleWrote;
+    }
+
     protected function performAutosave(callable $persist): void
     {
         if (! $this->isAutosaveEnabled() || $this->isAutosaving) {
@@ -157,15 +193,34 @@ trait HasAutosaveBase
 
         if (! $this->autosaveCycleActive) {
             $this->autosaveCycleActive = true;
+            $this->autosaveCycleWrote = false;
 
             try {
                 $this->runAutosaveCycle(fn () => $this->performAutosave($persist));
-            } catch (Halt) {
+            } catch (Halt $e) {
                 $this->discardAutosaveStoredUploads();
                 $this->dispatchAutosaveIdle();
+
+                if ($this->autosaveThrows) {
+                    throw $e;
+                }
+            } catch (ValidationException $e) {
+                $this->discardAutosaveStoredUploads();
+
+                if ($this->autosaveThrows) {
+                    $this->dispatchAutosaveValidationOrIdle();
+
+                    throw $e;
+                }
+
+                $this->handleAutosaveFailure($e, 'save');
             } catch (\Throwable $e) {
                 $this->discardAutosaveStoredUploads();
                 $this->handleAutosaveFailure($e, 'save');
+
+                if ($this->autosaveThrows) {
+                    throw $e;
+                }
             } finally {
                 $this->autosaveCycleActive = false;
             }
@@ -204,6 +259,11 @@ trait HasAutosaveBase
             $data = $this->validateAutosaveFields($data);
             $data = $this->enforceFieldOptionRules($data);
             $this->syncAutosaveValidationErrors();
+
+            if ($this->autosaveThrows && $this->autosaveValidationErrors !== []) {
+                throw $this->autosaveValidationException();
+            }
+
             $this->callAutosaveHook('afterValidate');
 
             if ($this->autosaveHasNothingToPersist($data)) {
@@ -222,6 +282,7 @@ trait HasAutosaveBase
 
             $this->autosaveSnapshotHash = $this->autosaveSuccessSnapshotHash(is_array($written) ? $written : $data);
             $this->commitAutosaveStoredUploads();
+            $this->autosaveCycleWrote = true;
 
             $this->dispatch(
                 AutosaveStatus::EVENT,
@@ -252,6 +313,19 @@ trait HasAutosaveBase
         } finally {
             $this->isAutosaving = false;
         }
+    }
+
+    /** Errors keyed by their Livewire state path, so Filament shows them inline. */
+    protected function autosaveValidationException(): ValidationException
+    {
+        $root = trim($this->autosaveDataPath, '.');
+        $messages = [];
+
+        foreach ($this->autosaveValidationErrors as $key => $errors) {
+            $messages[$root === '' ? (string) $key : $root.'.'.$key] = $errors;
+        }
+
+        return ValidationException::withMessages($messages);
     }
 
     protected function callAutosaveHook(string $hook): void

@@ -133,7 +133,7 @@ applied, while fields marked `dehydrated(false)` are left out.
 | Relationship field with a top-level `saveRelationships()` callback | Yes, when changed |
 | `FileUpload` backed by a column, including nested fields | Yes, after upload validation |
 | Top-level `SpatieMediaLibraryFileUpload` | Yes, changed collections only |
-| `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row (Edit pages) | Yes, with the row's relationship write |
+| `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row | Yes, with the row's relationship write |
 | `SpatieMediaLibraryFileUpload` inside a JSON (non-relationship) repeater | No |
 | Relationships inside groups, repeaters, and builders | Yes, when the relationship changes |
 | Other `dehydrated(false)` fields | No |
@@ -183,6 +183,29 @@ On Edit pages, a successful autosave runs Filament's save lifecycle, including
 `RecordUpdated` and `RecordSaved`, and sends the standard saved notification.
 Use `afterAutosave()` for package-specific work that should run after each
 autosave.
+
+### Explicit saves with `flushAutosave()`
+
+`autosave()` is designed for the background loop: it reports failures through
+the indicator and never throws. Explicit actions — a "Round prices" button, an
+"Add from catalogue" modal — usually need the opposite: the same dirty-only
+write, refresh, and Undo behaviour, but with errors reaching the caller.
+
+```php
+Action::make('roundPrices')
+    ->action(function (): void {
+        $this->data['price'] = round($this->data['price']);
+
+        $written = $this->flushAutosave();
+    });
+```
+
+`flushAutosave()` runs one cycle synchronously and returns whether anything was
+written. Validation errors abort the cycle before any write and are thrown as a
+`ValidationException` keyed by state path (`data.title`), so Filament shows
+them inline. Exceptions thrown by `beforeAutosave()`, custom rules, hooks, or
+persistence propagate unchanged, and Filament's `Halt` propagates so the
+surrounding action can stop cleanly. It is available on every autosave trait.
 
 ## Undo
 
@@ -300,14 +323,13 @@ removals, and ordering. Unchanged collections are not synchronised. Install
 Filament's Spatie plugin in the host application to use it; the plugin is only a
 development dependency of this package.
 
-On Edit pages, upload fields inside a `Repeater` bound to a relationship are
-persisted together with that relationship. Media in an existing row is attached
+Upload fields inside a `Repeater` bound to a relationship are persisted
+together with that relationship, on Edit pages and record-backed generic forms. Media in an existing row is attached
 to the row's own record; media in a new row is attached once the relationship
 component has created the row. If any field in the repeater fails validation,
 the whole relationship write is skipped and no file is stored. Media inside a
 repeater stored in a JSON column is not autosaved, because every row would
-share the parent record's media collection. `HasAutosaveForForm` keeps nested
-media as an explicit-save concern.
+share the parent record's media collection.
 
 Autosaves involving files do not provide Undo. If a later validation, hook,
 relationship, or database write fails, the package cleans up new paths and

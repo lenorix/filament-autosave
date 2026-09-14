@@ -658,6 +658,19 @@ trait HasAutosaveUploads
         return null;
     }
 
+    /** Whether any changed upload lives inside a relationship row this cycle writes. */
+    protected function autosaveRelationshipUploadsChanged(): bool
+    {
+        foreach ($this->autosaveUploadFields() as $path => $field) {
+            if ($this->autosaveUploadInRelationship($path)
+                && ($this->autosaveUploadHashes[$path] ?? null) !== $this->autosaveUploadHash($field)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     protected function autosaveUploadRecordExists(BaseFileUpload $field): bool
     {
         $record = $field->getRecord();

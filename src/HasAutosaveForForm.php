@@ -125,6 +125,21 @@ trait HasAutosaveForForm
         return $data;
     }
 
+    /**
+     * Record-backed generic forms persist relationships through the whole
+     * schema, so every relationship component can own nested uploads.
+     *
+     * @return array<int, string>
+     */
+    protected function autosaveUploadRelationshipPatterns(): array
+    {
+        if (! (($record = $this->getAutosaveFormRecord()) instanceof Model) || ! $record->exists) {
+            return [];
+        }
+
+        return array_keys($this->autosaveRelationshipFields());
+    }
+
     protected function hasPendingAutosavePersistence(): bool
     {
         if (! (($record = $this->getAutosaveFormRecord()) instanceof Model) || ! $record->exists) {
@@ -211,9 +226,11 @@ trait HasAutosaveForForm
             $data = $this->mutateFormDataBeforeSave($data);
         }
 
-        $payload = $this->filterAutosaveFormPayload($this->prepareAutosavePayload($data));
+        $prepared = $this->prepareAutosavePayload($data);
+        $payload = $this->filterAutosaveFormPayload($prepared);
 
         if ($record instanceof Model && $record->exists) {
+            $payload = $this->keepAutosaveUploadRelationshipOwners($payload, $prepared);
             $this->filterAutosavePendingUploadsForPayload($payload);
         }
 
@@ -300,7 +317,9 @@ trait HasAutosaveForForm
             $this->autosaveFormRelationshipFields(),
         ));
         $this->acknowledgeAutosaveUploads($uploads, $data);
-        $this->autosaveCanUndo = $uploads === [] && ($previous !== [] || $relationshipUndo !== []);
+        $this->autosaveCanUndo = $uploads === []
+            && ! $this->autosaveRelationshipUploadsChanged()
+            && ($previous !== [] || $relationshipUndo !== []);
         $this->clearAutosaveDraft();
 
         // A relationship callback may have persisted state that is not a
@@ -926,6 +945,29 @@ trait HasAutosaveForForm
                 !== $this->hashAutosaveFormValue($value),
             ARRAY_FILTER_USE_BOTH,
         );
+    }
+
+    /**
+     * Temporary uploads are stripped before hashing, so a relationship whose
+     * only change is a new nested file looks clean to dirty-only filtering.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $prepared
+     * @return array<string, mixed>
+     */
+    protected function keepAutosaveUploadRelationshipOwners(array $payload, array $prepared): array
+    {
+        foreach (array_keys($this->autosavePendingUploads) as $path) {
+            $top = AutosaveFieldTree::topLevelKey($path);
+
+            if ($this->autosaveUploadInRelationship($path)
+                && ! array_key_exists($top, $payload)
+                && array_key_exists($top, $prepared)) {
+                $payload[$top] = $prepared[$top];
+            }
+        }
+
+        return $payload;
     }
 
     /** @param array<string, mixed> $data @return array<string, string> */

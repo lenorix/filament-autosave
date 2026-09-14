@@ -1004,14 +1004,7 @@ trait HasAutosave
             }
         }
 
-        foreach ($this->autosaveUploadFields() as $path => $field) {
-            if ($this->autosaveUploadInRelationship($path)
-                && ($this->autosaveUploadHashes[$path] ?? null) !== $this->autosaveUploadHash($field)) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->autosaveRelationshipUploadsChanged();
     }
 
     /** @param  array<string, array<string, mixed>>  $snapshot */
