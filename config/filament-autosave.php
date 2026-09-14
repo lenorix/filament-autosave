@@ -17,6 +17,16 @@ return [
     // from the database while preserving local edits. Requires dirty_only.
     'refresh_unchanged_fields' => true,
 
+    // Generic forms may require an explicit owner/record/action context to
+    // prevent two instances of the same component sharing a draft.
+    'require_form_context' => false,
+
+    // Maximum number of nested relationship components captured by Undo.
+    'relationship_undo_depth' => 8,
+
+    // External storage adapters may opt a field into reversible Undo.
+    'external_undo_adapters' => [],
+
     // Password inputs are always excluded.
     'except' => [
         'current_password',

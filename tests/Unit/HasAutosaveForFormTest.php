@@ -107,6 +107,29 @@ test('form contexts keep drafts isolated', function () {
     expect($second->autosaveHasDraft)->toBeFalse();
 });
 
+test('strict generic context mode rejects the fallback context', function () {
+    config(['filament-autosave.require_form_context' => true]);
+
+    $component = new class
+    {
+        use HasAutosaveForForm;
+
+        public FakeFormState $form;
+
+        public function __construct()
+        {
+            $this->form = new FakeFormState(['title' => 'Draft']);
+        }
+
+        public function dispatch(string $event, ...$params): void {}
+    };
+
+    $component->mountHasAutosaveForForm();
+
+    expect(fn () => $component->autosave())
+        ->toThrow(\LogicException::class, 'requires an explicit context');
+});
+
 test('the plugin identifies generic autosave form components', function () {
     $component = makeStandaloneAutosaveForm();
     $mode = (fn ($class) => $this->detectMode($class))->call(

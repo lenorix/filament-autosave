@@ -991,6 +991,12 @@ trait HasAutosaveBase
                 $snapshotPath = count($fields) === 1
                     ? $path
                     : ($this->autosaveRelativeFieldPath($field) ?? $path.'.'.$index);
+
+                if ($this->autosaveRelationshipUndoDepth($snapshotPath)
+                    > max(1, (int) config('filament-autosave.relationship_undo_depth', 8))) {
+                    continue;
+                }
+
                 $captured = $this->captureAutosaveRelationshipUndoField($field);
 
                 if ($captured !== null) {
@@ -1000,6 +1006,12 @@ trait HasAutosaveBase
         }
 
         return $snapshot;
+    }
+
+    /** Count nested state segments to bound recursive relationship snapshots. */
+    protected function autosaveRelationshipUndoDepth(string $path): int
+    {
+        return max(1, count(array_filter(explode('.', trim($path, '.')), static fn (string $segment): bool => $segment !== '*')));
     }
 
     /** @return array<string, mixed>|null */

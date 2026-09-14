@@ -12,6 +12,7 @@ class AutosaveServiceProvider extends PackageServiceProvider
     public function packageRegistered(): void
     {
         $this->app->singleton(AutosaveStore::class);
+        $this->app->singleton(AutosaveExternalUndoManager::class);
     }
 
     public function configurePackage(Package $package): void

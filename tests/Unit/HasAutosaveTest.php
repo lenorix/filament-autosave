@@ -31,6 +31,19 @@ test('clean-field refresh is enabled by default', function () {
     expect(config('filament-autosave.refresh_unchanged_fields'))->toBeTrue();
 });
 
+test('relationship undo depth ignores wildcard row indexes', function () {
+    $component = new class
+    {
+        use HasAutosaveBase;
+
+        public function dispatch(string $event, ...$params): void {}
+    };
+
+    expect((fn (string $path): int => $this->autosaveRelationshipUndoDepth($path))
+        ->call($component, 'settings.items.*.subitems.*.category_id'))
+        ->toBe(4);
+});
+
 test('undo snapshots and restores morphTo foreign keys', function () {
     $parent = Mockery::mock(Model::class);
     $parent->shouldReceive('getAttribute')->with('featured_type')->andReturn('category');

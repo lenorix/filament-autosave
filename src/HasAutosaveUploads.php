@@ -82,6 +82,9 @@ trait HasAutosaveUploads
     /** @var array<string, array<int, array<string, mixed>>> */
     protected array $autosaveExternalMediaAfter = [];
 
+    /** @var array<string, array<string, mixed>> */
+    protected array $autosaveExternalUndoBaseline = [];
+
     /** @var array<string, string> */
     protected array $autosaveExternalMediaBackups = [];
 
@@ -114,6 +117,9 @@ trait HasAutosaveUploads
 
         $this->autosaveExternalMediaBaseline = $this->captureAutosaveExternalMedia();
         $this->autosaveRichEditorAttachmentBaseline = $this->captureAutosaveRichEditorAttachments();
+        $this->autosaveExternalUndoBaseline = $this->autosaveExternalUndoManager()->snapshot(
+            $this->autosaveExternalUndoFields(),
+        );
         $this->autosaveExternalMediaBaselineCaptured = true;
         $this->backupAutosaveExternalMedia($this->autosaveExternalMediaBaseline);
     }
@@ -213,6 +219,78 @@ trait HasAutosaveUploads
         }
 
         return null;
+    }
+
+    protected function autosaveExternalUndoManager(): AutosaveExternalUndoManager
+    {
+        return app(AutosaveExternalUndoManager::class);
+    }
+
+    /** @return array<string, object> */
+    protected function autosaveExternalUndoFields(array $uploads = [], array $relationships = []): array
+    {
+        $fields = [];
+
+        foreach ($uploads as $path => $field) {
+            if (is_object($field)) {
+                $fields[(string) $path] = $field;
+            }
+        }
+
+        foreach ($relationships as $path => $fieldSet) {
+            foreach ($fieldSet as $field) {
+                if (! is_object($field)) {
+                    continue;
+                }
+
+                if (! $field instanceof BaseFileUpload
+                    && ! $field instanceof RichEditor
+                    && $this->autosaveExternalUndoManager()->adapterFor($field) === null) {
+                    continue;
+                }
+
+                $fieldPath = method_exists($this, 'autosaveRelativeFieldPath')
+                    ? ($this->autosaveRelativeFieldPath($field) ?? $path)
+                    : $path;
+                $fields[$fieldPath] = $field;
+            }
+        }
+
+        return $fields;
+    }
+
+    /** @param array<string, object> $fields */
+    protected function autosaveExternalUndoSnapshots(array $fields): array
+    {
+        $snapshots = [];
+
+        foreach ($fields as $path => $field) {
+            if (isset($this->autosaveExternalUndoBaseline[$path])) {
+                $snapshots[$path] = $this->autosaveExternalUndoBaseline[$path];
+            }
+        }
+
+        return $snapshots !== [] ? $snapshots : $this->autosaveExternalUndoManager()->snapshot($fields);
+    }
+
+    /** @param array<string, object> $fields */
+    protected function autosaveExternalUndoHasUnsupported(array $fields): bool
+    {
+        return $fields !== [] && $this->autosaveExternalUndoManager()->hasUnsupported($fields);
+    }
+
+    /** @param array<string, array<string, mixed>> $snapshots @param array<string, object> $fields */
+    protected function autosaveExternalUndoMatches(array $snapshots, array $fields): bool
+    {
+        return $snapshots === [] || $this->autosaveExternalUndoManager()->matches($snapshots, $fields);
+    }
+
+    /** @param array<string, array<string, mixed>> $snapshots @param array<string, object> $fields */
+    protected function restoreAutosaveExternalUndo(array $snapshots, array $fields): void
+    {
+        if ($snapshots !== []) {
+            $this->autosaveExternalUndoManager()->restore($snapshots, $fields);
+        }
     }
 
     /** @return array<string, mixed> */

@@ -3,6 +3,7 @@
 namespace Lenorix\FilamentAutosave;
 
 use Filament\Forms\Components\RichEditor;
+use Filament\Forms\Components\BaseFileUpload;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
 use Illuminate\Database\Eloquent\Model;
@@ -82,6 +83,7 @@ trait HasAutosaveForForm
 
     public function autosave(): void
     {
+        $this->assertAutosaveFormContext();
         $this->performAutosave(fn (array $data): bool|array => $this->persistAutosaveForm($data));
     }
 
@@ -290,11 +292,14 @@ trait HasAutosaveForForm
             : $data;
         $previous = method_exists($record, 'only') ? $record->only(array_keys($columns)) : [];
         $relationshipUndo = $this->captureAutosaveFormRelationshipUndo($data);
+        $externalFields = $this->autosaveExternalUndoFields($uploads, $this->autosaveFormRelationshipFields());
+        $externalUndo = $this->autosaveExternalUndoSnapshots($externalFields);
 
         $this->clearAutosaveFormUndo();
         $this->autosaveCanUndo = false;
         $this->putAutosaveFormUndo('values', AutosaveStore::normalizeScalars($previous));
         $this->putAutosaveFormUndo('relationships', $relationshipUndo);
+        $this->putAutosaveFormUndo('external', $externalUndo);
 
         if (method_exists($this, 'handleRecordUpdate')) {
             $this->handleRecordUpdate($record, $columns);
@@ -317,9 +322,9 @@ trait HasAutosaveForForm
         $this->putAutosaveFormUndo('expected-relationships', $this->captureAutosaveRelationshipUndoFields(
             $this->autosaveFormRelationshipFields(),
         ));
+        $this->putAutosaveFormUndo('expected-external', $this->autosaveExternalUndoManager()->snapshot($externalFields));
         $this->acknowledgeAutosaveUploads($uploads, $data);
-        $this->autosaveCanUndo = $uploads === []
-            && ! $this->autosaveRelationshipUploadsChanged()
+        $this->autosaveCanUndo = ! $this->autosaveExternalUndoHasUnsupported($externalFields)
             && ($previous !== [] || $relationshipUndo !== []);
         $this->clearAutosaveDraft();
 
@@ -407,6 +412,7 @@ trait HasAutosaveForForm
     public function undoAutosave(): void
     {
         try {
+            $this->assertAutosaveFormContext();
             $this->authorizeAutosaveAccess();
 
             // Upload and external-media writes are deliberately outside the
@@ -420,8 +426,10 @@ trait HasAutosaveForForm
 
             $snapshot = $this->autosaveFormUndo('values');
             $relationshipSnapshot = $this->autosaveFormUndo('relationships');
+            $externalSnapshot = $this->autosaveFormUndo('external');
             $expected = $this->autosaveFormUndo('expected');
             $expectedRelationships = $this->autosaveFormUndo('expected-relationships');
+            $expectedExternal = $this->autosaveFormUndo('expected-external');
             $record = $this->getAutosaveFormRecord();
 
             if ($record === null
@@ -442,6 +450,15 @@ trait HasAutosaveForForm
                 return;
             }
 
+            $externalFields = $this->autosaveExternalUndoFields([], $this->autosaveFormRelationshipFields());
+
+            if (! $this->autosaveExternalUndoMatches($expectedExternal ?? [], $externalFields)) {
+                $this->resetAutosaveFormUndo();
+                $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Conflict->value);
+
+                return;
+            }
+
             $this->autosaveFormWithinTransaction(function () use ($record, $snapshot, $relationshipSnapshot): void {
                 $this->callAutosaveHook('beforeValidate');
                 $this->callAutosaveHook('afterValidate');
@@ -453,6 +470,10 @@ trait HasAutosaveForForm
 
                 if ($relationshipSnapshot !== []) {
                     $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
+                }
+
+                if ($externalSnapshot !== []) {
+                    $this->restoreAutosaveExternalUndo($externalSnapshot, $externalFields);
                 }
 
                 $this->callAutosaveHook('afterSave');
@@ -509,6 +530,8 @@ trait HasAutosaveForForm
         Cache::forget($this->getAutosaveFormUndoKey('relationships'));
         Cache::forget($this->getAutosaveFormUndoKey('expected'));
         Cache::forget($this->getAutosaveFormUndoKey('expected-relationships'));
+        Cache::forget($this->getAutosaveFormUndoKey('external'));
+        Cache::forget($this->getAutosaveFormUndoKey('expected-external'));
     }
 
     /** Wipe the generic Undo target; the underlying state can no longer be restored. */
@@ -690,6 +713,25 @@ trait HasAutosaveForForm
         }
 
         return implode('|', $context);
+    }
+
+    /**
+     * Require callers to disambiguate reusable generic form instances when
+     * the application opts into strict context isolation.
+     */
+    protected function assertAutosaveFormContext(): void
+    {
+        if (! (bool) config('filament-autosave.require_form_context', false)) {
+            return;
+        }
+
+        $context = $this->getAutosaveFormContext();
+
+        if ($context === 'default' || $context === '') {
+            throw new \LogicException(
+                'HasAutosaveForForm requires an explicit context. Override getAutosaveFormContext() with a stable owner, record, or action identifier.',
+            );
+        }
     }
 
     /** @param array<string, mixed> $data */
