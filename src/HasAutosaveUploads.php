@@ -5,6 +5,7 @@ namespace Lenorix\FilamentAutosave;
 use Filament\Forms\Components\BaseFileUpload;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Attributes\Locked;
@@ -18,12 +19,15 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  * autosave lifecycle and supplies the methods used here, such as
  * `getAutosaveFields()` and `prepareAutosavePayload()`.
  *
- * Supported components are column-backed `FileUpload` fields and top-level
- * `SpatieMediaLibraryFileUpload` fields. The trait tracks upload state by hash,
- * validates changed uploads, and leaves unchanged upload fields alone. Uploads
- * in nested Spatie fields and nested relationship components remain explicit-save
- * concerns. Upload operations also do not participate in column Undo because
- * filesystem changes cannot be rolled back by a database transaction.
+ * Supported components are column-backed `FileUpload` fields, top-level
+ * `SpatieMediaLibraryFileUpload` fields, and both kinds inside a relationship
+ * `Repeater` row that is being written in the same cycle. The trait
+ * tracks upload state by hash, validates changed uploads, and leaves unchanged
+ * upload fields alone. Media in a non-relationship container (a JSON repeater,
+ * for example) remains an explicit-save concern because every row would share
+ * one media collection. Upload operations also do not participate in column
+ * Undo because filesystem changes cannot be rolled back by a database
+ * transaction.
  *
  * @internal
  */
@@ -389,6 +393,8 @@ trait HasAutosaveUploads
         foreach ($this->autosaveUploadFields() as $path => $field) {
             $top = AutosaveFieldTree::topLevelKey($path);
             $media = $field instanceof SpatieMediaLibraryFileUpload;
+            $nested = str_contains($path, '.');
+            $related = $nested && $this->autosaveUploadInRelationship($path);
 
             if ($this->autosavePathExcluded($path)) {
                 continue;
@@ -398,8 +404,14 @@ trait HasAutosaveUploads
                 continue;
             }
 
-            // Relationships inside repeaters need their own record lifecycle.
-            if (($media && str_contains($path, '.')) || $field->isDisabled() || $field->isHidden()
+            // Media in a row that does not exist yet is attached by the
+            // relationship component once it has created the row.
+            if ($media && $related && ! $this->autosaveUploadRecordExists($field)) {
+                continue;
+            }
+
+            // Media outside a pending relationship has no record lifecycle of its own.
+            if (($media && $nested && ! $related) || $field->isDisabled() || $field->isHidden()
                 || ! $field->shouldStoreFiles() || (! $media && ! $field->isDehydrated())
                 || (method_exists($field, 'isSaved') && ! $field->isSaved())) {
                 $this->autosaveBlockedUploadColumns[$top] = true;
@@ -438,7 +450,9 @@ trait HasAutosaveUploads
         foreach ($this->autosavePendingUploads as $path => $field) {
             $top = AutosaveFieldTree::topLevelKey($path);
 
-            if (! array_key_exists($top, $safe)) {
+            // Relationship state is not a column; Filament's form validation
+            // decides whether the owning relationship is written at all.
+            if (! array_key_exists($top, $safe) && ! $this->autosaveUploadInRelationship($path)) {
                 $this->autosaveBlockedUploadColumns[$top] = true;
             }
 
@@ -461,6 +475,15 @@ trait HasAutosaveUploads
                 continue;
             }
 
+            // Once validation has dropped the owning relationship, storing the
+            // file would re-create a partial row state that the relationship
+            // component would then treat as the complete set of rows.
+            $owner = $this->autosaveUploadRelationshipOwner($path);
+
+            if ($owner !== null && ! data_has($data, $owner)) {
+                continue;
+            }
+
             $before = $this->autosaveUploadStatePaths($field->getRawState());
             $field->saveUploadedFiles();
             $after = $this->autosaveUploadStatePaths($field->getRawState());
@@ -473,7 +496,10 @@ trait HasAutosaveUploads
             if ($newPaths !== []) {
                 $storedState = $field->getRawState();
 
-                if (is_array($storedState)) {
+                // A relationship row is dehydrated by its own schema, which
+                // applies the component's cast; only column payloads need the
+                // scalar/list form here.
+                if (is_array($storedState) && ! $this->autosaveUploadInRelationship($path)) {
                     $storedState = array_values($storedState);
                     $storedState = $field->isMultiple()
                         ? $this->mergeAutosaveUploadedPaths($field, $path, $storedState)
@@ -562,7 +588,12 @@ trait HasAutosaveUploads
                 unset($uploads[$path]);
             }
 
-            unset($data[$path]);
+            // Media inside a relationship row stays in that row's state: the
+            // relationship component later pushes this state back into the
+            // form, and a missing key would read as "remove every file".
+            if (! $this->autosaveUploadInRelationship($path)) {
+                unset($data[$path]);
+            }
         }
 
         return $uploads;
@@ -587,7 +618,51 @@ trait HasAutosaveUploads
     protected function autosaveUploadCanPersist(BaseFileUpload $field, string $path, array $data): bool
     {
         return $field instanceof SpatieMediaLibraryFileUpload
-            || array_key_exists(AutosaveFieldTree::topLevelKey($path), $data);
+            || array_key_exists(AutosaveFieldTree::topLevelKey($path), $data)
+            || $this->autosaveUploadInRelationship($path);
+    }
+
+    /**
+     * Relationship patterns whose components are persisted in this cycle.
+     * Uploads nested under one of them are owned by the related record.
+     *
+     * @return array<int, string>
+     */
+    protected function autosaveUploadRelationshipPatterns(): array
+    {
+        return [];
+    }
+
+    /** Whether a nested upload path sits inside a relationship being persisted. */
+    protected function autosaveUploadInRelationship(string $path): bool
+    {
+        return $this->autosaveUploadRelationshipOwner($path) !== null;
+    }
+
+    /** Concrete path of the closest relationship component that owns a nested upload. */
+    protected function autosaveUploadRelationshipOwner(string $path): ?string
+    {
+        $segments = explode('.', $path);
+        $patterns = $this->autosaveUploadRelationshipPatterns();
+        usort($patterns, fn (string $a, string $b): int => substr_count($b, '.') <=> substr_count($a, '.'));
+
+        foreach ($patterns as $pattern) {
+            $depth = substr_count($pattern, '.') + 1;
+            $owner = implode('.', array_slice($segments, 0, $depth));
+
+            if ($depth < count($segments) && AutosaveFieldTree::matches($owner, $pattern)) {
+                return $owner;
+            }
+        }
+
+        return null;
+    }
+
+    protected function autosaveUploadRecordExists(BaseFileUpload $field): bool
+    {
+        $record = $field->getRecord();
+
+        return $record instanceof Model && $record->exists;
     }
 
     /** Persist media-library uploads through their relationship callback. */
@@ -743,7 +818,7 @@ trait HasAutosaveUploads
         );
         foreach ($this->autosavePendingUploads as $path => $field) {
             if ($field instanceof SpatieMediaLibraryFileUpload) {
-                $data[$path] = $field->getRawState() ?? [];
+                data_set($data, $path, $field->getRawState() ?? []);
             }
         }
 

@@ -8,6 +8,9 @@
 - Detect server-side form changes and defer autosave during active uploads.
 - Autosave validated column-backed file uploads and top-level Spatie Media Library
   additions, removals and ordering. Only changed upload fields are processed.
+- Autosave `FileUpload` and `SpatieMediaLibraryFileUpload` fields inside
+  relationship `Repeater` rows on Edit pages together with the relationship write;
+  a row failing validation skips the whole relationship and stores no file.
 - Disable column-only Undo for autosaves involving file operations.
 - Run Filament Edit lifecycle hooks, events, and saved notifications for
   autosaves.

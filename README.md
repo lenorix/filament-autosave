@@ -133,6 +133,8 @@ applied, while fields marked `dehydrated(false)` are left out.
 | Relationship field with a top-level `saveRelationships()` callback | Yes, when changed |
 | `FileUpload` backed by a column, including nested fields | Yes, after upload validation |
 | Top-level `SpatieMediaLibraryFileUpload` | Yes, changed collections only |
+| `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row (Edit pages) | Yes, with the row's relationship write |
+| `SpatieMediaLibraryFileUpload` inside a JSON (non-relationship) repeater | No |
 | Relationships inside groups, repeaters, and builders | Yes, when the relationship changes |
 | Other `dehydrated(false)` fields | No |
 
@@ -297,6 +299,15 @@ detects server-side actions such as removing a row or reordering files.
 removals, and ordering. Unchanged collections are not synchronised. Install
 Filament's Spatie plugin in the host application to use it; the plugin is only a
 development dependency of this package.
+
+On Edit pages, upload fields inside a `Repeater` bound to a relationship are
+persisted together with that relationship. Media in an existing row is attached
+to the row's own record; media in a new row is attached once the relationship
+component has created the row. If any field in the repeater fails validation,
+the whole relationship write is skipped and no file is stored. Media inside a
+repeater stored in a JSON column is not autosaved, because every row would
+share the parent record's media collection. `HasAutosaveForForm` keeps nested
+media as an explicit-save concern.
 
 Autosaves involving files do not provide Undo. If a later validation, hook,
 relationship, or database write fails, the package cleans up new paths and

@@ -1,14 +1,17 @@
 <?php
 
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostResource;
 use Livewire\Livewire;
 use Spatie\MediaLibrary\HasMedia;
@@ -339,4 +342,138 @@ test('media callbacks receive the state accepted by the before hook', function (
         ->set('data.gallery', [UploadedFile::fake()->create('discarded.txt', 1)])
         ->call('autosave');
     expect($post->fresh()->getMedia())->toHaveCount(0);
+});
+
+class MediaPostItem extends PostItem implements HasMedia
+{
+    use InteractsWithMedia;
+
+    protected $table = 'post_items';
+
+    protected $fillable = ['post_id', 'label', 'position', 'attachment'];
+}
+
+class MediaItemsPost extends UploadPost
+{
+    public function items(): HasMany
+    {
+        return $this->hasMany(MediaPostItem::class, 'post_id');
+    }
+}
+
+class MediaItemsPostResource extends UploadPostResource
+{
+    protected static ?string $model = MediaItemsPost::class;
+
+    public static function form(Schema $schema): Schema
+    {
+        return $schema->components([
+            TextInput::make('title')->required(),
+            Repeater::make('items')
+                ->relationship('items')
+                ->schema([
+                    TextInput::make('label')->required(),
+                    FileUpload::make('attachment')->disk('public')->maxSize(10),
+                    SpatieMediaLibraryFileUpload::make('images')->multiple()->reorderable()->disk('public')->maxSize(10),
+                ]),
+        ]);
+    }
+}
+
+class EditMediaItemsPost extends EditUploadPost
+{
+    protected static string $resource = MediaItemsPostResource::class;
+}
+
+test('media nested in a relationship repeater row persists for an existing row', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $page = Livewire::test(EditMediaItemsPost::class, ['record' => $post->getKey()]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.images", [UploadedFile::fake()->create('row.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', false);
+
+    expect($item->fresh()->getMedia())->toHaveCount(1)
+        ->and($post->fresh()->getMedia())->toHaveCount(0);
+
+    $page->call('autosave');
+    expect($item->fresh()->getMedia())->toHaveCount(1);
+});
+
+test('media nested in a new relationship repeater row persists when the row is created', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $page = Livewire::test(EditMediaItemsPost::class, ['record' => $post->getKey()]);
+    $page->set('data.items', ['new-row' => ['label' => 'New', 'images' => []]])
+        ->set('data.items.new-row.images', [UploadedFile::fake()->create('new.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', false);
+
+    $item = $post->fresh()->items()->first();
+    expect($item)->not->toBeNull()
+        ->and($item->getMedia())->toHaveCount(1);
+
+    $page->call('autosave');
+    expect($item->fresh()->getMedia())->toHaveCount(1)
+        ->and($post->fresh()->items()->count())->toBe(1);
+});
+
+test('a row failing validation keeps sibling rows and never stores its nested upload', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $other = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Other', 'position' => 2]);
+    $page = Livewire::test(EditMediaItemsPost::class, ['record' => $post->getKey()]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.label", '')
+        ->set("data.items.{$key}.attachment", [UploadedFile::fake()->create('doc.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'validation');
+
+    expect($post->fresh()->items()->pluck('id')->all())->toBe([$item->getKey(), $other->getKey()])
+        ->and($item->fresh()->attachment)->toBeNull()
+        ->and(Storage::disk('public')->allFiles())->toBe([]);
+});
+
+test('nested media reorder and removal persist for an existing row', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $first = $item->addMediaFromString('first')->usingFileName('first.txt')->toMediaCollection('default', 'public');
+    $second = $item->addMediaFromString('second')->usingFileName('second.txt')->toMediaCollection('default', 'public');
+    $page = Livewire::test(EditMediaItemsPost::class, ['record' => $post->getKey()]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.images", [$second->uuid => $second->uuid, $first->uuid => $first->uuid])->call('autosave');
+    expect($item->fresh()->getMedia()->pluck('uuid')->all())->toBe([$second->uuid, $first->uuid]);
+
+    $page->set("data.items.{$key}.images", [$second->uuid => $second->uuid])->call('autosave');
+    expect($item->fresh()->getMedia()->pluck('uuid')->all())->toBe([$second->uuid]);
+});
+
+test('an invalid nested media upload leaves the row media and other rows untouched', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $item->addMediaFromString('kept')->usingFileName('kept.txt')->toMediaCollection('default', 'public');
+    $page = Livewire::test(EditMediaItemsPost::class, ['record' => $post->getKey()]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.images", [UploadedFile::fake()->create('big.txt', 50)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'validation');
+
+    expect($item->fresh()->getMedia()->pluck('file_name')->all())->toBe(['kept.txt']);
+});
+
+test('a column upload nested in a relationship repeater row is stored', function () {
+    $post = MediaItemsPost::create(['title' => 'Original']);
+    $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
+    $page = Livewire::test(EditMediaItemsPost::class, ['record' => $post->getKey()]);
+    $key = array_key_first($page->get('data.items'));
+
+    $page->set("data.items.{$key}.attachment", [UploadedFile::fake()->create('doc.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', false);
+
+    $stored = $item->fresh()->attachment;
+    expect($stored)->toBeString()
+        ->and(Storage::disk('public')->exists($stored))->toBeTrue();
 });

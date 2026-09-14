@@ -59,6 +59,7 @@ abstract class IntegrationTestCase extends TestCase
             $table->foreignId('category_id')->nullable();
             $table->string('label');
             $table->unsignedInteger('position')->nullable();
+            $table->string('attachment')->nullable();
         });
 
         Schema::create('post_sub_items', function ($table) {

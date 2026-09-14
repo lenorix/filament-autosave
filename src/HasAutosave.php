@@ -288,8 +288,17 @@ trait HasAutosave
 
     protected function prepareAutosavePersistence(): void
     {
-        $this->prepareAutosaveUploadsPersistence();
+        // Uploads nested in a relationship row are only actionable when that
+        // relationship is being written, so resolve relationships first.
+        $this->autosaveFieldsCache = null;
         $this->prepareAutosaveRelationshipPersistence();
+        $this->prepareAutosaveUploadsPersistence();
+    }
+
+    /** @return array<int, string> */
+    protected function autosaveUploadRelationshipPatterns(): array
+    {
+        return array_keys($this->autosavePendingRelationships);
     }
 
     /** @return array<string, mixed> */
@@ -980,7 +989,10 @@ trait HasAutosave
         return $this->normalizeUndoSnapshot($rows);
     }
 
-    /** RichEditor providers can delete or create files outside the DB transaction. */
+    /**
+     * RichEditor providers and uploads inside relationship rows can delete or
+     * create files outside the DB transaction.
+     */
     protected function autosaveRelationshipsHaveFilePersistence(array $relationships): bool
     {
         foreach ($relationships as $fields) {
@@ -989,6 +1001,13 @@ trait HasAutosave
                     && (! method_exists($field, 'getFileAttachmentProvider') || $field->getFileAttachmentProvider() !== null)) {
                     return true;
                 }
+            }
+        }
+
+        foreach ($this->autosaveUploadFields() as $path => $field) {
+            if ($this->autosaveUploadInRelationship($path)
+                && ($this->autosaveUploadHashes[$path] ?? null) !== $this->autosaveUploadHash($field)) {
+                return true;
             }
         }
 
