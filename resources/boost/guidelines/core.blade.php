@@ -84,6 +84,18 @@ Hooks:
 - `afterAutosave(object $record): void` (edit pages)
 - `clearAutosaveDraft()` (create/custom pages)
 
+## Explicit saves
+
+`autosave()` is the background entry point: it never throws and reports
+failures through the indicator. For explicit actions (a "Round prices" button,
+an "Add from catalogue" modal) call `flushAutosave(): bool` instead. It runs
+the same dirty-only cycle synchronously, throws `ValidationException` keyed by
+state path (`data.title`) before writing anything, propagates exceptions from
+`beforeAutosave()`, custom rules, hooks and persistence, lets Filament's
+`Halt` through, and returns whether anything was written. Calling it from
+inside a running cycle (for example from `afterAutosave()`) throws
+`LogicException`. Available on all three traits.
+
 Declared Filament field rules, including length and numeric limits, are applied
 per field; a failing field is skipped while unrelated fields can still save.
 The indicator lists skipped fields and their validation messages, including the
@@ -107,7 +119,13 @@ components are separate components. Use `HasAutosaveForForm` with a
 context-specific draft key and include the indicator in their views.
 Column-backed `FileUpload` fields support add/remove/reorder. Top-level
 `SpatieMediaLibraryFileUpload` fields support add/remove/reorder when the
-Filament Spatie plugin is installed. Create drafts never store uploads/media.
+Filament Spatie plugin is installed. Both kinds are also persisted inside a
+`Repeater->relationship()` row, on Edit pages and record-backed generic forms:
+media in an existing row attaches to the row's record, media in a new row is
+attached by the repeater once it creates the row, and a row failing validation
+skips the whole relationship without storing any file. Media inside a JSON
+(non-relationship) repeater is not autosaved because rows would share one
+collection. Create drafts never store uploads/media.
 
 Password fields, `except` fields, temporary uploads, and undeclared client keys
 are excluded. Nested groups/repeaters are one top-level value; an incomplete
@@ -128,7 +146,8 @@ not polling, so later changes wait for another request. Set `dirty_only` to
 `false` only when the full eligible payload is required.
 
 When changing this behavior, test two edit instances changing different columns
-with `dirty_only` enabled, plus upload add/remove/reorder cases.
+with `dirty_only` enabled, plus upload add/remove/reorder cases, including
+uploads nested in relationship repeater rows.
 
 ## Verify
 
