@@ -217,6 +217,9 @@ trait HasAutosaveForForm
 
         if ($record instanceof Model && $record->exists) {
             $data = $this->storeAutosavePendingUploads($data);
+            // Filament order: beforeSave runs before the mutator, with the
+            // complete state still available on the component.
+            $this->callAutosaveHook('beforeSave');
         }
 
         // Filament applies this mutator immediately before persistence. Keep
@@ -232,6 +235,7 @@ trait HasAutosaveForForm
         if ($record instanceof Model && $record->exists) {
             $payload = $this->keepAutosaveUploadRelationshipOwners($payload, $prepared);
             $this->filterAutosavePendingUploadsForPayload($payload);
+            $this->markAutosavePendingFields(array_keys($this->autosaveBlockedUploadColumns));
         }
 
         if ($payload === []) {
@@ -292,8 +296,6 @@ trait HasAutosaveForForm
         $this->autosaveCanUndo = false;
         $this->putAutosaveFormUndo('values', AutosaveStore::normalizeScalars($previous));
         $this->putAutosaveFormUndo('relationships', $relationshipUndo);
-
-        $this->callAutosaveHook('beforeSave');
 
         if (method_exists($this, 'handleRecordUpdate')) {
             $this->handleRecordUpdate($record, $columns);

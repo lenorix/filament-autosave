@@ -536,9 +536,12 @@ trait HasAutosave
 
             $relationships = $this->resolvePendingAutosaveRelationships($data);
 
+            $eligible = $data;
             $data = array_diff_key($this->dropIncompleteAutosaveContainers(
                 $this->dropBlankRequiredAutosaveFields($data)
             ), $this->autosaveBlockedUploadColumns);
+            $this->markAutosavePendingFields(array_keys(array_diff_key($eligible, $data)));
+            $this->markAutosavePendingFields(array_keys($this->autosaveBlockedUploadColumns));
 
             $uploads = $this->filterPersistableAutosaveUploads($uploads, $data);
 

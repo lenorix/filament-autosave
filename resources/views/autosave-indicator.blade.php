@@ -46,18 +46,26 @@
     </template>
 
     <template x-if="status === statuses.saved">
-        <x-filament::badge color="success" icon="heroicon-m-check-circle">
-            @if ($showTimestamp)
-                <span x-text="@js(__('filament-autosave::autosave.saved_at') . ' ') + timestamp"></span>
-            @else
-                {{ __('filament-autosave::autosave.saved') }}
-            @endif
-            @if ($mode === 'edit')
-                <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo">
-                    {{ __('filament-autosave::autosave.undo') }}
-                </x-filament::link>
-            @endif
-        </x-filament::badge>
+        <div class="flex flex-col gap-1">
+            <x-filament::badge color="success" icon="heroicon-m-check-circle">
+                @if ($showTimestamp)
+                    <span x-text="@js(__('filament-autosave::autosave.saved_at') . ' ') + timestamp"></span>
+                @else
+                    {{ __('filament-autosave::autosave.saved') }}
+                @endif
+                @if ($mode === 'edit')
+                    <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo">
+                        {{ __('filament-autosave::autosave.undo') }}
+                    </x-filament::link>
+                @endif
+            </x-filament::badge>
+            <template x-if="pendingFields.length">
+                <p class="text-xs text-gray-600 dark:text-gray-400">
+                    {{ __('filament-autosave::autosave.pending') }}
+                    <span x-text="pendingFields.join(', ')"></span>
+                </p>
+            </template>
+        </div>
     </template>
 
     <template x-if="status === statuses.undone">

@@ -833,6 +833,32 @@ trait HasAutosaveBase
         return AutosaveState::stripUploads($data);
     }
 
+    /** Whether `form()` is defined by the application, not inherited from Filament. */
+    protected function declaresOwnAutosaveForm(): bool
+    {
+        if (! method_exists($this, 'form')) {
+            return false;
+        }
+
+        $declaringClass = (new \ReflectionMethod($this, 'form'))->getDeclaringClass()->getName();
+
+        return ! str_starts_with($declaringClass, 'Filament\\');
+    }
+
+    /**
+     * Record changed fields that this cycle left unsaved for a reason other
+     * than a validation message, so the indicator can list them.
+     *
+     * @param  array<int, string>  $paths
+     */
+    protected function markAutosavePendingFields(array $paths): void
+    {
+        $this->autosavePendingFields = array_values(array_unique([
+            ...$this->autosavePendingFields,
+            ...array_map(strval(...), $paths),
+        ]));
+    }
+
     protected function resolveAutosaveForm(): ?object
     {
         $form = $this->form ?? null;
@@ -856,10 +882,11 @@ trait HasAutosaveBase
 
             // A table or relation manager's generic `form` schema can be a
             // filter schema, and resolving it while no action is mounted can
-            // execute unrelated action definitions. Consumers can override
-            // `resolveAutosaveForm()` when they intentionally autosave that
-            // separate schema.
-            return null;
+            // execute unrelated action definitions. Only fall through when the
+            // component itself declares `form()`, which signals a real form.
+            if (! $this->declaresOwnAutosaveForm()) {
+                return null;
+            }
         }
 
         // Relation managers and table components without mounted actions may
