@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
@@ -1142,10 +1143,11 @@ trait HasAutosaveBase
         // Restore the complete related set explicitly: delete rows
         // introduced by the autosave, update rows that survived, and
         // recreate rows that the autosave deleted.
-        $this->deleteAutosaveRowsMissingFrom($relation, $original);
+        $existing = $this->autosaveCurrentRelatedRows($relation);
+        $this->deleteAutosaveRowsMissingFrom($existing, $original);
 
         foreach ($original as $attributes) {
-            $this->restoreAutosaveRelatedModel($related, $attributes, $keyName)->save();
+            $this->restoreAutosaveRelatedModel($related, $attributes, $keyName, $existing)->save();
         }
     }
 
@@ -1156,28 +1158,46 @@ trait HasAutosaveBase
         $keyName = $related->getKeyName();
         $original = $this->autosaveRelatedRowsByKey($rows, $keyName);
 
-        $this->deleteAutosaveRowsMissingFrom($relation, $original);
+        $existing = $this->autosaveCurrentRelatedRows($relation);
+        $this->deleteAutosaveRowsMissingFrom($existing, $original);
 
         foreach ($original as $attributes) {
-            $relation->save($this->restoreAutosaveRelatedModel($related, $attributes, $keyName));
+            $relation->save($this->restoreAutosaveRelatedModel($related, $attributes, $keyName, $existing));
         }
     }
 
-    /** @param array<string, mixed> $attributes */
-    protected function restoreAutosaveRelatedModel(object $related, array $attributes, string $keyName): object
+    /**
+     * Fetch every row currently on the relation in one query. Undo reuses it
+     * both to find rows to delete and, keyed by primary key, to update rows
+     * that survived instead of issuing a `whereKey()` lookup per row.
+     */
+    protected function autosaveCurrentRelatedRows(object $relation): Collection
     {
-        $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
+        return $relation->get()->keyBy(
+            fn (object $model): string => (string) $model->getKey(),
+        );
+    }
+
+    /** @param array<string, mixed> $attributes */
+    protected function restoreAutosaveRelatedModel(object $related, array $attributes, string $keyName, ?Collection $existing = null): object
+    {
+        $key = (string) ($attributes[$keyName] ?? '');
+        $model = $existing?->get($key) ?? $related->newQuery()->whereKey($attributes[$keyName])->first()
             ?? $related->newInstance();
 
         return $model->forceFill($attributes);
     }
 
-    /** Delete current rows that were not part of the original snapshot. */
-    protected function deleteAutosaveRowsMissingFrom(object $relation, array $original): void
+    /**
+     * Delete current rows that were not part of the original snapshot.
+     *
+     * @param  array<string, array<string, mixed>>  $original
+     */
+    protected function deleteAutosaveRowsMissingFrom(Collection $current, array $original): void
     {
-        foreach ($relation->get() as $current) {
-            if (! array_key_exists((string) $current->getKey(), $original)) {
-                $current->delete();
+        foreach ($current as $key => $model) {
+            if (! array_key_exists((string) $key, $original)) {
+                $model->delete();
             }
         }
     }

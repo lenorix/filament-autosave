@@ -27,6 +27,9 @@ return [
     // External storage adapters may opt a field into reversible Undo.
     'external_undo_adapters' => [],
 
+    // How long interrupted upload entries stay available to the pruning job.
+    'upload_ledger_ttl' => 180,
+
     // Password inputs are always excluded.
     'except' => [
         'current_password',

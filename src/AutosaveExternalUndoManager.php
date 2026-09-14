@@ -93,6 +93,13 @@ final class AutosaveExternalUndoManager
      */
     public function matches(array $snapshots, array $fields): bool
     {
+        // The captured field set is part of the optimistic concurrency check.
+        // Restoring a subset would leave a newly-added or removed external
+        // field with an unverified state.
+        if (array_diff_key($snapshots, $fields) !== [] || array_diff_key($fields, $snapshots) !== []) {
+            return false;
+        }
+
         foreach ($snapshots as $path => $entry) {
             $field = $fields[$path] ?? null;
             $adapter = $field ? $this->adapterFor($field) : null;

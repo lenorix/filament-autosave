@@ -230,9 +230,11 @@ columns do not block the one-step Undo.
 Undo also runs the relevant Filament save hooks and events and sends the normal
 saved notification. It is limited to the current live page instance.
 
-File operations and RichEditor attachment operations do not offer Undo: a
-database transaction cannot roll back changes already made to filesystem or
-external storage.
+File operations and RichEditor attachment operations keep Undo disabled by
+default because a database transaction cannot roll back filesystem or external
+storage changes. Register a reversible `AutosaveExternalUndoAdapter` when the
+provider can snapshot, compare, and restore its state; if any changed external
+field lacks an adapter, the whole Undo operation remains disabled for safety.
 
 ## Forms outside resource pages
 
@@ -292,9 +294,10 @@ the owner, record, or action so unrelated forms never share a draft.
 
 Record-backed generic forms use the same upload lifecycle as Edit pages, while
 recordless drafts never store permanent files or media. Generic Undo snapshots
-cover model columns and supported relationship state; file, media, and
-RichEditor attachment operations remain outside Undo and should be coordinated
-by the host action when they have additional side effects.
+cover model columns and supported relationship state. File, media, and
+RichEditor attachment operations remain outside Undo unless a reversible
+external adapter is registered; host actions still own any additional side
+effects.
 
 External Undo can be enabled safely for a provider by registering an
 `AutosaveExternalUndoAdapter` in `external_undo_adapters`. The adapter must
@@ -371,6 +374,7 @@ wins, while `except` entries are merged across levels.
 | `require_form_context` | Yes | No | No |
 | `relationship_undo_depth` | Yes | No | No |
 | `external_undo_adapters` | Yes | No | No |
+| `upload_ledger_ttl` (minutes) | Yes | No | No |
 | `show_saved_at` | Yes | Yes | No |
 | `position` | Yes | Yes | No |
 | `exceptPages` | No | Yes | No |

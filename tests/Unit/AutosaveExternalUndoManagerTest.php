@@ -58,3 +58,42 @@ test('unsupported external fields never report as reversible', function () {
         new stdClass,
     ]))->toBeTrue();
 });
+
+test('external undo conflicts when the field set changes', function () {
+    $first = new class
+    {
+        public string $value = 'first';
+    };
+    $second = new class
+    {
+        public string $value = 'second';
+    };
+    $adapter = new class implements AutosaveExternalUndoAdapter
+    {
+        public function supports(object $field): bool
+        {
+            return property_exists($field, 'value');
+        }
+
+        public function snapshot(object $field): array
+        {
+            return ['value' => $field->value];
+        }
+
+        public function matches(object $field, array $snapshot): bool
+        {
+            return $field->value === ($snapshot['value'] ?? null);
+        }
+
+        public function restore(object $field, array $snapshot): void
+        {
+            $field->value = (string) $snapshot['value'];
+        }
+    };
+
+    config(['filament-autosave.external_undo_adapters' => [$adapter]]);
+    $manager = app(AutosaveExternalUndoManager::class);
+    $snapshot = $manager->snapshot(['first' => $first]);
+
+    expect($manager->matches($snapshot, ['first' => $first, 'second' => $second]))->toBeFalse();
+});
