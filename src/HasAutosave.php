@@ -312,7 +312,8 @@ trait HasAutosave
 
                 // `data_set()` does not give a useful representation for a
                 // wildcard pattern. Always write to the concrete row path.
-                if (str_contains($fieldPath, '*')) {
+                // RichEditor content is already present as dehydrated column data.
+                if (str_contains($fieldPath, '*') || $field instanceof RichEditor) {
                     continue;
                 }
 
@@ -633,7 +634,12 @@ trait HasAutosave
                     $field->rawState($state);
                 }
 
-                $this->forgetAutosavePath($data, $fieldPath);
+                // A RichEditor is a column whose callback only manages file
+                // attachments, so its content must stay in the column write.
+                if (! $field instanceof RichEditor) {
+                    $this->forgetAutosavePath($data, $fieldPath);
+                }
+
                 $resolved = true;
             }
 

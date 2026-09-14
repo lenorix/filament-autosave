@@ -114,6 +114,9 @@ Edit autosave uses Filament's dehydrated state and runs
 `beforeStateDehydrated()` callbacks. Fields with `saveRelationships()` callbacks
 (including multi-select relationships, Repeater relationships, nested
 containers, and RichEditor attachments) are saved when their raw state changes.
+A `RichEditor` is always written as a column; its `saveRelationships()`
+callback only manages file attachments and runs in addition, so a plain editor
+without an attachment provider keeps its content and Undo.
 Relation managers, action/modal forms, table forms, and standalone Livewire
 components are separate components. Use `HasAutosaveForForm` with a
 context-specific draft key and include the indicator in their views.

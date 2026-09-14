@@ -15,6 +15,10 @@
 - Add `flushAutosave()`: a synchronous autosave cycle for explicit actions that
   throws a `ValidationException` instead of writing partially and propagates
   hook and persistence exceptions to the caller.
+- Fix `RichEditor` content being dropped from the column write: the field was
+  treated as a relationship, so a plain editor (no attachment provider) lost its
+  text and never offered Undo. Content now stays in the column payload and the
+  attachment callback runs in addition.
 - Disable column-only Undo for autosaves involving file operations.
 - Run Filament Edit lifecycle hooks, events, and saved notifications for
   autosaves.

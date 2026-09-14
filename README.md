@@ -131,6 +131,7 @@ applied, while fields marked `dehydrated(false)` are left out.
 | Regular field backed by a database column | Yes |
 | `Repeater` or `CheckboxList` stored in one column | Yes |
 | Relationship field with a top-level `saveRelationships()` callback | Yes, when changed |
+| `RichEditor`, with or without a file attachment provider | Yes, as a column; attachments cleaned up via its callback |
 | `FileUpload` backed by a column, including nested fields | Yes, after upload validation |
 | Top-level `SpatieMediaLibraryFileUpload` | Yes, changed collections only |
 | `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row | Yes, with the row's relationship write |
