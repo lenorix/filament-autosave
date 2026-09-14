@@ -255,6 +255,11 @@ trait HasAutosaveUploads
                     continue;
                 }
 
+                if ($field instanceof RichEditor
+                    && (! method_exists($field, 'getFileAttachmentProvider') || $field->getFileAttachmentProvider() === null)) {
+                    continue;
+                }
+
                 if (! $field instanceof BaseFileUpload
                     && ! $field instanceof RichEditor
                     && $this->autosaveExternalUndoManager()->adapterFor($field) === null) {

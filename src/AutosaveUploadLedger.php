@@ -40,13 +40,11 @@ final class AutosaveUploadLedger
         $entry = $entries[$token] ?? null;
 
         if (is_array($entry)) {
-            foreach ($entry['files'] ?? [] as $file) {
-                if (is_string($file['disk'] ?? null) && is_string($file['path'] ?? null)) {
-                    try {
-                        Storage::disk($file['disk'])->delete($file['path']);
-                    } catch (\Throwable) {
-                        // Pruning can retry providers that are temporarily offline.
-                    }
+            foreach ($entry['files'] as $file) {
+                try {
+                    Storage::disk($file['disk'])->delete($file['path']);
+                } catch (\Throwable) {
+                    // Pruning can retry providers that are temporarily offline.
                 }
             }
         }
@@ -74,7 +72,7 @@ final class AutosaveUploadLedger
         $removed = 0;
 
         foreach ($this->entries() as $token => $entry) {
-            if (($entry['expires_at'] ?? PHP_INT_MAX) > $now) {
+            if ($entry['expires_at'] > $now) {
                 continue;
             }
 

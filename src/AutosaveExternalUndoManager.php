@@ -47,7 +47,10 @@ final class AutosaveExternalUndoManager
         return null;
     }
 
-    /** @param array<string, object> $fields @return array<string, array<string, mixed>> */
+    /**
+     * @param  array<string, object>  $fields
+     * @return array<string, array{adapter:class-string, state:array<string, mixed>}>
+     */
     public function snapshot(array $fields): array
     {
         $snapshots = [];
@@ -84,7 +87,10 @@ final class AutosaveExternalUndoManager
         return false;
     }
 
-    /** @param array<string, array<string, mixed>> $snapshots @param array<string, object> $fields */
+    /**
+     * @param  array<string, array{adapter:class-string, state:array<string, mixed>}>  $snapshots
+     * @param  array<string, object>  $fields
+     */
     public function matches(array $snapshots, array $fields): bool
     {
         foreach ($snapshots as $path => $entry) {
@@ -95,8 +101,12 @@ final class AutosaveExternalUndoManager
                 return false;
             }
 
+            if ($entry['adapter'] !== $adapter::class) {
+                return false;
+            }
+
             try {
-                if (! $adapter->matches($field, $entry['state'] ?? [])) {
+                if (! $adapter->matches($field, $entry['state'])) {
                     return false;
                 }
             } catch (\Throwable) {
@@ -107,7 +117,10 @@ final class AutosaveExternalUndoManager
         return true;
     }
 
-    /** @param array<string, array<string, mixed>> $snapshots @param array<string, object> $fields */
+    /**
+     * @param  array<string, array{adapter:class-string, state:array<string, mixed>}>  $snapshots
+     * @param  array<string, object>  $fields
+     */
     public function restore(array $snapshots, array $fields): void
     {
         foreach ($snapshots as $path => $entry) {
@@ -118,7 +131,7 @@ final class AutosaveExternalUndoManager
                 throw new \LogicException("No reversible autosave adapter is registered for [{$path}].");
             }
 
-            $adapter->restore($field, is_array($entry['state'] ?? null) ? $entry['state'] : []);
+            $adapter->restore($field, $entry['state']);
         }
     }
 }

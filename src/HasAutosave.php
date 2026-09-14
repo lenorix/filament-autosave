@@ -596,6 +596,7 @@ trait HasAutosave
         $externalUndo = $this->autosaveExternalUndoSnapshots($externalFields);
         $this->storeUndoExternalSnapshot($externalUndo);
         $unsafeExternalUndo = $this->autosaveExternalUndoHasUnsupported($externalFields)
+            || array_diff_key($externalFields, $externalUndo) !== []
             || $this->autosaveRelationshipsHaveFilePersistence($relationships);
         $this->autosaveCanUndo = ! $unsafeExternalUndo && ($columnUndo || $relationUndo || $externalUndo !== []);
 
@@ -784,7 +785,7 @@ trait HasAutosave
             if ($this->undoHasConflict($expected, $expectedRelationships)
                 || ! $this->autosaveExternalUndoMatches(
                     $expectedExternal ?? [],
-                    $this->autosaveExternalUndoFields([], $this->autosaveRelationshipFields()),
+                    $this->autosaveExternalUndoFields(),
                 )) {
                 $this->resetAutosaveUndo();
                 $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Conflict->value);
@@ -811,7 +812,7 @@ trait HasAutosave
                 if (is_array($externalSnapshot) && $externalSnapshot !== []) {
                     $this->restoreAutosaveExternalUndo(
                         $externalSnapshot,
-                        $this->autosaveExternalUndoFields([], $this->autosaveRelationshipFields()),
+                        $this->autosaveExternalUndoFields(),
                     );
                 }
 

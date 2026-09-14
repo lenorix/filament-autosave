@@ -245,6 +245,29 @@ test('undo restores a HasManyThrough graph without nulling its intermediate key'
         ->and($secondSubitem->fresh()->post_item_id)->toBe($secondItem->getKey());
 });
 
+test('autosave and undo restore multiple nested relationship branches', function () {
+    $post = Post::create(['title' => 'Post']);
+    $firstItem = PostItem::create(['post_id' => $post->getKey(), 'label' => 'First', 'position' => 1]);
+    $secondItem = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Second', 'position' => 2]);
+    $firstSubitem = PostSubItem::create(['post_item_id' => $firstItem->getKey(), 'label' => 'First original']);
+    $secondSubitem = PostSubItem::create(['post_item_id' => $secondItem->getKey(), 'label' => 'Second original']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $firstKey = array_key_first($items);
+    $secondKey = array_key_last($items);
+    $firstChildKey = array_key_first($items[$firstKey]['subitems']);
+    $secondChildKey = array_key_first($items[$secondKey]['subitems']);
+
+    $page->set("data.items.{$firstKey}.subitems.{$firstChildKey}.label", 'First changed')
+        ->set("data.items.{$secondKey}.subitems.{$secondChildKey}.label", 'Second changed')
+        ->call('autosave')
+        ->call('undoAutosave');
+
+    expect($firstSubitem->fresh()->label)->toBe('First original')
+        ->and($secondSubitem->fresh()->label)->toBe('Second original');
+});
+
 test('autosave and undo restore a MorphTo selection', function () {
     $category = Category::create(['name' => 'News']);
     $other = Category::create(['name' => 'Guides']);
