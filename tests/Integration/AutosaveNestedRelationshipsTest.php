@@ -282,3 +282,27 @@ test('autosave persists a morphMany repeater and restores it with undo', functio
 
     expect($comment->fresh()->body)->toBe('Original');
 });
+
+class UnsavedAlertEditPost extends RelationshipEditPost
+{
+    protected function hasUnsavedDataChangesAlert(): bool
+    {
+        return true;
+    }
+}
+
+test('a relationship-only autosave re-baselines the native unsaved-changes alert', function () {
+    $post = Post::create(['title' => 'Post']);
+    $first = Author::create(['name' => 'First']);
+    $second = Author::create(['name' => 'Second']);
+    $post->authors()->attach($first);
+
+    $page = Livewire::test(UnsavedAlertEditPost::class, ['record' => $post->getKey()]);
+    $before = $page->get('savedDataHash');
+
+    $page->set('data.authors', [$second->getKey()])->call('autosave');
+
+    $expected = md5((string) str(json_encode($page->get('data'), JSON_UNESCAPED_UNICODE))->replace('\\', ''));
+
+    expect($page->get('savedDataHash'))->toBe($expected)->and($page->get('savedDataHash'))->not->toBe($before);
+});

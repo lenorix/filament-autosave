@@ -7,9 +7,6 @@ use Filament\Forms\Components\RichEditor;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
-use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -359,15 +356,6 @@ trait HasAutosave
     }
 
     /** Return a field's path relative to the form state root. */
-    protected function autosaveRelativeFieldPath(object $field): ?string
-    {
-        if (! method_exists($field, 'getStatePath') || ! filled($fieldPath = $field->getStatePath())) {
-            return null;
-        }
-
-        return AutosaveFieldTree::relativePath((string) $fieldPath, $this->getAutosaveStatePath());
-    }
-
     // Filament calls this after a successful explicit save, not after a Halt.
     protected function rememberData(): void
     {
@@ -711,10 +699,6 @@ trait HasAutosave
     /** @param  array<string, mixed>  $written */
     protected function autosaveWasLossless(array $written): bool
     {
-        if ($this->autosavePendingRelationships !== []) {
-            return false;
-        }
-
         $state = $this->data ?? [];
         $current = $this->prepareAutosavePayload($this->getAutosaveData());
         $covered = $written;
@@ -724,6 +708,7 @@ trait HasAutosave
             }
         }
         $this->includeStableAutosaveUploads($covered);
+        $this->includeWrittenAutosaveRelationships($covered);
 
         foreach (array_keys($this->getAutosaveFields()) as $path) {
             foreach ($this->matchAutosavePaths($state, $path) as $match) {
@@ -741,6 +726,28 @@ trait HasAutosave
         }
 
         return true;
+    }
+
+    /**
+     * Relationships persisted this cycle are as complete as any other written
+     * field, so Filament's unsaved-changes alert can re-baseline over them too.
+     * An unresolved relationship never reaches `$autosavePendingRelationships`
+     * (see `resolvePendingAutosaveRelationships()`), so only what was actually
+     * saved is included here.
+     */
+    protected function includeWrittenAutosaveRelationships(array &$covered): void
+    {
+        foreach ($this->autosavePendingRelationships as $path => $fields) {
+            foreach ($fields as $field) {
+                $fieldPath = $this->autosaveRelativeFieldPath($field) ?? $path;
+
+                if (str_contains($fieldPath, '*')) {
+                    continue;
+                }
+
+                data_set($covered, $fieldPath, $field->getRawState());
+            }
+        }
     }
 
     public function undoAutosave(): void
@@ -908,93 +915,7 @@ trait HasAutosave
      */
     protected function captureAutosaveRelationshipUndo(array $relationships): array
     {
-        $snapshot = [];
-
-        foreach ($relationships as $path => $fields) {
-            foreach ($fields as $index => $field) {
-                $snapshotPath = count($fields) === 1
-                    ? $path
-                    : ($this->autosaveRelativeFieldPath($field) ?? $path.'.'.$index);
-                $captured = $this->captureAutosaveRelationshipUndoField($field);
-
-                if ($captured !== null) {
-                    $snapshot[$snapshotPath] = $captured;
-                }
-            }
-        }
-
-        return $snapshot;
-    }
-
-    /** @return array<string, mixed>|null */
-    protected function captureAutosaveRelationshipUndoField(object $field): ?array
-    {
-        if (! method_exists($field, 'getRelationship')) {
-            return null;
-        }
-
-        $relation = $field->getRelationship();
-
-        return match (true) {
-            $relation instanceof MorphTo => [
-                'type' => 'morphTo',
-                'attributes' => $this->captureMorphToAttributes($relation),
-            ],
-            $relation instanceof BelongsToMany => [
-                'type' => 'belongsToMany',
-                'rows' => $this->captureBelongsToManyRows($relation),
-            ],
-            $relation instanceof HasOneOrManyThrough, $relation instanceof HasOneOrMany => [
-                'type' => $relation instanceof HasOneOrManyThrough ? 'hasOneOrManyThrough' : 'hasOneOrMany',
-                'rows' => $this->captureHasManyRows($relation),
-            ],
-            default => null,
-        };
-    }
-
-    /** @return array<string, mixed> */
-    protected function captureMorphToAttributes(MorphTo $relation): array
-    {
-        $parent = $relation->getParent();
-        $typeKey = $relation->getMorphType();
-        $foreignKey = $relation->getForeignKeyName();
-
-        return $this->normalizeUndoSnapshot([
-            $typeKey => $parent->getAttribute($typeKey),
-            $foreignKey => $parent->getAttribute($foreignKey),
-        ]);
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    protected function captureBelongsToManyRows(BelongsToMany $relation): array
-    {
-        $rows = [];
-
-        foreach ($relation->get() as $related) {
-            $rows[] = [
-                'key' => $related->getKey(),
-                'pivot' => $related->pivot?->getAttributes() ?? [],
-            ];
-        }
-
-        return $this->normalizeUndoSnapshot($rows);
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    protected function captureHasManyRows(HasOneOrMany|HasOneOrManyThrough $relation): array
-    {
-        $rows = $relation->get()->map(function ($related): array {
-            $attributes = $related->getAttributes();
-
-            // HasManyThrough adds a synthetic `laravel_through_key` select
-            // alias. It is useful for hydration, but is not a real column and
-            // must never be written back during Undo.
-            unset($attributes['laravel_through_key']);
-
-            return ['attributes' => $this->normalizeUndoSnapshot($attributes)];
-        })->all();
-
-        return $this->normalizeUndoSnapshot($rows);
+        return $this->captureAutosaveRelationshipUndoFields($relationships);
     }
 
     /**
@@ -1043,161 +964,6 @@ trait HasAutosave
         $this->autosaveUndoPrepared = false;
     }
 
-    /** @param  array<string, array<string, mixed>>  $snapshot */
-    protected function restoreAutosaveRelationshipUndo(array $snapshot): void
-    {
-        $fieldsByPath = $this->autosaveRelationshipFields();
-
-        foreach ($snapshot as $path => $state) {
-            $field = $this->autosaveRelationshipFieldForPath($path, $fieldsByPath);
-
-            if (! $field || ! method_exists($field, 'getRelationship')) {
-                continue;
-            }
-
-            $relation = $field->getRelationship();
-
-            match (true) {
-                $relation instanceof MorphTo => $this->restoreMorphToUndo($relation, $state['attributes'] ?? []),
-                $relation instanceof BelongsToMany => $this->restoreBelongsToManyUndo($relation, $state['rows'] ?? []),
-                $relation instanceof HasOneOrManyThrough => $this->restoreHasManyThroughUndo($relation, $state['rows'] ?? []),
-                $relation instanceof HasOneOrMany => $this->restoreHasManyUndo($relation, $state['rows'] ?? []),
-                default => null,
-            };
-        }
-    }
-
-    /** @param array<string, mixed> $attributes */
-    protected function restoreMorphToUndo(MorphTo $relation, array $attributes): void
-    {
-        if ($attributes !== []) {
-            $relation->getParent()->forceFill($attributes)->save();
-        }
-    }
-
-    /** @param array<int, array<string, mixed>> $rows */
-    protected function restoreBelongsToManyUndo(BelongsToMany $relation, array $rows): void
-    {
-        $ids = [];
-
-        foreach ($rows as $row) {
-            $ids[$row['key']] = $row['pivot'] ?? [];
-        }
-
-        $relation->sync($ids);
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $rows
-     */
-    protected function restoreHasManyThroughUndo(HasOneOrManyThrough $relation, array $rows): void
-    {
-        $related = $relation->getRelated();
-        $keyName = $related->getKeyName();
-        $original = $this->autosaveRelatedRowsByKey($rows, $keyName);
-
-        // A through relation has no save/sync operation of its own.
-        // Restore the complete related set explicitly: delete rows
-        // introduced by the autosave, update rows that survived, and
-        // recreate rows that the autosave deleted.
-        $this->deleteAutosaveRowsMissingFrom($relation, $original);
-
-        foreach ($original as $attributes) {
-            $this->restoreAutosaveRelatedModel($related, $attributes, $keyName)->save();
-        }
-    }
-
-    /** @param array<int, array<string, mixed>> $rows */
-    protected function restoreHasManyUndo(HasOneOrMany $relation, array $rows): void
-    {
-        $related = $relation->getRelated();
-        $keyName = $related->getKeyName();
-        $original = $this->autosaveRelatedRowsByKey($rows, $keyName);
-
-        $this->deleteAutosaveRowsMissingFrom($relation, $original);
-
-        foreach ($original as $attributes) {
-            $relation->save($this->restoreAutosaveRelatedModel($related, $attributes, $keyName));
-        }
-    }
-
-    /** @param array<string, mixed> $attributes */
-    protected function restoreAutosaveRelatedModel(object $related, array $attributes, string $keyName): object
-    {
-        $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
-            ?? $related->newInstance();
-
-        return $model->forceFill($attributes);
-    }
-
-    /** Delete current rows that were not part of the original snapshot. */
-    protected function deleteAutosaveRowsMissingFrom(object $relation, array $original): void
-    {
-        foreach ($relation->get() as $current) {
-            if (! array_key_exists((string) $current->getKey(), $original)) {
-                $current->delete();
-            }
-        }
-    }
-
-    /**
-     * Index snapshot rows by their primary key, skipping rows without one.
-     *
-     * @param  array<int, array<string, mixed>>  $rows
-     * @return array<string, array<string, mixed>>
-     */
-    protected function autosaveRelatedRowsByKey(array $rows, string $keyName): array
-    {
-        $original = [];
-
-        foreach ($rows as $row) {
-            $attributes = $row['attributes'] ?? [];
-            $key = (string) ($attributes[$keyName] ?? '');
-
-            if ($key === '') {
-                continue;
-            }
-
-            $original[$key] = $attributes;
-        }
-
-        return $original;
-    }
-
-    /**
-     * Resolve both new concrete-row snapshots and the legacy normalized key
-     * used for a single relationship component.
-     *
-     * @param  array<string, array<object>>  $fieldsByPath
-     */
-    protected function autosaveRelationshipFieldForPath(string $path, array $fieldsByPath): ?object
-    {
-        if (isset($fieldsByPath[$path][0])) {
-            return $fieldsByPath[$path][0];
-        }
-
-        foreach ($fieldsByPath as $pattern => $fields) {
-            foreach ($fields as $field) {
-                if (($this->autosaveRelativeFieldPath($field) ?? $pattern) === $path) {
-                    return $field;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Turn dates and enums into scalars without losing JSON-cast arrays.
-     *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    protected function normalizeUndoSnapshot(array $data): array
-    {
-        return AutosaveStore::normalizeScalars($data);
-    }
-
     protected function getUndoCacheKey(): string
     {
         return $this->autosaveStore()->undoCacheKey(static::class, $this->getRecord()?->getKey());
@@ -1236,11 +1002,6 @@ trait HasAutosave
 
     /** Hook called after a successful Edit-page save. */
     protected function afterAutosave(object $record): void {}
-
-    protected function runAutosavePersistence(callable $persist, array $data): mixed
-    {
-        return $persist($data);
-    }
 
     protected function runAutosaveCycle(callable $cycle): mixed
     {
@@ -1289,49 +1050,5 @@ trait HasAutosave
     protected function autosaveWithinTransaction(callable $write): void
     {
         $this->autosaveWithinDatabaseTransaction($write);
-    }
-
-    /**
-     * A required field left blank would trip NOT NULL and sink the whole write.
-     *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    protected function dropBlankRequiredAutosaveFields(array $data): array
-    {
-        AutosaveFieldTree::eachMatch(
-            $data,
-            $this->getAutosaveFields(),
-            function (array &$data, array $fields, string $match): void {
-                if ($this->anyAutosaveField($fields, 'isRequired') && blank(data_get($data, $match))) {
-                    $this->forgetAutosavePath($data, $match);
-                }
-            },
-        );
-
-        return $data;
-    }
-
-    /**
-     * A container maps to one column value: a partial write wipes the skipped field.
-     *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    protected function dropIncompleteAutosaveContainers(array $data): array
-    {
-        foreach (array_keys($this->getAutosaveFields()) as $path) {
-            if (! str_contains($path, '.')) {
-                continue;
-            }
-
-            $top = AutosaveFieldTree::topLevelKey($path);
-
-            if (array_key_exists($top, $data) && ! $this->autosavePathIsComplete($data, $path)) {
-                unset($data[$top]);
-            }
-        }
-
-        return $data;
     }
 }

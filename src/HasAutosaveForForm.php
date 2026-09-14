@@ -109,7 +109,7 @@ trait HasAutosaveForForm
 
         foreach ($this->autosaveRelationshipFields() as $path => $fields) {
             foreach ($fields as $field) {
-                $fieldPath = $this->autosaveFormRelativeFieldPath($field) ?? $path;
+                $fieldPath = $this->autosaveRelativeFieldPath($field) ?? $path;
 
                 if (str_contains($fieldPath, '*')) {
                     continue;
@@ -157,7 +157,7 @@ trait HasAutosaveForForm
 
         foreach ($this->autosaveRelationshipFields() as $path => $fields) {
             foreach ($fields as $field) {
-                $fieldPath = $this->autosaveFormRelativeFieldPath($field) ?? $path;
+                $fieldPath = $this->autosaveRelativeFieldPath($field) ?? $path;
 
                 if (str_contains($fieldPath, '*')) {
                     continue;
@@ -314,7 +314,7 @@ trait HasAutosaveForForm
 
         $record->refresh();
         $this->putAutosaveFormUndo('expected', AutosaveStore::normalizeScalars($record->only(array_keys($columns))));
-        $this->putAutosaveFormUndo('expected-relationships', $this->captureAutosaveFormRelationshipUndoForFields(
+        $this->putAutosaveFormUndo('expected-relationships', $this->captureAutosaveRelationshipUndoFields(
             $this->autosaveFormRelationshipFields(),
         ));
         $this->acknowledgeAutosaveUploads($uploads, $data);
@@ -452,7 +452,7 @@ trait HasAutosaveForForm
                 }
 
                 if ($relationshipSnapshot !== []) {
-                    $this->restoreAutosaveFormRelationshipUndo($relationshipSnapshot);
+                    $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
                 }
 
                 $this->callAutosaveHook('afterSave');
@@ -561,97 +561,13 @@ trait HasAutosaveForForm
             }
         }
 
-        return $this->captureAutosaveFormRelationshipUndoForFields($fieldsByPath);
-    }
-
-    /** @param array<string, array<int, object>> $fieldsByPath @return array<string, array<string, mixed>> */
-    protected function captureAutosaveFormRelationshipUndoForFields(array $fieldsByPath): array
-    {
-        $snapshot = [];
-
-        foreach ($fieldsByPath as $path => $fields) {
-            foreach ($fields as $index => $field) {
-                $snapshotPath = count($fields) === 1
-                    ? $path
-                    : ($this->autosaveFormRelativeFieldPath($field) ?? $path.'.'.$index);
-                $captured = $this->captureAutosaveFormRelationshipField($field);
-
-                if ($captured !== null) {
-                    $snapshot[$snapshotPath] = $captured;
-                }
-            }
-        }
-
-        return $snapshot;
-    }
-
-    /** @return array<string, mixed>|null */
-    protected function captureAutosaveFormRelationshipField(object $field): ?array
-    {
-        if (! method_exists($field, 'getRelationship')) {
-            return null;
-        }
-
-        $relationship = $field->getRelationship();
-
-        return match (true) {
-            $relationship instanceof MorphTo => [
-                'type' => 'morphTo',
-                'attributes' => $this->captureAutosaveFormMorphTo($relationship),
-            ],
-            $relationship instanceof BelongsToMany => [
-                'type' => 'belongsToMany',
-                'rows' => $this->captureAutosaveFormBelongsToMany($relationship),
-            ],
-            $relationship instanceof HasOneOrManyThrough, $relationship instanceof HasOneOrMany => [
-                'type' => $relationship instanceof HasOneOrManyThrough ? 'hasOneOrManyThrough' : 'hasOneOrMany',
-                'rows' => $this->captureAutosaveFormHasMany($relationship),
-            ],
-            default => null,
-        };
-    }
-
-    /** @return array<string, mixed> */
-    protected function captureAutosaveFormMorphTo(MorphTo $relationship): array
-    {
-        $parent = $relationship->getParent();
-
-        return AutosaveStore::normalizeScalars([
-            $relationship->getMorphType() => $parent->getAttribute($relationship->getMorphType()),
-            $relationship->getForeignKeyName() => $parent->getAttribute($relationship->getForeignKeyName()),
-        ]);
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    protected function captureAutosaveFormBelongsToMany(BelongsToMany $relationship): array
-    {
-        $rows = [];
-
-        foreach ($relationship->get() as $related) {
-            $rows[] = [
-                'key' => $related->getKey(),
-                'pivot' => $related->pivot?->getAttributes() ?? [],
-            ];
-        }
-
-        return AutosaveStore::normalizeScalars($rows);
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    protected function captureAutosaveFormHasMany(HasOneOrMany|HasOneOrManyThrough $relationship): array
-    {
-        return AutosaveStore::normalizeScalars($relationship->get()->map(function (Model $related): array {
-            $attributes = $related->getAttributes();
-            unset($attributes['laravel_through_key']);
-
-            return ['attributes' => $attributes];
-        })->all());
+        return $this->captureAutosaveRelationshipUndoFields($fieldsByPath);
     }
 
     /** @param array<string, array<string, mixed>> $expected */
     protected function autosaveFormRelationshipHasConflict(array $expected): bool
     {
-        $current = $this->captureAutosaveFormRelationshipUndoForFields($this->autosaveFormRelationshipFields());
+        $current = $this->captureAutosaveRelationshipUndoFields($this->autosaveFormRelationshipFields());
 
         foreach ($expected as $path => $state) {
             if (($current[$path] ?? null) !== $state) {
@@ -660,137 +576,6 @@ trait HasAutosaveForForm
         }
 
         return false;
-    }
-
-    /** @param array<string, array<string, mixed>> $snapshot */
-    protected function restoreAutosaveFormRelationshipUndo(array $snapshot): void
-    {
-        $fieldsByPath = $this->autosaveFormRelationshipFields();
-
-        foreach ($snapshot as $path => $state) {
-            $field = $this->autosaveFormRelationshipFieldForPath($path, $fieldsByPath);
-
-            if ($field === null || ! method_exists($field, 'getRelationship')) {
-                continue;
-            }
-
-            $relationship = $field->getRelationship();
-
-            match (true) {
-                $relationship instanceof MorphTo => $this->restoreAutosaveFormMorphTo($relationship, $state['attributes'] ?? []),
-                $relationship instanceof BelongsToMany => $this->restoreAutosaveFormBelongsToMany($relationship, $state['rows'] ?? []),
-                $relationship instanceof HasOneOrManyThrough => $this->restoreAutosaveFormHasManyThrough($relationship, $state['rows'] ?? []),
-                $relationship instanceof HasOneOrMany => $this->restoreAutosaveFormHasMany($relationship, $state['rows'] ?? []),
-                default => null,
-            };
-        }
-    }
-
-    /** @param array<string, array<int, object>> $fieldsByPath */
-    protected function autosaveFormRelationshipFieldForPath(string $path, array $fieldsByPath): ?object
-    {
-        foreach ($fieldsByPath as $pattern => $fields) {
-            foreach ($fields as $field) {
-                if (($this->autosaveFormRelativeFieldPath($field) ?? $pattern) === $path) {
-                    return $field;
-                }
-            }
-        }
-
-        return $fieldsByPath[$path][0] ?? null;
-    }
-
-    protected function autosaveFormRelativeFieldPath(object $field): ?string
-    {
-        if (! method_exists($field, 'getStatePath') || ! filled($path = $field->getStatePath())) {
-            return null;
-        }
-
-        return AutosaveFieldTree::relativePath((string) $path, $this->getAutosaveStatePath());
-    }
-
-    /** @param array<string, mixed> $attributes */
-    protected function restoreAutosaveFormMorphTo(MorphTo $relationship, array $attributes): void
-    {
-        if ($attributes !== []) {
-            $relationship->getParent()->forceFill($attributes)->save();
-        }
-    }
-
-    /** @param array<int, array<string, mixed>> $rows */
-    protected function restoreAutosaveFormBelongsToMany(BelongsToMany $relationship, array $rows): void
-    {
-        $ids = [];
-
-        foreach ($rows as $row) {
-            $ids[$row['key']] = $row['pivot'] ?? [];
-        }
-
-        $relationship->sync($ids);
-    }
-
-    /** @param array<int, array<string, mixed>> $rows */
-    protected function restoreAutosaveFormHasManyThrough(HasOneOrManyThrough $relationship, array $rows): void
-    {
-        $related = $relationship->getRelated();
-        $keyName = $related->getKeyName();
-        $original = $this->autosaveFormRowsByKey($rows, $keyName);
-
-        $this->deleteAutosaveFormRowsMissingFrom($relationship, $original);
-
-        foreach ($original as $attributes) {
-            $this->restoreAutosaveFormRelatedModel($related, $attributes, $keyName)->save();
-        }
-    }
-
-    /** @param array<int, array<string, mixed>> $rows */
-    protected function restoreAutosaveFormHasMany(HasOneOrMany $relationship, array $rows): void
-    {
-        $related = $relationship->getRelated();
-        $keyName = $related->getKeyName();
-        $original = $this->autosaveFormRowsByKey($rows, $keyName);
-
-        $this->deleteAutosaveFormRowsMissingFrom($relationship, $original);
-
-        foreach ($original as $attributes) {
-            $relationship->save($this->restoreAutosaveFormRelatedModel($related, $attributes, $keyName));
-        }
-    }
-
-    /** @param array<int, array<string, mixed>> $rows @return array<string, array<string, mixed>> */
-    protected function autosaveFormRowsByKey(array $rows, string $keyName): array
-    {
-        $original = [];
-
-        foreach ($rows as $row) {
-            $attributes = $row['attributes'] ?? [];
-            $key = (string) ($attributes[$keyName] ?? '');
-
-            if ($key !== '') {
-                $original[$key] = $attributes;
-            }
-        }
-
-        return $original;
-    }
-
-    /** @param object $relationship @param array<string, array<string, mixed>> $original */
-    protected function deleteAutosaveFormRowsMissingFrom(object $relationship, array $original): void
-    {
-        foreach ($relationship->get() as $current) {
-            if (! array_key_exists((string) $current->getKey(), $original)) {
-                $current->delete();
-            }
-        }
-    }
-
-    /** @param array<string, mixed> $attributes */
-    protected function restoreAutosaveFormRelatedModel(Model $related, array $attributes, string $keyName): Model
-    {
-        $model = $related->newQuery()->whereKey($attributes[$keyName])->first()
-            ?? $related->newInstance();
-
-        return $model->forceFill($attributes);
     }
 
     protected function fillAutosaveFormFromRecord(Model $record, array $fallback): void
