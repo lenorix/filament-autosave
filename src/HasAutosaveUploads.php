@@ -474,9 +474,10 @@ trait HasAutosaveUploads
                 $storedState = $field->getRawState();
 
                 if (is_array($storedState)) {
+                    $storedState = array_values($storedState);
                     $storedState = $field->isMultiple()
-                        ? array_values($storedState)
-                        : (array_values($storedState)[0] ?? null);
+                        ? $this->mergeAutosaveUploadedPaths($field, $path, $storedState)
+                        : ($storedState[0] ?? null);
                 }
 
                 data_set($data, $path, $storedState);
@@ -633,6 +634,31 @@ trait HasAutosaveUploads
         }
 
         return $paths;
+    }
+
+    /**
+     * Re-add column paths that a fresh upload session dropped from the field
+     * state but that still exist on disk, so appending a file never wipes the
+     * other files already stored in the column.
+     *
+     * @param  array<int, string>  $stored
+     * @return array<int, string>
+     */
+    protected function mergeAutosaveUploadedPaths(BaseFileUpload $field, string $path, array $stored): array
+    {
+        $record = method_exists($this, 'getRecord') ? $this->getRecord() : null;
+
+        if ($record === null || ! method_exists($record, 'getAttribute')) {
+            return $stored;
+        }
+
+        foreach ($this->autosaveUploadStatePaths($record->getAttribute($path)) as $existing) {
+            if (! in_array($existing, $stored, true) && $field->getDisk()->exists($existing)) {
+                $stored[] = $existing;
+            }
+        }
+
+        return $stored;
     }
 
     protected function autosaveRelativeUploadPath(string $path): string
