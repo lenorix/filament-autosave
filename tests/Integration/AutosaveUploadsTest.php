@@ -552,3 +552,15 @@ test('a generic record form persists nested row media with dirty_only enabled', 
 
     expect($item->fresh()->getMedia())->toHaveCount(1);
 });
+
+test('an invalid upload is reported as pending while other fields save', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+
+    Livewire::test(EditUploadPost::class, ['record' => $post->getKey()])
+        ->set('data.settings', [UploadedFile::fake()->create('oversize.txt', 20)])
+        ->set('data.title', 'Changed')
+        ->call('autosave')
+        ->assertDispatched('autosave-status', fn (string $event, array $params): bool => in_array('settings', $params['pending'] ?? [], true));
+
+    expect($post->fresh()->title)->toBe('Changed');
+});

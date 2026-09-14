@@ -3,8 +3,6 @@
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\FormsComponent;
 use Filament\Schemas\Schema;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\HasAutosaveForForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
@@ -83,17 +81,4 @@ test('a blank required field is reported as pending even without a validation me
         ->set('data.slug', 'changed')
         ->call('autosave')
         ->assertDispatched('autosave-status', fn (string $event, array $params): bool => in_array('title', $params['pending'] ?? [], true));
-});
-
-test('an invalid upload is reported as pending while other fields save', function () {
-    Storage::fake('public');
-    $post = UploadPost::create(['title' => 'Original']);
-
-    Livewire::test(EditUploadPost::class, ['record' => $post->getKey()])
-        ->set('data.settings', [UploadedFile::fake()->create('oversize.txt', 20)])
-        ->set('data.title', 'Changed')
-        ->call('autosave')
-        ->assertDispatched('autosave-status', fn (string $event, array $params): bool => in_array('settings', $params['pending'] ?? [], true));
-
-    expect($post->fresh()->title)->toBe('Changed');
 });
