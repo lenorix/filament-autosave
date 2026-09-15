@@ -1,9 +1,12 @@
 <?php
 
+use Filament\Resources\Events\RecordSaved;
+use Filament\Resources\Events\RecordUpdated;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Lenorix\FilamentAutosave\HasAutosave;
 use Lenorix\FilamentAutosave\HasAutosaveBase;
@@ -693,4 +696,18 @@ test('an expired undo snapshot leaves the record untouched', function () {
     expect($page->updates)->toBe($updates)
         ->and($page->autosaveCanUndo)->toBeFalse();
     expect(end($page->dispatched)['params']['status'])->toBe('idle');
+});
+
+test('dispatching record events does not require a real Eloquent model', function () {
+    Event::fake([RecordUpdated::class, RecordSaved::class]);
+
+    $page = makeEditPage(['title' => 'Original'], ['title' => 'Original']);
+    $page->mountHasAutosave();
+    $page->form->setState(['title' => 'Saved']);
+
+    $page->autosave();
+
+    expect($page->autosaveCanUndo)->toBeTrue();
+    Event::assertDispatched(RecordUpdated::class);
+    Event::assertDispatched(RecordSaved::class);
 });

@@ -5,7 +5,6 @@ namespace Lenorix\FilamentAutosave;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
 use Filament\Support\Exceptions\Halt;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
@@ -88,7 +87,12 @@ trait HasAutosaveBase
     }
 
     /** Fire the record events Filament pages emit after a save. */
-    protected function dispatchAutosaveRecordEvents(Model $record, array $data): void
+    /**
+     * Untyped like `handleRecordUpdate()`: production always passes a real
+     * Eloquent model, but the parameter stays duck-typed so callers are not
+     * forced into an Eloquent dependency they may not have.
+     */
+    protected function dispatchAutosaveRecordEvents(object $record, array $data): void
     {
         Event::dispatch(RecordUpdated::class, ['record' => $record, 'data' => $data, 'page' => $this]);
         Event::dispatch(RecordSaved::class, ['record' => $record, 'data' => $data, 'page' => $this]);

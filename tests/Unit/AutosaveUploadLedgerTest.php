@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Cache\Repository;
+use Illuminate\Contracts\Cache\Store;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -76,33 +78,76 @@ test('concurrent registrations do not overwrite each other under the ledger lock
 });
 
 test('the ledger still works when the cache store does not support locking', function () {
-    $store = new class implements \Illuminate\Contracts\Cache\Store
+    $store = new class implements Store
     {
         private array $data = [];
 
-        public function get($key) { return $this->data[$key] ?? null; }
+        public function get($key)
+        {
+            return $this->data[$key] ?? null;
+        }
 
-        public function many(array $keys) { return array_map(fn ($key) => $this->get($key), $keys); }
+        public function many(array $keys)
+        {
+            return array_map(fn ($key) => $this->get($key), $keys);
+        }
 
-        public function put($key, $value, $seconds) { $this->data[$key] = $value; return true; }
+        public function put($key, $value, $seconds)
+        {
+            $this->data[$key] = $value;
 
-        public function putMany(array $values, $seconds) { foreach ($values as $key => $value) { $this->put($key, $value, $seconds); } return true; }
+            return true;
+        }
 
-        public function increment($key, $value = 1) { return $this->data[$key] = ($this->data[$key] ?? 0) + $value; }
+        public function putMany(array $values, $seconds)
+        {
+            foreach ($values as $key => $value) {
+                $this->put($key, $value, $seconds);
+            }
 
-        public function decrement($key, $value = 1) { return $this->increment($key, -$value); }
+return true;
+        }
 
-        public function forever($key, $value) { return $this->put($key, $value, 0); }
+        public function increment($key, $value = 1)
+        {
+            return $this->data[$key] = ($this->data[$key] ?? 0) + $value;
+        }
 
-        public function forget($key) { unset($this->data[$key]); return true; }
+        public function decrement($key, $value = 1)
+        {
+            return $this->increment($key, -$value);
+        }
 
-        public function flush() { $this->data = []; return true; }
+        public function forever($key, $value)
+        {
+            return $this->put($key, $value, 0);
+        }
 
-        public function getPrefix() { return ''; }
+        public function forget($key)
+        {
+            unset($this->data[$key]);
 
-        public function touch($key, $seconds) { return true; }
+            return true;
+        }
+
+        public function flush()
+        {
+            $this->data = [];
+
+            return true;
+        }
+
+        public function getPrefix()
+        {
+            return '';
+        }
+
+        public function touch($key, $seconds)
+        {
+            return true;
+        }
     };
-    Cache::swap(new \Illuminate\Cache\Repository($store));
+    Cache::swap(new Repository($store));
 
     $ledger = app(AutosaveUploadLedger::class);
     $token = $ledger->register([['disk' => 'public', 'path' => 'no-lock.txt']]);
