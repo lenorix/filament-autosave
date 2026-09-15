@@ -2,12 +2,16 @@
 
 namespace Lenorix\FilamentAutosave;
 
+use Filament\Resources\Events\RecordSaved;
+use Filament\Resources\Events\RecordUpdated;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
@@ -74,7 +78,20 @@ trait HasAutosaveBase
 
     protected function dispatchAutosaveIdle(): void
     {
-        $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Idle->value);
+        $this->dispatchAutosaveStatus(AutosaveStatus::Idle);
+    }
+
+    /** Push one of the small autosave status events to the frontend. */
+    protected function dispatchAutosaveStatus(AutosaveStatus $status, array $extra = []): void
+    {
+        $this->dispatch(AutosaveStatus::EVENT, ...['status' => $status->value, ...$extra]);
+    }
+
+    /** Fire the record events Filament pages emit after a save. */
+    protected function dispatchAutosaveRecordEvents(Model $record, array $data): void
+    {
+        Event::dispatch(RecordUpdated::class, ['record' => $record, 'data' => $data, 'page' => $this]);
+        Event::dispatch(RecordSaved::class, ['record' => $record, 'data' => $data, 'page' => $this]);
     }
 
     protected function shouldAutosave(): bool
@@ -292,17 +309,16 @@ trait HasAutosaveBase
             $this->commitAutosaveStoredUploads();
             $this->autosaveCycleWrote = true;
 
-            $this->dispatch(
-                AutosaveStatus::EVENT,
-                status: $this->autosaveValidationErrors === []
-                    ? AutosaveStatus::Saved->value
-                    : AutosaveStatus::Validation->value,
-                timestamp: now()->isoFormat('LT'),
-                errors: $this->autosaveValidationErrors,
-                pending: $this->autosavePendingFields,
-                refreshed: method_exists($this, 'getAutosaveRefreshState')
-                    ? $this->getAutosaveRefreshState()
-                    : [],
+            $this->dispatchAutosaveStatus(
+                $this->autosaveValidationErrors === [] ? AutosaveStatus::Saved : AutosaveStatus::Validation,
+                [
+                    'timestamp' => now()->isoFormat('LT'),
+                    'errors' => $this->autosaveValidationErrors,
+                    'pending' => $this->autosavePendingFields,
+                    'refreshed' => method_exists($this, 'getAutosaveRefreshState')
+                        ? $this->getAutosaveRefreshState()
+                        : [],
+                ],
             );
         } catch (Halt $e) {
             if ($this->autosaveCycleActive) {
@@ -357,12 +373,10 @@ trait HasAutosaveBase
             return;
         }
 
-        $this->dispatch(
-            AutosaveStatus::EVENT,
-            status: AutosaveStatus::Validation->value,
-            errors: $this->autosaveValidationErrors,
-            pending: $this->autosavePendingFields,
-        );
+        $this->dispatchAutosaveStatus(AutosaveStatus::Validation, [
+            'errors' => $this->autosaveValidationErrors,
+            'pending' => $this->autosavePendingFields,
+        ]);
     }
 
     /** Nothing reached the persistence callback: undo stored files and report. */
