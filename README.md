@@ -373,7 +373,12 @@ $schedule->command('filament-autosave:prune-uploads')->everyThirtyMinutes();
 ```
 
 The ledger is a recovery net for storage providers; database and filesystem
-transactions still cannot commit as one distributed transaction.
+transactions still cannot commit as one distributed transaction. A Spatie
+Media Library file is journaled right after its relationship callback
+returns, because the package cannot know the filename Spatie generates
+before that call runs; a process killed between that write and the journal
+entry (not a normal exception, which the request-local cleanup above still
+catches) can still leave a file with no ledger entry.
 
 ## Configuration
 
