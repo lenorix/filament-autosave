@@ -3,6 +3,7 @@
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
 use Illuminate\Support\Facades\Event;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Livewire;
@@ -38,4 +39,18 @@ test('a real listener typed against RecordSaved receives the actual event object
 
     expect($received)->toBeInstanceOf(RecordSaved::class)
         ->and($received->getPage())->toBeInstanceOf(EditPost::class);
+});
+
+test('a typed RecordUpdated listener does not crash a generic record form autosave', function () {
+    Event::listen(RecordUpdated::class, function (RecordUpdated $event) {
+        // Exists purely so autosave has to survive a real, typed listener.
+    });
+
+    $post = Post::create(['title' => 'Original']);
+
+    Livewire::test(AutosaveUploadRecordForm::class, ['record' => $post])
+        ->set('data.title', 'Changed')
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->title)->toBe('Changed');
 });

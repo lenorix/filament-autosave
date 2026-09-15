@@ -330,6 +330,18 @@ trait HasAutosaveForForm
         return $columns;
     }
 
+    /**
+     * `RecordUpdated`/`RecordSaved` require a real `Filament\Resources\Pages\Page`
+     * to construct. Relation managers, actions, and other generic Livewire
+     * components using this trait are not one, so `HasAutosaveBase`'s
+     * dispatch falls back to Filament's own class-name-plus-array
+     * convention -- which throws inside any listener type-hinted against the
+     * event class, an error the autosave failure handler swallows, silently
+     * rolling back the whole write. These events are Edit-page only; use
+     * `afterAutosave()` or the package's own hooks here instead.
+     */
+    protected function dispatchAutosaveRecordEvents(object $record, array $data): void {}
+
     protected function getAutosaveFormRecord(): ?Model
     {
         $form = $this->resolveAutosaveForm();

@@ -298,6 +298,12 @@ Set `require_form_context` to `true` to turn a missing context into a
 `LogicException`; this is recommended for reusable Relation Manager, action,
 modal, and table-form components.
 
+Filament's `RecordUpdated`/`RecordSaved` events are Edit-page only: they
+require a real `Filament\Resources\Pages\Page`, which a relation manager,
+action, or other generic component is not, so `HasAutosaveForForm` does not
+dispatch them at all. Use `afterAutosave()` or the package's own hooks for
+work that needs to run after a generic form save.
+
 Record-backed generic forms use the same upload lifecycle as Edit pages, while
 recordless drafts never store permanent files or media. Generic Undo snapshots
 cover model columns and supported relationship state. File, media, and
