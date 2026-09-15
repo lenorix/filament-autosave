@@ -105,7 +105,7 @@ test('the ledger still works when the cache store does not support locking', fun
                 $this->put($key, $value, $seconds);
             }
 
-return true;
+            return true;
         }
 
         public function increment($key, $value = 1)
