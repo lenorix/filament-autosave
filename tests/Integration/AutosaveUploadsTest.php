@@ -8,6 +8,7 @@ use Filament\Schemas\Components\Group;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
@@ -571,7 +572,7 @@ class LedgerSpyEditUploadPost extends EditUploadPost
 
     protected function afterSave(): void
     {
-        $this->ledgerDuringSave = \Illuminate\Support\Facades\Cache::get('filament-autosave:upload-ledger');
+        $this->ledgerDuringSave = Cache::get('filament-autosave:upload-ledger');
     }
 }
 
@@ -584,7 +585,7 @@ test('spatie media files are registered in the upload ledger until the database 
 
     expect($page->instance()->ledgerDuringSave)->not->toBeNull()->not->toBeEmpty();
     expect(Storage::disk('public')->allFiles())->not->toBeEmpty();
-    expect(\Illuminate\Support\Facades\Cache::get('filament-autosave:upload-ledger'))->toBeNull();
+    expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
 });
 
 class FailingAfterSaveUploadPost extends EditUploadPost
@@ -603,5 +604,5 @@ test('a failure after spatie media is written removes the file and forgets its l
         ->call('autosave')->assertDispatched('autosave-status', status: 'error');
 
     expect($post->fresh()->getMedia())->toHaveCount(0);
-    expect(\Illuminate\Support\Facades\Cache::get('filament-autosave:upload-ledger'))->toBeNull();
+    expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
 });

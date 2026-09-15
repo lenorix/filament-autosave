@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Attributes\Locked;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Spatie\MediaLibrary\MediaCollections\Models\Media as SpatieMedia;
 
 /**
  * Adds Edit-page autosave support for Filament file-upload components.
@@ -161,6 +162,15 @@ trait HasAutosaveUploads
 
             if ($collection === null) {
                 continue;
+            }
+
+            // getMedia() reads the model's already-loaded `media` relation,
+            // which Filament populates once when the form hydrates. Reload it
+            // so a later snapshot (e.g. right after this cycle wrote new
+            // media) actually observes what Spatie just wrote instead of the
+            // relation state captured at mount time.
+            if (method_exists($record, 'load')) {
+                $record->load('media');
             }
 
             $key = $record::class.':'.($record->getKey() ?? 'new').':'.$collection;
@@ -436,6 +446,19 @@ trait HasAutosaveUploads
                     // Cleanup is best effort and must not replace the save
                     // error that caused the rollback.
                 }
+            }
+        }
+
+        // Filament only wraps saves in a DB transaction when the host app
+        // opts in (`Panel::databaseTransactions()`); it is off by default.
+        // Without one, Spatie's row insert already committed on its own, so
+        // deleting only the file would leave a Media row pointing at nothing.
+        if (is_string($media['uuid'] ?? null) && class_exists(SpatieMedia::class)) {
+            try {
+                SpatieMedia::where('uuid', $media['uuid'])->delete();
+            } catch (\Throwable) {
+                // Best effort: a transaction-wrapped host may have already
+                // rolled this row back, or the media table may be unreachable.
             }
         }
     }
