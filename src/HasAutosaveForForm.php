@@ -306,7 +306,7 @@ trait HasAutosaveForForm
         $record->refresh();
         $this->putAutosaveFormUndo('expected', AutosaveStore::normalizeScalars($record->only(array_keys($columns))));
         $this->putAutosaveFormUndo('expected-relationships', $this->captureAutosaveRelationshipUndoFields(
-            $this->autosaveFormRelationshipFields(),
+            $this->autosaveFormDirtyRelationshipFields($data),
         ));
         $this->putAutosaveFormUndo('expected-external', $this->autosaveExternalUndoManager()->snapshot($externalFields));
         $this->acknowledgeAutosaveUploads($uploads, $data);
@@ -564,6 +564,22 @@ trait HasAutosaveForForm
     /** @param array<string, mixed> $data @return array<string, array<string, mixed>> */
     protected function captureAutosaveFormRelationshipUndo(array $data): array
     {
+        return $this->captureAutosaveRelationshipUndoFields($this->autosaveFormDirtyRelationshipFields($data));
+    }
+
+    /**
+     * Relationship fields whose top-level key is present in a payload.
+     *
+     * Used both to snapshot the "before" state at write time and, later, the
+     * expected "after" state for Undo's conflict check: the two must agree on
+     * the same subset, or a concurrent change to a relationship this autosave
+     * never touched would look like a conflict and needlessly cancel Undo.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, array<int, object>>
+     */
+    protected function autosaveFormDirtyRelationshipFields(array $data): array
+    {
         $fieldsByPath = $this->autosaveFormRelationshipFields();
 
         foreach (array_keys($fieldsByPath) as $path) {
@@ -572,7 +588,7 @@ trait HasAutosaveForForm
             }
         }
 
-        return $this->captureAutosaveRelationshipUndoFields($fieldsByPath);
+        return $fieldsByPath;
     }
 
     /** @param array<string, array<string, mixed>> $expected */
