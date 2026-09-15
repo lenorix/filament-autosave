@@ -280,7 +280,7 @@ trait HasAutosaveForForm
             : $data;
         $previous = method_exists($record, 'only') ? $record->only(array_keys($columns)) : [];
         $relationshipUndo = $this->captureAutosaveFormRelationshipUndo($data);
-        $externalFields = $this->autosaveExternalUndoFields($uploads, $this->autosaveFormRelationshipFields());
+        $externalFields = $this->autosaveExternalUndoFields($uploads, $this->autosaveFormDirtyRelationshipFields($data));
         $externalUndo = $this->autosaveExternalUndoSnapshots($externalFields);
 
         $this->resetAutosaveFormUndo();
@@ -438,7 +438,11 @@ trait HasAutosaveForForm
                 return;
             }
 
-            $externalFields = $this->autosaveExternalUndoFields();
+            // Scoped to the paths captured in $expectedExternal, i.e. exactly
+            // what this write touched: matches() requires the two key sets to
+            // agree exactly, and an untouched external field could otherwise
+            // report a conflict for activity this Undo has nothing to do with.
+            $externalFields = array_intersect_key($this->autosaveExternalUndoFields(), $expectedExternal ?? []);
 
             if (! $this->autosaveExternalUndoMatches($expectedExternal ?? [], $externalFields)) {
                 $this->resetAutosaveFormUndo();
