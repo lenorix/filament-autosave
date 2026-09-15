@@ -4,7 +4,9 @@ namespace Lenorix\FilamentAutosave;
 
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
+use Filament\Resources\Pages\Page;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
@@ -91,9 +93,28 @@ trait HasAutosaveBase
      * Untyped like `handleRecordUpdate()`: production always passes a real
      * Eloquent model, but the parameter stays duck-typed so callers are not
      * forced into an Eloquent dependency they may not have.
+     *
+     * `RecordUpdated`/`RecordSaved` declare a constructor, so dispatching
+     * them by class name with an array payload (the pattern Filament's own
+     * `EditRecord::save()` uses) never builds that object: Laravel spreads
+     * the array positionally into each listener instead, which throws a
+     * `TypeError` for any listener type-hinted against the event class, and
+     * that error was silently swallowed by the autosave failure handler.
+     * Real instances are built whenever the record and this component
+     * satisfy the constructor; otherwise a generic Livewire component
+     * (a relation manager, a bare form) cannot supply a real
+     * `Filament\Resources\Pages\Page`, so the payload falls back to
+     * Filament's own convention for parity, with the same caveat.
      */
     protected function dispatchAutosaveRecordEvents(object $record, array $data): void
     {
+        if ($record instanceof Model && $this instanceof Page) {
+            Event::dispatch(new RecordUpdated($record, $data, $this));
+            Event::dispatch(new RecordSaved($record, $data, $this));
+
+            return;
+        }
+
         Event::dispatch(RecordUpdated::class, ['record' => $record, 'data' => $data, 'page' => $this]);
         Event::dispatch(RecordSaved::class, ['record' => $record, 'data' => $data, 'page' => $this]);
     }
