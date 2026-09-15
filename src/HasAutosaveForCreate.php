@@ -17,7 +17,7 @@ trait HasAutosaveForCreate
 
         $this->autosaveDebounceMs = $this->getAutosaveDebounce();
 
-        $this->autosaveHasDraft = $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey()) !== null;
+        $this->autosaveHasDraft = $this->autosaveDraftAvailable();
 
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
     }

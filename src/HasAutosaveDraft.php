@@ -15,6 +15,12 @@ trait HasAutosaveDraft
     #[Locked]
     public bool $autosaveHasDraft = false;
 
+    /** Whether a previously autosaved draft waits to be restored for this page. */
+    protected function autosaveDraftAvailable(): bool
+    {
+        return $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey()) !== null;
+    }
+
     public function restoreDraft(): void
     {
         try {
@@ -33,7 +39,7 @@ trait HasAutosaveDraft
             $this->autosaveDraftRestored();
             $this->autosaveHasDraft = false;
 
-            $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Restored->value);
+            $this->dispatchAutosaveStatus(AutosaveStatus::Restored);
         } catch (\Throwable $e) {
             $this->handleAutosaveFailure($e, 'restore');
         }

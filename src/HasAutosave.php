@@ -4,12 +4,9 @@ namespace Lenorix\FilamentAutosave;
 
 use Filament\Forms\Components\BaseFileUpload;
 use Filament\Forms\Components\RichEditor;
-use Filament\Resources\Events\RecordSaved;
-use Filament\Resources\Events\RecordUpdated;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Event;
 use Livewire\Attributes\Locked;
 
 trait HasAutosave
@@ -678,7 +675,7 @@ trait HasAutosave
             }
 
             $this->callAutosaveHook('afterSave');
-            $this->dispatchAutosaveRecordEvents($data);
+            $this->dispatchAutosaveRecordEvents($this->getRecord(), $data);
 
             return $data;
         } finally {
@@ -789,7 +786,7 @@ trait HasAutosave
                     $this->autosaveExternalUndoFields(),
                 )) {
                 $this->resetAutosaveUndo();
-                $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Conflict->value);
+                $this->dispatchAutosaveStatus(AutosaveStatus::Conflict);
 
                 return;
             }
@@ -818,7 +815,7 @@ trait HasAutosave
                 }
 
                 $this->callAutosaveHook('afterSave');
-                $this->dispatchAutosaveRecordEvents(is_array($snapshot) ? $snapshot : []);
+                $this->dispatchAutosaveRecordEvents($this->getRecord(), is_array($snapshot) ? $snapshot : []);
             });
 
             $this->getRecord()->refresh();
@@ -837,7 +834,7 @@ trait HasAutosave
 
             $this->sendAutosaveSavedNotification();
 
-            $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Undone->value);
+            $this->dispatchAutosaveStatus(AutosaveStatus::Undone);
         } catch (\Throwable $e) {
             $this->handleAutosaveFailure($e, 'undo');
         }
@@ -1007,12 +1004,9 @@ trait HasAutosave
 
     protected function clearUndoSnapshots(): void
     {
-        Cache::forget($this->getUndoCacheKey());
-        Cache::forget($this->getUndoRelationshipCacheKey());
-        Cache::forget($this->getUndoExpectedCacheKey());
-        Cache::forget($this->getUndoExpectedRelationshipCacheKey());
-        Cache::forget($this->getUndoExternalCacheKey());
-        Cache::forget($this->getUndoExpectedExternalCacheKey());
+        foreach ($this->getUndoCacheKeys() as $key) {
+            Cache::forget($key);
+        }
     }
 
     /** Wipe the Undo target; the underlying state can no longer be restored. */
@@ -1023,34 +1017,47 @@ trait HasAutosave
         $this->autosaveUndoPrepared = false;
     }
 
-    protected function getUndoCacheKey(): string
+    protected function getUndoCacheKey(string $suffix = ''): string
     {
-        return $this->autosaveStore()->undoCacheKey(static::class, $this->getRecord()?->getKey());
+        return $this->autosaveStore()->undoCacheKey(static::class, $this->getRecord()?->getKey()).($suffix ? ":{$suffix}" : '');
+    }
+
+    /** Every key in this page's Undo snapshot cluster. */
+    protected function getUndoCacheKeys(): array
+    {
+        return [
+            $this->getUndoCacheKey(),
+            $this->getUndoCacheKey('relationships'),
+            $this->getUndoCacheKey('expected'),
+            $this->getUndoCacheKey('expected-relationships'),
+            $this->getUndoCacheKey('external'),
+            $this->getUndoCacheKey('expected-external'),
+        ];
     }
 
     protected function getUndoRelationshipCacheKey(): string
     {
-        return $this->getUndoCacheKey().':relationships';
+        return $this->getUndoCacheKey('relationships');
     }
 
     protected function getUndoExpectedCacheKey(): string
     {
-        return $this->getUndoCacheKey().':expected';
+        return $this->getUndoCacheKey('expected');
     }
 
     protected function getUndoExpectedRelationshipCacheKey(): string
     {
-        return $this->getUndoCacheKey().':expected-relationships';
+        return $this->getUndoCacheKey('expected-relationships');
     }
 
     protected function getUndoExternalCacheKey(): string
     {
-        return $this->getUndoCacheKey().':external';
+        return $this->getUndoCacheKey('external');
     }
 
     protected function getUndoExpectedExternalCacheKey(): string
     {
-        return $this->getUndoCacheKey().':expected-external';
+        return $this->getUndoCacheKey('expected-external');
     }
 
     /** Read an undo snapshot only when this page load still owns the feature. */
@@ -1099,21 +1106,6 @@ trait HasAutosave
 
             throw $e;
         }
-    }
-
-    /** Fire the record events Filament Edit pages emit after a save. */
-    protected function dispatchAutosaveRecordEvents(array $data): void
-    {
-        Event::dispatch(RecordUpdated::class, [
-            'record' => $this->getRecord(),
-            'data' => $data,
-            'page' => $this,
-        ]);
-        Event::dispatch(RecordSaved::class, [
-            'record' => $this->getRecord(),
-            'data' => $data,
-            'page' => $this,
-        ]);
     }
 
     protected function autosaveWithinTransaction(callable $write): void
