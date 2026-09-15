@@ -27,6 +27,7 @@ use Livewire\Attributes\Locked;
 trait HasAutosaveForForm
 {
     use HasAutosaveBase;
+    use HasAutosaveDraft;
     use HasAutosaveUploads {
         HasAutosaveUploads::prepareAutosavePersistence insteadof HasAutosaveBase;
         HasAutosaveUploads::prepareAutosavePersistence as prepareAutosaveUploadsPersistence;
@@ -41,9 +42,6 @@ trait HasAutosaveForForm
         HasAutosaveUploads::commitAutosaveStoredUploads insteadof HasAutosaveBase;
         HasAutosaveBase::getAutosaveData as autosaveBaseData;
     }
-
-    #[Locked]
-    public bool $autosaveHasDraft = false;
 
     #[Locked]
     public bool $autosaveCanUndo = false;
@@ -616,44 +614,12 @@ trait HasAutosaveForForm
         $this->fillAutosaveData($fallback);
     }
 
-    public function restoreDraft(): void
+    /** Rebuild the acknowledged field hashes after a draft has been filled in. */
+    protected function autosaveDraftRestored(): void
     {
-        try {
-            $this->authorizeAutosaveAccess();
-
-            $draft = $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey());
-
-            if ($draft === null) {
-                $this->dispatchAutosaveIdle();
-
-                return;
-            }
-
-            $this->fillAutosaveData($this->prepareAutosavePayload($draft));
-            $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
-            $this->autosaveFieldHashes = $this->hashAutosaveFormFields(
-                $this->prepareAutosavePayload($this->getAutosaveData()),
-            );
-            $this->autosaveHasDraft = false;
-
-            $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Restored->value);
-        } catch (\Throwable $e) {
-            $this->handleAutosaveFailure($e, 'restore');
-        }
-    }
-
-    public function discardDraft(): void
-    {
-        $this->authorizeAutosaveAccess();
-
-        $this->clearAutosaveDraft();
-        $this->dispatchAutosaveIdle();
-    }
-
-    public function clearAutosaveDraft(): void
-    {
-        $this->autosaveStore()->clearDraft($this->getAutosaveCacheKey());
-        $this->autosaveHasDraft = false;
+        $this->autosaveFieldHashes = $this->hashAutosaveFormFields(
+            $this->prepareAutosavePayload($this->getAutosaveData()),
+        );
     }
 
     /**
@@ -822,10 +788,5 @@ trait HasAutosaveForForm
     protected function getAutosaveCacheKey(): string
     {
         return $this->autosaveStore()->cacheKey(static::class.':'.$this->getAutosaveFormContext());
-    }
-
-    protected function getAutosaveCacheTtl(): int
-    {
-        return AutosavePlugin::resolve()->getCacheTtl();
     }
 }

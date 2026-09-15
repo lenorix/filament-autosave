@@ -2,14 +2,10 @@
 
 namespace Lenorix\FilamentAutosave;
 
-use Livewire\Attributes\Locked;
-
 trait HasAutosaveForCreate
 {
     use HasAutosaveBase;
-
-    #[Locked]
-    public bool $autosaveHasDraft = false;
+    use HasAutosaveDraft;
 
     protected bool $autosaveRecordWasCreated = false;
 
@@ -56,45 +52,6 @@ trait HasAutosaveForCreate
         });
     }
 
-    public function restoreDraft(): void
-    {
-        try {
-            $this->authorizeAutosaveAccess();
-
-            $draft = $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey());
-
-            if ($draft === null) {
-                $this->dispatchAutosaveIdle();
-
-                return;
-            }
-
-            $this->fillAutosaveData($this->prepareAutosavePayload($draft));
-
-            $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
-            $this->autosaveHasDraft = false;
-
-            $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Restored->value);
-        } catch (\Throwable $e) {
-            $this->handleAutosaveFailure($e, 'restore');
-        }
-    }
-
-    public function discardDraft(): void
-    {
-        $this->authorizeAutosaveAccess();
-
-        $this->clearAutosaveDraft();
-
-        $this->dispatchAutosaveIdle();
-    }
-
-    public function clearAutosaveDraft(): void
-    {
-        $this->autosaveStore()->clearDraft($this->getAutosaveCacheKey());
-        $this->autosaveHasDraft = false;
-    }
-
     public function create(bool $another = false): void
     {
         if (! $this->shouldWrapCreate()) {
@@ -134,10 +91,5 @@ trait HasAutosaveForCreate
     protected function getAutosaveCacheKey(): string
     {
         return $this->autosaveStore()->cacheKey(static::class);
-    }
-
-    protected function getAutosaveCacheTtl(): int
-    {
-        return AutosavePlugin::resolve()->getCacheTtl();
     }
 }
