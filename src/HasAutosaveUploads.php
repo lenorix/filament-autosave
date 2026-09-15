@@ -593,10 +593,6 @@ trait HasAutosaveUploads
                     ], $newPaths),
                 );
                 $this->autosaveUploadLedgerTokens[$path] = $token;
-
-                if (DB::connection()->transactionLevel() > 0) {
-                    DB::afterCommit(fn () => app(AutosaveUploadLedger::class)->commit($token));
-                }
             }
 
             if ($newPaths !== []) {
@@ -922,10 +918,30 @@ trait HasAutosaveUploads
     {
         $ledger = app(AutosaveUploadLedger::class);
 
+        if ($this->autosaveUploadLedgerTokens !== [] && DB::connection()->transactionLevel() > 0) {
+            $tokens = $this->autosaveUploadLedgerTokens;
+
+            DB::afterCommit(function () use ($ledger, $tokens): void {
+                foreach ($tokens as $token) {
+                    $ledger->commit($token);
+                }
+
+                $this->finalizeAutosaveStoredUploads();
+            });
+
+            return;
+        }
+
         foreach ($this->autosaveUploadLedgerTokens as $token) {
             $ledger->commit($token);
         }
 
+        $this->finalizeAutosaveStoredUploads();
+    }
+
+    /** Reset request-local upload state once the owning transaction commits. */
+    protected function finalizeAutosaveStoredUploads(): void
+    {
         $this->autosaveStoredUploadPaths = [];
         $this->autosaveUploadLedgerTokens = [];
         $this->captureAutosaveExternalMediaAfter();

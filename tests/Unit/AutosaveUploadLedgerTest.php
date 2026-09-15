@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\AutosaveUploadLedger;
 
@@ -34,4 +35,20 @@ test('committed uploads are removed from the ledger and pruning removes stale en
     Storage::disk('public')->assertExists('committed.txt');
     Storage::disk('public')->assertMissing('stale.txt');
     expect($stale)->toBeString();
+});
+
+test('a ledger token remains available until the database commit callback runs', function () {
+    Storage::disk('public')->put('pending.txt', 'pending');
+    $ledger = app(AutosaveUploadLedger::class);
+    $token = $ledger->register([['disk' => 'public', 'path' => 'pending.txt']]);
+
+    DB::beginTransaction();
+    DB::afterCommit(fn () => $ledger->commit($token));
+
+    expect(Cache::get('filament-autosave:upload-ledger'))->toHaveKey($token);
+
+    DB::commit();
+
+    expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
+    Storage::disk('public')->assertExists('pending.txt');
 });

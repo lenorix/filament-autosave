@@ -325,6 +325,7 @@ trait HasAutosaveForForm
         $this->acknowledgeAutosaveUploads($uploads, $data);
         $this->autosaveCanUndo = ! $this->autosaveExternalUndoHasUnsupported($externalFields)
             && array_diff_key($externalFields, $externalUndo) === []
+            && ! $this->autosaveRelationshipUndoTruncated
             && ($previous !== [] || $relationshipUndo !== [] || $externalUndo !== []);
         $this->clearAutosaveDraft();
 

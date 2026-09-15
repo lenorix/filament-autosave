@@ -597,6 +597,7 @@ trait HasAutosave
         $this->storeUndoExternalSnapshot($externalUndo);
         $unsafeExternalUndo = $this->autosaveExternalUndoHasUnsupported($externalFields)
             || array_diff_key($externalFields, $externalUndo) !== []
+            || $this->autosaveRelationshipUndoTruncated
             || $this->autosaveRelationshipsHaveFilePersistence($relationships);
         $this->autosaveCanUndo = ! $unsafeExternalUndo && ($columnUndo || $relationUndo || $externalUndo !== []);
 

@@ -229,6 +229,9 @@ columns do not block the one-step Undo.
 
 Undo also runs the relevant Filament save hooks and events and sends the normal
 saved notification. It is limited to the current live page instance.
+Nested relationship snapshots are bounded by `relationship_undo_depth` (eight
+levels by default). If a pending graph exceeds that limit, Undo is disabled for
+the cycle instead of restoring only part of the graph.
 
 File operations and RichEditor attachment operations keep Undo disabled by
 default because a database transaction cannot roll back filesystem or external
@@ -291,6 +294,9 @@ protected function getAutosaveStatePath(): string
 Override `persistAutosaveForm()` when the component has a custom action
 lifecycle or side effects beyond the form schema. Use a context that identifies
 the owner, record, or action so unrelated forms never share a draft.
+Set `require_form_context` to `true` to turn a missing context into a
+`LogicException`; this is recommended for reusable Relation Manager, action,
+modal, and table-form components.
 
 Record-backed generic forms use the same upload lifecycle as Edit pages, while
 recordless drafts never store permanent files or media. Generic Undo snapshots
@@ -326,6 +332,10 @@ The following are skipped:
 
 The controller waits for active uploads to finish, and its request-end hash also
 detects server-side actions such as removing a row or reordering files.
+Livewire's temporary upload is used as the staging area until validation
+passes. Permanent paths are tracked until the owning database transaction has
+run its `afterCommit` callbacks, so a rollback can remove every path created by
+the cycle.
 
 `SpatieMediaLibraryFileUpload` uses its relationship callback for additions,
 removals, and ordering. Unchanged collections are not synchronised. Install
@@ -340,12 +350,13 @@ the whole relationship write is skipped and no file is stored. Media inside a
 repeater stored in a JSON column is not autosaved, because every row would
 share the parent record's media collection.
 
-Autosaves involving files do not provide Undo. If a later validation, hook,
-relationship, or database write fails, the package cleans up new paths and
-tracked media it created where the storage provider supports it. Additional
-side effects performed by a custom storage callback remain the application's
-responsibility. Removing a normal `FileUpload` path updates the column, and
-physical deletion follows the component's configured behaviour.
+Autosaves involving files keep Undo disabled by default. A registered external
+adapter can opt a provider into reversible Undo; without one, a later
+validation, hook, relationship, or database write failure still triggers
+cleanup of new paths and tracked media where the provider supports it.
+Additional side effects performed by a custom storage callback remain the
+application's responsibility. Removing a normal `FileUpload` path updates the
+column, and physical deletion follows the component's configured behaviour.
 
 Newly stored paths are also recorded in a short-lived cleanup ledger. Register
 the pruning command in the host scheduler so an interrupted PHP process cannot

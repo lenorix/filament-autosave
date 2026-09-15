@@ -52,6 +52,9 @@ trait HasAutosaveBase
     /** Notifications are sent only after the surrounding write commits. */
     protected bool $autosaveNotificationPending = false;
 
+    /** Undo is unsafe when the configured relationship depth truncates a graph. */
+    protected bool $autosaveRelationshipUndoTruncated = false;
+
     /** @var array<string, array<object>>|null Cached field map for this request. */
     protected ?array $autosaveFieldsCache = null;
 
@@ -985,6 +988,7 @@ trait HasAutosaveBase
      */
     protected function captureAutosaveRelationshipUndoFields(array $fieldsByPath): array
     {
+        $this->autosaveRelationshipUndoTruncated = false;
         $snapshot = [];
 
         foreach ($fieldsByPath as $path => $fields) {
@@ -995,6 +999,8 @@ trait HasAutosaveBase
 
                 if ($this->autosaveRelationshipUndoDepth($snapshotPath)
                     > max(1, (int) config('filament-autosave.relationship_undo_depth', 8))) {
+                    $this->autosaveRelationshipUndoTruncated = true;
+
                     continue;
                 }
 
