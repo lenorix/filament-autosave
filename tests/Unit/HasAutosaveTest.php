@@ -184,29 +184,28 @@ test('undo lifetime defaults to ninety minutes without configuration', function 
 test('clearing undo snapshots removes column, relationship, and expected caches', function () {
     $page = new class extends FakeEditPage
     {
-        protected function getUndoCacheKey(): string
+        protected function getUndoCacheKey(string $suffix = ''): string
         {
-            return 'test:undo';
+            return $suffix === '' ? 'test:undo' : 'test:undo:'.$suffix;
         }
     };
 
-    foreach ([
+    $keys = [
         'test:undo',
         'test:undo:relationships',
         'test:undo:expected',
         'test:undo:expected-relationships',
-    ] as $key) {
+        'test:undo:external',
+        'test:undo:expected-external',
+    ];
+
+    foreach ($keys as $key) {
         Cache::put($key, ['value' => true]);
     }
 
     (fn () => $this->clearUndoSnapshots())->call($page);
 
-    foreach ([
-        'test:undo',
-        'test:undo:relationships',
-        'test:undo:expected',
-        'test:undo:expected-relationships',
-    ] as $key) {
+    foreach ($keys as $key) {
         expect(Cache::get($key))->toBeNull();
     }
 });
