@@ -79,6 +79,12 @@ parameters:
 			path: src/HasAutosaveBase.php
 
 		-
+			message: '#^Trait Lenorix\\FilamentAutosave\\HasAutosaveDraft is used zero times and is not analysed\.$#'
+			identifier: trait.unused
+			count: 1
+			path: src/HasAutosaveDraft.php
+
+		-
 			message: '#^Trait Lenorix\\FilamentAutosave\\HasAutosaveForCreate is used zero times and is not analysed\.$#'
 			identifier: trait.unused
 			count: 1
