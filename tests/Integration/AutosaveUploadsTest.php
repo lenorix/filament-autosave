@@ -564,3 +564,44 @@ test('an invalid upload is reported as pending while other fields save', functio
 
     expect($post->fresh()->title)->toBe('Changed');
 });
+
+class LedgerSpyEditUploadPost extends EditUploadPost
+{
+    public ?array $ledgerDuringSave = null;
+
+    protected function afterSave(): void
+    {
+        $this->ledgerDuringSave = \Illuminate\Support\Facades\Cache::get('filament-autosave:upload-ledger');
+    }
+}
+
+test('spatie media files are registered in the upload ledger until the database commit completes', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+    $page = Livewire::test(LedgerSpyEditUploadPost::class, ['record' => $post->getKey()]);
+
+    $page->set('data.gallery', [UploadedFile::fake()->create('media.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($page->instance()->ledgerDuringSave)->not->toBeNull()->not->toBeEmpty();
+    expect(Storage::disk('public')->allFiles())->not->toBeEmpty();
+    expect(\Illuminate\Support\Facades\Cache::get('filament-autosave:upload-ledger'))->toBeNull();
+});
+
+class FailingAfterSaveUploadPost extends EditUploadPost
+{
+    protected function afterSave(): void
+    {
+        throw new RuntimeException('after save failed');
+    }
+}
+
+test('a failure after spatie media is written removes the file and forgets its ledger token', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+
+    Livewire::test(FailingAfterSaveUploadPost::class, ['record' => $post->getKey()])
+        ->set('data.gallery', [UploadedFile::fake()->create('media.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'error');
+
+    expect($post->fresh()->getMedia())->toHaveCount(0);
+    expect(\Illuminate\Support\Facades\Cache::get('filament-autosave:upload-ledger'))->toBeNull();
+});
