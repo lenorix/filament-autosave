@@ -99,7 +99,11 @@ inside a running cycle (for example from `afterAutosave()`) throws
 Declared Filament field rules, including length and numeric limits, are applied
 per field; a failing field is skipped while unrelated fields can still save.
 The indicator lists skipped fields and their validation messages, including the
-pending field paths returned by the validation cycle.
+pending field paths returned by the validation cycle. Pending fields are not
+validation-only: a blank required value, an invalid upload, or an incomplete
+group/repeater/builder container also marks its top-level path pending, with
+no per-nested-field message since the package cannot tell which nested value
+caused the container to be dropped.
 `beforeAutosave()` sees the complete eligible state. Pending Spatie media fields
 are removed before `mutateFormDataBeforeSave()`; dirty-only filtering happens
 just before the column write.

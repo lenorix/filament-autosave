@@ -431,6 +431,10 @@ protected function shouldAutosave(): bool
 'undo_ttl' => 90,
 'dirty_only' => true,
 'refresh_unchanged_fields' => true,
+'require_form_context' => false,
+'relationship_undo_depth' => 8,
+'external_undo_adapters' => [],
+'upload_ledger_ttl' => 180,
 ```
 
 `shouldAutosave()` is evaluated server-side and cannot be changed from the
