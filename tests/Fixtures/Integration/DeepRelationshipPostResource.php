@@ -23,7 +23,12 @@ class DeepRelationshipPostResource extends Resource
                     Select::make('category_id')->relationship('category', 'name'),
                     Repeater::make('subitems')
                         ->relationship('subitems')
-                        ->schema([TextInput::make('label')]),
+                        ->schema([
+                            TextInput::make('label'),
+                            Repeater::make('subsubitems')
+                                ->relationship('subsubitems')
+                                ->schema([TextInput::make('label')]),
+                        ]),
                 ]),
         ]);
     }

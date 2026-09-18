@@ -137,6 +137,7 @@ applied, while fields marked `dehydrated(false)` are left out.
 | `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row | Yes, with the row's relationship write |
 | `SpatieMediaLibraryFileUpload` inside a JSON (non-relationship) repeater | No |
 | Relationships inside groups, repeaters, and builders | Yes, when the relationship changes |
+| Relationship `Repeater` nested inside another relationship `Repeater` (any depth) | Yes; each nested repeater saves its own rows, innermost first |
 | Other `dehydrated(false)` fields | No |
 
 Groups, sections, repeaters, and builders stored in one column are treated as a

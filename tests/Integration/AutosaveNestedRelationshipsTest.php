@@ -13,6 +13,7 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PolymorphicEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubSubItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RelationshipEditPost;
 use Livewire\Livewire;
 
@@ -328,4 +329,111 @@ test('a relationship-only autosave re-baselines the native unsaved-changes alert
     $expected = md5((string) str(json_encode($page->get('data'), JSON_UNESCAPED_UNICODE))->replace('\\', ''));
 
     expect($page->get('savedDataHash'))->toBe($expected)->and($page->get('savedDataHash'))->not->toBe($before);
+});
+
+test('autosave persists a column change inside a nested relationship repeater on an existing row', function () {
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item', 'position' => 1]);
+    $subitem = PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Original']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $itemKey = array_key_first($items);
+    $subitemKey = array_key_first($items[$itemKey]['subitems']);
+
+    $page->set("data.items.{$itemKey}.subitems.{$subitemKey}.label", 'Changed')
+        ->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($subitem->fresh()->label)->toBe('Changed')
+        ->and($item->fresh()->label)->toBe('Item');
+});
+
+test('autosave persists nested changes across several existing rows of a nested relationship repeater', function () {
+    $post = Post::create(['title' => 'Post']);
+    $first = PostItem::create(['post_id' => $post->getKey(), 'label' => 'First', 'position' => 1]);
+    $second = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Second', 'position' => 2]);
+    $firstSub = PostSubItem::create(['post_item_id' => $first->getKey(), 'label' => 'A']);
+    $secondSub = PostSubItem::create(['post_item_id' => $second->getKey(), 'label' => 'B']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    [$firstKey, $secondKey] = array_keys($items);
+    $firstSubKey = array_key_first($items[$firstKey]['subitems']);
+    $secondSubKey = array_key_first($items[$secondKey]['subitems']);
+
+    $page->set("data.items.{$firstKey}.subitems.{$firstSubKey}.label", 'A2')
+        ->set("data.items.{$secondKey}.subitems.{$secondSubKey}.label", 'B2')
+        ->call('autosave');
+
+    expect($firstSub->fresh()->label)->toBe('A2')
+        ->and($secondSub->fresh()->label)->toBe('B2');
+});
+
+test('autosave persists a change three relationship levels deep on existing rows', function () {
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Service', 'position' => 1]);
+    $subitem = PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Group']);
+    $leaf = PostSubSubItem::create([
+        'post_sub_item_id' => $subitem->getKey(), 'label' => 'Option',
+    ]);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $itemKey = array_key_first($items);
+    $subKey = array_key_first($items[$itemKey]['subitems']);
+    $leafKey = array_key_first($items[$itemKey]['subitems'][$subKey]['subsubitems']);
+
+    $page->set("data.items.{$itemKey}.subitems.{$subKey}.subsubitems.{$leafKey}.label", 'Option changed')
+        ->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($leaf->fresh()->label)->toBe('Option changed')
+        ->and($subitem->fresh()->label)->toBe('Group')
+        ->and($item->fresh()->label)->toBe('Service');
+});
+
+test('a new parent row with nested rows is created once, without duplicating its children', function () {
+    $post = Post::create(['title' => 'Post']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $page->set('data.items', [
+        'new-item' => [
+            'label' => 'New service',
+            'position' => 1,
+            'subitems' => [
+                'new-sub' => [
+                    'label' => 'New group',
+                    'subsubitems' => [
+                        'new-leaf' => ['label' => 'New option'],
+                    ],
+                ],
+            ],
+        ],
+    ])->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect(PostItem::query()->where('post_id', $post->getKey())->count())->toBe(1);
+    $item = PostItem::query()->where('post_id', $post->getKey())->first();
+    expect(PostSubItem::query()->where('post_item_id', $item->getKey())->count())->toBe(1);
+    $subitem = PostSubItem::query()->where('post_item_id', $item->getKey())->first();
+    expect(PostSubSubItem::query()
+        ->where('post_sub_item_id', $subitem->getKey())->count())->toBe(1);
+});
+
+test('an unresolved pending relationship is reported as pending instead of silently dropped', function () {
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item', 'position' => 1]);
+    PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Original']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $itemKey = array_key_first($items);
+    $subKey = array_key_first($items[$itemKey]['subitems']);
+
+    // `position` is numeric(); a non-numeric value fails Filament validation
+    // for the whole `items` tree, so the nested edit cannot be written either.
+    $page->set("data.items.{$itemKey}.position", 'not-a-number')
+        ->set("data.items.{$itemKey}.subitems.{$subKey}.label", 'Changed')
+        ->call('autosave')
+        ->assertDispatched('autosave-status', fn (string $event, array $params): bool => in_array('items', $params['pending'] ?? [], true));
 });

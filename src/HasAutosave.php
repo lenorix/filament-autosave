@@ -615,12 +615,26 @@ trait HasAutosave
     {
         $relationships = $this->autosavePendingRelationships;
         $missing = new \stdClass;
+        $forget = [];
 
+        // Read every pending component's state before forgetting anything:
+        // a parent repeater's path holds the whole subtree, so removing it
+        // first would leave nested relationship repeaters (`a.*.b`) with no
+        // state to resolve and they would be dropped, along with the
+        // user's changes, while the cycle still reported "saved".
         foreach ($relationships as $path => $fields) {
             $resolved = false;
 
             foreach ($fields as $field) {
                 $fieldPath = $this->autosaveRelativeFieldPath($field) ?? $path;
+
+                // Only a concrete instance path (`a.record-1.b`) names this
+                // component's own state; data_get() on a wildcard pattern
+                // would hand it a collapsed array of every row.
+                if (str_contains($fieldPath, '*')) {
+                    continue;
+                }
+
                 $state = data_get($data, $fieldPath, $missing);
 
                 if ($state === $missing) {
@@ -634,7 +648,7 @@ trait HasAutosave
                 // A RichEditor is a column whose callback only manages file
                 // attachments, so its content must stay in the column write.
                 if (! $field instanceof RichEditor) {
-                    $this->forgetAutosavePath($data, $fieldPath);
+                    $forget[] = $fieldPath;
                 }
 
                 $resolved = true;
@@ -642,10 +656,26 @@ trait HasAutosave
 
             if (! $resolved) {
                 unset($relationships[$path]);
+                $this->markAutosavePendingFields([AutosaveFieldTree::topLevelKey($path)]);
             }
         }
 
+        foreach ($forget as $fieldPath) {
+            $this->forgetAutosavePath($data, $fieldPath);
+        }
+
         $this->autosavePendingRelationships = $relationships;
+
+        return $relationships;
+    }
+
+    /**
+     * @param  array<string, array<object>>  $relationships
+     * @return array<string, array<object>>
+     */
+    protected function autosaveRelationshipsInnermostFirst(array $relationships): array
+    {
+        uksort($relationships, fn (string $a, string $b): int => substr_count($b, '.') <=> substr_count($a, '.'));
 
         return $relationships;
     }
@@ -668,7 +698,13 @@ trait HasAutosave
 
             $this->persistAutosaveUploadRelationships($uploads);
 
-            foreach ($relationships as $fields) {
+            // Innermost first, the order Filament's own Schema::saveRelationships()
+            // uses. Repeater::saveToRelationship() only recurses into a row's
+            // children when it creates that row, so an existing row's nested
+            // repeater has to save itself; a nested repeater in a row that
+            // does not exist yet bails on its missing record and is then
+            // created by the parent's own recursion, never twice.
+            foreach ($this->autosaveRelationshipsInnermostFirst($relationships) as $fields) {
                 foreach ($fields as $field) {
                     $field->saveRelationships();
                 }

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fix nested relationship repeaters (a relationship `Repeater` inside another
+  relationship `Repeater`, at any depth) losing their changes on autosave while
+  still reporting "saved". The parent's subtree was removed from the payload
+  before the nested repeaters were resolved, so they were dropped, and Filament's
+  `Repeater::saveToRelationship()` does not recurse into existing rows.
+  Pending relationships are now resolved before any path is forgotten, saved
+  innermost first (as Filament's own `Schema::saveRelationships()` does), and
+  a relationship that still cannot be resolved is reported as a pending field.
 - Keep per-field hashes across Livewire requests for `dirty_only`, without storing
   original form values. Reset after successful explicit saves and Undo; retain
   pending fields when validation or persistence skips them.

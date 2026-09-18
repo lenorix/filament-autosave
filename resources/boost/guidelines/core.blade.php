@@ -118,6 +118,12 @@ Edit autosave uses Filament's dehydrated state and runs
 `beforeStateDehydrated()` callbacks. Fields with `saveRelationships()` callbacks
 (including multi-select relationships, Repeater relationships, nested
 containers, and RichEditor attachments) are saved when their raw state changes.
+Relationship repeaters nested inside other relationship repeaters are resolved
+before any parent path is removed from the payload and saved innermost first,
+so a change deep in an existing row is written by that row's own repeater
+(Filament's `Repeater::saveToRelationship()` only recurses when it creates a
+row). A pending relationship that cannot be resolved is listed as pending
+rather than dropped.
 A `RichEditor` is always written as a column; its `saveRelationships()`
 callback only manages file attachments and runs in addition, so a plain editor
 without an attachment provider keeps its content and Undo.

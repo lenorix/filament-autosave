@@ -68,6 +68,12 @@ abstract class IntegrationTestCase extends TestCase
             $table->string('label');
         });
 
+        Schema::create('post_sub_sub_items', function ($table) {
+            $table->id();
+            $table->foreignId('post_sub_item_id');
+            $table->string('label');
+        });
+
         Filament::setCurrentPanel('admin');
     }
 
