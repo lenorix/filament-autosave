@@ -15,6 +15,7 @@ class DeepRelationshipPostResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
+            TextInput::make('title'),
             Repeater::make('items')
                 ->relationship('items')
                 ->schema([

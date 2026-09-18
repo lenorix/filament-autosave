@@ -670,6 +670,50 @@ trait HasAutosave
     }
 
     /**
+     * Re-read the pending components from the live form tree right before
+     * they are saved.
+     *
+     * A page hook that runs Filament's own save path -- typically a
+     * `handleRecordUpdate()` calling `$this->form->getState()`, as translatable
+     * Edit-page concerns do -- already persists the relationships, rebuilds
+     * every repeater's child schemas and re-keys the rows it created to
+     * `record-{id}`. The component instances captured before that hook keep
+     * a record cache from before those rows existed, so saving through them
+     * would create the same rows a second time. Instances taken from the
+     * current tree see the re-keyed state and update instead. Without such a
+     * hook the fresh instances resolve to the same state, so nothing changes.
+     *
+     * @param  array<string, array<object>>  $relationships
+     * @return array<string, array<object>>
+     */
+    protected function refreshAutosavePendingRelationships(array $relationships): array
+    {
+        $this->autosaveFieldsCache = null;
+        $live = $this->autosaveRelationshipFields();
+
+        foreach (array_keys($relationships) as $path) {
+            if (isset($live[$path])) {
+                $relationships[$path] = $live[$path];
+            }
+
+            // Filament fills a repeater's existing-record cache while building
+            // its child schemas, which can predate rows the hook just created.
+            // saveToRelationship() treats any state key missing from that
+            // cache as a row to create, so drop it and let it re-read the
+            // relationship as it stands now.
+            foreach ($relationships[$path] as $field) {
+                if (method_exists($field, 'clearCachedExistingRecords')) {
+                    $field->clearCachedExistingRecords();
+                }
+            }
+        }
+
+        $this->autosavePendingRelationships = $relationships;
+
+        return $relationships;
+    }
+
+    /**
      * @param  array<string, array<object>>  $relationships
      * @return array<string, array<object>>
      */
@@ -704,6 +748,8 @@ trait HasAutosave
             // repeater has to save itself; a nested repeater in a row that
             // does not exist yet bails on its missing record and is then
             // created by the parent's own recursion, never twice.
+            $relationships = $this->refreshAutosavePendingRelationships($relationships);
+
             foreach ($this->autosaveRelationshipsInnermostFirst($relationships) as $fields) {
                 foreach ($fields as $field) {
                     $field->saveRelationships();

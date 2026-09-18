@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fix newly added relationship rows being created twice when the page's
+  `handleRecordUpdate()` already runs Filament's own save path (any hook calling
+  `$this->form->getState()`, such as translatable Edit-page concerns). That path
+  persists relationships, rebuilds repeater child schemas and re-keys created
+  rows to `record-{id}`, but the components captured earlier kept a stale
+  existing-record cache and re-created the same rows on the innermost-first
+  pass. Pending relationship components are now re-read from the live form and
+  their record caches cleared right before they are saved.
 - Fix nested relationship repeaters (a relationship `Repeater` inside another
   relationship `Repeater`, at any depth) losing their changes on autosave while
   still reporting "saved". The parent's subtree was removed from the payload

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Lenorix\FilamentAutosave\HasAutosave;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
@@ -436,4 +437,102 @@ test('an unresolved pending relationship is reported as pending instead of silen
         ->set("data.items.{$itemKey}.subitems.{$subKey}.label", 'Changed')
         ->call('autosave')
         ->assertDispatched('autosave-status', fn (string $event, array $params): bool => in_array('items', $params['pending'] ?? [], true));
+});
+
+/**
+ * Mirrors translatable Edit-page concerns (lara-zeus/spatie-translatable,
+ * Filament's own): their handleRecordUpdate() calls $this->form->getState(),
+ * which is Filament's full save path and persists relationships itself.
+ */
+class RelationshipSavingHookEditPost extends DeepRelationshipEditPost
+{
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        $this->form->fill($this->form->getState());
+
+        return parent::handleRecordUpdate($record, $data);
+    }
+}
+
+test('a new nested row is created once when handleRecordUpdate() already saves the form relationships', function () {
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item', 'position' => 1]);
+    PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Existing']);
+
+    $page = Livewire::test(RelationshipSavingHookEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $itemKey = array_key_first($items);
+    $subitems = $items[$itemKey]['subitems'];
+    $subitems['new-row'] = ['label' => 'Added', 'subsubitems' => []];
+
+    // A full write: the column changes too, so handleRecordUpdate() runs
+    // alongside the relationship pass.
+    $page->set('data.title', 'Changed')
+        ->set("data.items.{$itemKey}.subitems", $subitems)
+        ->call('flushAutosave');
+
+    expect(PostSubItem::query()->where('post_item_id', $item->getKey())->pluck('label')->sort()->values()->all())
+        ->toBe(['Added', 'Existing']);
+});
+
+test('a new top-level row is created once when handleRecordUpdate() already saves the form relationships', function () {
+    $post = Post::create(['title' => 'Post']);
+    PostItem::create(['post_id' => $post->getKey(), 'label' => 'Existing', 'position' => 1]);
+
+    $page = Livewire::test(RelationshipSavingHookEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $items['new-row'] = ['label' => 'Added', 'position' => 2, 'subitems' => []];
+
+    $page->set('data.title', 'Changed')
+        ->set('data.items', $items)
+        ->call('flushAutosave');
+
+    expect(PostItem::query()->where('post_id', $post->getKey())->pluck('label')->sort()->values()->all())
+        ->toBe(['Added', 'Existing']);
+});
+
+test('a relationship-saving handleRecordUpdate() does not duplicate nested rows on a full-payload write either', function () {
+    config(['filament-autosave.dirty_only' => false]);
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item', 'position' => 1]);
+    PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Existing']);
+
+    $page = Livewire::test(RelationshipSavingHookEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $itemKey = array_key_first($items);
+    $subitems = $items[$itemKey]['subitems'];
+    $subitems['new-row'] = ['label' => 'Added', 'subsubitems' => []];
+
+    $page->set("data.items.{$itemKey}.subitems", $subitems)->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect(PostSubItem::query()->where('post_item_id', $item->getKey())->pluck('label')->sort()->values()->all())
+        ->toBe(['Added', 'Existing']);
+
+    // A second, unchanged cycle must not re-create anything.
+    $page->call('autosave');
+    expect(PostSubItem::query()->where('post_item_id', $item->getKey())->count())->toBe(2);
+});
+
+test('a relationship-saving handleRecordUpdate() still lets a nested edit on an existing row be written once', function () {
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item', 'position' => 1]);
+    $subitem = PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Original']);
+    $updates = 0;
+    PostSubItem::updated(function () use (&$updates): void {
+        $updates++;
+    });
+
+    $page = Livewire::test(RelationshipSavingHookEditPost::class, ['record' => $post->getKey()]);
+    $items = $page->get('data.items');
+    $itemKey = array_key_first($items);
+    $subKey = array_key_first($items[$itemKey]['subitems']);
+
+    $page->set('data.title', 'Changed')
+        ->set("data.items.{$itemKey}.subitems.{$subKey}.label", 'Edited')
+        ->call('flushAutosave');
+
+    expect($subitem->fresh()->label)->toBe('Edited')
+        ->and(PostSubItem::query()->where('post_item_id', $item->getKey())->count())->toBe(1)
+        ->and($updates)->toBe(1);
 });
