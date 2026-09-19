@@ -31,8 +31,10 @@ class AutosaveStore
     /**
      * Round-trip values through JSON so dates and enums become plain scalars.
      *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
+     * @template TSnapshot of array<array-key, mixed>
+     *
+     * @param  TSnapshot  $data
+     * @return TSnapshot
      */
     public static function normalizeScalars(array $data): array
     {

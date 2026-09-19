@@ -60,7 +60,11 @@ trait HasAutosaveBase
     #[Locked]
     public string $autosaveDataPath = 'data';
 
-    /** Validation failures remain visible while valid sibling fields save. */
+    /**
+     * Validation failures remain visible while valid sibling fields save.
+     *
+     * @var array<string, array<int, string>>
+     */
     #[Locked]
     public array $autosaveValidationErrors = [];
 
@@ -137,7 +141,11 @@ trait HasAutosaveBase
         $this->dispatchAutosaveStatus(AutosaveStatus::Idle);
     }
 
-    /** Push one of the small autosave status events to the frontend. */
+    /**
+     * Push one of the small autosave status events to the frontend.
+     *
+     * @param  array<string, mixed>  $extra
+     */
     protected function dispatchAutosaveStatus(AutosaveStatus $status, array $extra = []): void
     {
         // ->self(): the indicator listens with $wire.$on() inside this
@@ -168,6 +176,8 @@ trait HasAutosaveBase
      * (a relation manager, a bare form) cannot supply a real
      * `Filament\Resources\Pages\Page`, so the payload falls back to
      * Filament's own convention for parity, with the same caveat.
+     *
+     * @param  array<string, mixed>  $data
      */
     protected function dispatchAutosaveRecordEvents(object $record, array $data): void
     {
@@ -229,7 +239,11 @@ trait HasAutosaveBase
         return $data;
     }
 
-    /** Return the snapshot hash to keep after a successful write. */
+    /**
+     * Return the snapshot hash to keep after a successful write.
+     *
+     * @param  array<string, mixed>  $written
+     */
     protected function autosaveSuccessSnapshotHash(array $written): string
     {
         return $this->currentAutosaveSnapshotHash();
@@ -587,7 +601,11 @@ trait HasAutosaveBase
         return $this->autosaveHaltCommitted && $this->autosaveWrittenPaths !== [];
     }
 
-    /** Acknowledge the write: snapshot hash, staged uploads, cycle flag. */
+    /**
+     * Acknowledge the write: snapshot hash, staged uploads, cycle flag.
+     *
+     * @param  array<string, mixed>  $written
+     */
     protected function autosaveCommitPhase(array $written): void
     {
         $this->autosaveSnapshotHash = $this->autosaveSuccessSnapshotHash($written);
@@ -595,7 +613,11 @@ trait HasAutosaveBase
         $this->autosaveCycleWrote = true;
     }
 
-    /** Tell listeners and the indicator what happened. */
+    /**
+     * Tell listeners and the indicator what happened.
+     *
+     * @param  array<string, mixed>  $written
+     */
     protected function autosaveReportPhase(array $written): void
     {
         Event::dispatch(new AutosaveSaved(
@@ -698,7 +720,11 @@ trait HasAutosaveBase
         Event::dispatch(new AutosaveConflict($this, $this->autosaveEventRecord()));
     }
 
-    /** Allow Edit pages to put hooks, writes, and events in one transaction. */
+    /**
+     * Allow Edit pages to put hooks, writes, and events in one transaction.
+     *
+     * @param  array<string, mixed>  $data
+     */
     protected function runAutosavePersistence(callable $persist, array $data): mixed
     {
         return $persist($data);
@@ -819,7 +845,11 @@ trait HasAutosaveBase
 
     protected function commitAutosaveStoredUploads(): void {}
 
-    /** Whether the payload is empty and nothing else waits to be persisted. */
+    /**
+     * Whether the payload is empty and nothing else waits to be persisted.
+     *
+     * @param  array<string, mixed>  $data
+     */
     protected function autosaveHasNothingToPersist(array $data): bool
     {
         return empty($data) && ! $this->hasPendingAutosavePersistence();
@@ -1228,7 +1258,7 @@ trait HasAutosaveBase
 
         $this->autosaveValidationErrors = $errors;
         $this->autosaveValidationKeys = array_map(strval(...), array_keys($errors));
-        $this->autosavePendingFields = array_values(array_map(strval(...), array_keys($errors)));
+        $this->autosavePendingFields = array_map(strval(...), array_keys($errors));
     }
 
     protected function autosaveValidationLabel(string $key): string
@@ -1361,8 +1391,10 @@ trait HasAutosaveBase
     /**
      * Turn dates and enums into scalars without losing JSON-cast arrays.
      *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
+     * @template TSnapshot of array<array-key, mixed>
+     *
+     * @param  TSnapshot  $data
+     * @return TSnapshot
      */
     protected function normalizeUndoSnapshot(array $data): array
     {
@@ -1445,7 +1477,10 @@ trait HasAutosaveBase
         };
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  MorphTo<Model, Model>  $relation
+     * @return array<string, mixed>
+     */
     protected function captureMorphToAttributes(MorphTo $relation): array
     {
         $parent = $relation->getParent();
@@ -1458,7 +1493,10 @@ trait HasAutosaveBase
         ]);
     }
 
-    /** @return array<int, array<string, mixed>> */
+    /**
+     * @param  BelongsToMany<Model, Model>  $relation
+     * @return array<int, array<string, mixed>>
+     */
     protected function captureBelongsToManyRows(BelongsToMany $relation): array
     {
         $rows = [];
@@ -1473,7 +1511,10 @@ trait HasAutosaveBase
         return $this->normalizeUndoSnapshot($rows);
     }
 
-    /** @return array<int, array<string, mixed>> */
+    /**
+     * @param  HasOneOrMany<Model, Model, mixed>|HasOneOrManyThrough<Model, Model, Model, mixed>  $relation
+     * @return array<int, array<string, mixed>>
+     */
     protected function captureHasManyRows(HasOneOrMany|HasOneOrManyThrough $relation): array
     {
         $rows = $relation->get()->map(function ($related): array {
@@ -1488,6 +1529,18 @@ trait HasAutosaveBase
         })->all();
 
         return $this->normalizeUndoSnapshot($rows);
+    }
+
+    /**
+     * Relationship fields keyed by state path, with their component instances.
+     * Edit pages and record-backed generic forms provide the real map; a
+     * draft-only host has none.
+     *
+     * @return array<string, array<int, object>>
+     */
+    protected function autosaveRelationshipFields(): array
+    {
+        return [];
     }
 
     /** @param  array<string, array<string, mixed>>  $snapshot */
@@ -1514,7 +1567,10 @@ trait HasAutosaveBase
         }
     }
 
-    /** @param array<string, mixed> $attributes */
+    /**
+     * @param  MorphTo<Model, Model>  $relation
+     * @param  array<string, mixed>  $attributes
+     */
     protected function restoreMorphToUndo(MorphTo $relation, array $attributes): void
     {
         if ($attributes !== []) {
@@ -1522,7 +1578,10 @@ trait HasAutosaveBase
         }
     }
 
-    /** @param array<int, array<string, mixed>> $rows */
+    /**
+     * @param  BelongsToMany<Model, Model>  $relation
+     * @param  array<int, array<string, mixed>>  $rows
+     */
     protected function restoreBelongsToManyUndo(BelongsToMany $relation, array $rows): void
     {
         $ids = [];
@@ -1535,6 +1594,7 @@ trait HasAutosaveBase
     }
 
     /**
+     * @param  HasOneOrManyThrough<Model, Model, Model, mixed>  $relation
      * @param  array<int, array<string, mixed>>  $rows
      */
     protected function restoreHasManyThroughUndo(HasOneOrManyThrough $relation, array $rows): void
@@ -1555,7 +1615,10 @@ trait HasAutosaveBase
         }
     }
 
-    /** @param array<int, array<string, mixed>> $rows */
+    /**
+     * @param  HasOneOrMany<Model, Model, mixed>  $relation
+     * @param  array<int, array<string, mixed>>  $rows
+     */
     protected function restoreHasManyUndo(HasOneOrMany $relation, array $rows): void
     {
         $related = $relation->getRelated();
@@ -1574,6 +1637,8 @@ trait HasAutosaveBase
      * Fetch every row currently on the relation in one query. Undo reuses it
      * both to find rows to delete and, keyed by primary key, to update rows
      * that survived instead of issuing a `whereKey()` lookup per row.
+     *
+     * @return Collection<string, object>
      */
     protected function autosaveCurrentRelatedRows(object $relation): Collection
     {
@@ -1582,7 +1647,10 @@ trait HasAutosaveBase
         );
     }
 
-    /** @param array<string, mixed> $attributes */
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @param  Collection<string, object>|null  $existing
+     */
     protected function restoreAutosaveRelatedModel(object $related, array $attributes, string $keyName, ?Collection $existing = null): object
     {
         $key = (string) ($attributes[$keyName] ?? '');
@@ -1595,6 +1663,7 @@ trait HasAutosaveBase
     /**
      * Delete current rows that were not part of the original snapshot.
      *
+     * @param  Collection<string, object>  $current
      * @param  array<string, array<string, mixed>>  $original
      */
     protected function deleteAutosaveRowsMissingFrom(Collection $current, array $original): void
@@ -1917,13 +1986,11 @@ trait HasAutosaveBase
         // mergeable, it refills like any other column.
         $mergeable = $this->autosaveMergeablePaths();
 
-        if (method_exists($this, 'autosaveRelationshipFields')) {
-            foreach (array_keys($this->autosaveRelationshipFields()) as $path) {
-                $top = AutosaveFieldTree::topLevelKey((string) $path);
+        foreach (array_keys($this->autosaveRelationshipFields()) as $path) {
+            $top = AutosaveFieldTree::topLevelKey((string) $path);
 
-                if (! isset($mergeable[$top]) || ! $this->autosaveMergeComponent($top) instanceof RichEditor) {
-                    $skip[$top] = true;
-                }
+            if (! isset($mergeable[$top]) || ! $this->autosaveMergeComponent($top) instanceof RichEditor) {
+                $skip[$top] = true;
             }
         }
 

@@ -98,6 +98,7 @@ trait HasAutosave
      *
      * @param  array<string, mixed>  $data
      * @param  array<string, mixed>  $formValues
+     * @return array<string, mixed>
      */
     protected function filterAutosavePayload(array $data, array $formValues = []): array
     {
@@ -154,6 +155,8 @@ trait HasAutosave
     /**
      * Filament's partial refresh applies casts and fill hooks like a normal
      * fill, but cannot carry an array attribute; those are filled whole.
+     *
+     * @param  array<int, string>  $paths
      */
     protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void
     {
@@ -298,7 +301,11 @@ trait HasAutosave
         return $this->hasPendingAutosaveUploadsPersistence() || $this->autosavePendingRelationships !== [];
     }
 
-    /** Only acknowledge fields the persistence callback actually wrote. */
+    /**
+     * Only acknowledge fields the persistence callback actually wrote.
+     *
+     * @param  array<string, mixed>  $written
+     */
     protected function autosaveSuccessSnapshotHash(array $written): string
     {
         $current = $this->prepareAutosavePayload($this->getAutosaveData());
@@ -667,6 +674,8 @@ trait HasAutosave
      * hook the fresh instances resolve to the same state, so nothing changes.
      *
      * @param  array<string, array<object>>  $relationships
+     * @param  array<string, mixed>  $pending
+     * @param  array<string, array<string, mixed>>  $fingerprints
      * @return array<string, array<object>>
      */
     protected function refreshAutosavePendingRelationships(array $relationships, array $pending = [], array $fingerprints = []): array
@@ -884,6 +893,8 @@ trait HasAutosave
      * An unresolved relationship never reaches `$autosavePendingRelationships`
      * (see `resolvePendingAutosaveRelationships()`), so only what was actually
      * saved is included here.
+     *
+     * @param  array<string, mixed>  $covered
      */
     protected function includeWrittenAutosaveRelationships(array &$covered): void
     {
@@ -1037,7 +1048,11 @@ trait HasAutosave
         $undo->replace(AutosaveUndo::VALUES, $values);
     }
 
-    /** Store the values written by this autosave for optimistic Undo checks. */
+    /**
+     * Store the values written by this autosave for optimistic Undo checks.
+     *
+     * @param  array<int, string>  $fieldKeys
+     */
     protected function storeUndoExpectedSnapshot(array $fieldKeys): void
     {
         $record = $this->getRecord();
@@ -1108,6 +1123,8 @@ trait HasAutosave
     /**
      * RichEditor providers and uploads inside relationship rows can delete or
      * create files outside the DB transaction.
+     *
+     * @param  array<string, array<object>>  $relationships
      */
     protected function autosaveRelationshipsHaveFilePersistence(array $relationships): bool
     {
@@ -1171,7 +1188,11 @@ trait HasAutosave
             .($suffix ? ":{$suffix}" : '');
     }
 
-    /** Read an undo snapshot only when this page load still owns the feature. */
+    /**
+     * Read an undo snapshot only when this page load still owns the feature.
+     *
+     * @return array<string, mixed>|null
+     */
     protected function autosaveUndoCached(string $part): ?array
     {
         return $this->autosaveCanUndo ? $this->autosaveUndo()->get($part) : null;
@@ -1225,9 +1246,9 @@ trait HasAutosave
         }
     }
 
-    protected function autosaveWithinTransaction(callable $write): void
+    protected function autosaveWithinTransaction(callable $write): mixed
     {
-        $this->autosaveWithinDatabaseTransaction($write);
+        return $this->autosaveWithinDatabaseTransaction($write);
     }
 
     protected function autosaveEventRecord(): ?object

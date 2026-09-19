@@ -4,4 +4,27 @@ includes:
 parameters:
     paths:
         - src
+        # Analysis-only hosts that `use` each trait so trait bodies are analysed.
+        - tests/Support/Phpstan
     level: 6
+    ignoreErrors:
+        # The traits are generic over their host (Edit page, Create page, plain
+        # Livewire component). Analysed inside one concrete host, every
+        # `method_exists($this, …)` / `$this instanceof …` guard for an
+        # optional host feature is either always true or always false; the
+        # guards are the point, so the narrowing reports are not defects.
+        -
+            identifiers:
+                - function.alreadyNarrowedType
+                - function.impossibleType
+                - booleanNot.alwaysFalse
+                - booleanAnd.leftAlwaysTrue
+                - notIdentical.alwaysTrue
+                - nullsafe.neverNull
+            paths:
+                - src/HasAutosave*.php
+        # Filament's transaction helpers exist only on panel pages; the trait
+        # calls them behind `autosavePanelOwnsDatabaseTransactions()`.
+        -
+            message: '#Call to an undefined method .*::(begin|commit|rollBack)DatabaseTransaction\(\)#'
+            path: src/HasAutosaveBase.php

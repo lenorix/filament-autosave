@@ -108,6 +108,8 @@ trait HasAutosaveForForm
     /**
      * Background entry point: never throws, reports through the indicator.
      *
+     * @param  array<string, string|array{base: string, ours: string}>  $mergePatches  Per mergeable field, a diff-match-patch patch of the browser's change (or the base it started from). See HasAutosaveMerge.
+     *
      * @api
      */
     public function autosave(array $mergePatches = []): void
@@ -164,7 +166,11 @@ trait HasAutosaveForForm
         return $this->hasPendingAutosaveUploadsPersistence();
     }
 
-    /** Capture provider-managed media around the generic form lifecycle too. */
+    /**
+     * Capture provider-managed media around the generic form lifecycle too.
+     *
+     * @return array<string, mixed>
+     */
     protected function getAutosaveData(): array
     {
         $this->captureAutosaveExternalMediaBaseline();
@@ -177,6 +183,7 @@ trait HasAutosaveForForm
     /**
      * Fold relationship component state into the payload being persisted.
      *
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     protected function mergeAutosaveRelationshipState(array $data): array
@@ -239,6 +246,7 @@ trait HasAutosaveForForm
      * when the component owns a custom action lifecycle or side effects.
      *
      * @param  array<string, mixed>  $data
+     * @return bool|array<string, mixed> `false` skips the write, an array replaces what is acknowledged as written.
      *
      * @api
      */
@@ -420,6 +428,8 @@ trait HasAutosaveForForm
      * event class, an error the autosave failure handler swallows, silently
      * rolling back the whole write. These events are Edit-page only; use
      * `afterAutosave()` or the package's own hooks here instead.
+     *
+     * @param  array<string, mixed>  $data
      */
     protected function dispatchAutosaveRecordEvents(object $record, array $data): void {}
 
@@ -505,7 +515,11 @@ trait HasAutosaveForForm
         $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
     }
 
-    /** Generic components have no refreshFormData(); fill the schema partially. */
+    /**
+     * Generic components have no refreshFormData(); fill the schema partially.
+     *
+     * @param  array<int, string>  $paths
+     */
     protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void
     {
         $attributes = $record->attributesToArray();
@@ -716,6 +730,7 @@ trait HasAutosaveForForm
         return $this->autosaveUndo()->key($part);
     }
 
+    /** @param  array<string, mixed>  $value */
     protected function putAutosaveFormUndo(string $part, array $value): void
     {
         $this->autosaveUndo()->put($part, $value);
@@ -771,7 +786,10 @@ trait HasAutosaveForForm
         return $relationships;
     }
 
-    /** @param array<string, mixed> $data @return array<string, array<string, mixed>> */
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, array<string, mixed>>
+     */
     protected function captureAutosaveFormRelationshipUndo(array $data): array
     {
         return $this->captureAutosaveRelationshipUndoFields($this->autosaveFormDirtyRelationshipFields($data));
@@ -810,6 +828,7 @@ trait HasAutosaveForForm
         );
     }
 
+    /** @param  array<string, mixed>  $fallback */
     protected function fillAutosaveFormFromRecord(Model $record, array $fallback): void
     {
         $form = $this->resolveAutosaveForm();
@@ -928,6 +947,7 @@ trait HasAutosaveForForm
      *
      * @param  array<string, mixed>  $data
      * @param  array<string, mixed>  $formValues
+     * @return array<string, mixed>
      */
     protected function filterAutosaveFormPayload(array $data, array $formValues = []): array
     {
@@ -997,7 +1017,7 @@ trait HasAutosaveForForm
             return;
         }
 
-        $touched = array_flip(array_map(AutosaveFieldTree::topLevelKey(...), [...array_keys($data), ...array_keys($uploads)]));
+        $touched = array_fill_keys(array_map(AutosaveFieldTree::topLevelKey(...), [...array_keys($data), ...array_keys($uploads)]), true);
 
         if ($touched !== []) {
             $this->saveAutosaveTouchedRelationships($form, $touched);
