@@ -481,3 +481,44 @@ test('a block moved by one side and deleted by the other is an overlap resolved 
         ->and($theirsMoved->conflicts)->toHaveCount(1)
         ->and(richHtml($theirsMoved->conflicts[0]['theirs']))->toBe('<img src="/a.png" alt="A" data-id="att/a.png">');
 })->with($formats);
+
+test('a long paragraph edited at both ends merges in linear memory', function (string $format) {
+    $words = implode(' ', array_map(static fn (int $i): string => "word{$i}", range(1, 2000)));
+    $base = "<p>{$words}</p>";
+    $ours = "<p>first {$words}</p>";
+    $theirs = "<p>{$words} last</p>";
+
+    $before = memory_get_peak_usage();
+    $result = mergeRich($format, $base, $ours, $theirs);
+    $peak = memory_get_peak_usage() - $before;
+
+    expect(richHtml($result->value))->toBe("<p>first {$words} last</p>")
+        ->and($result->conflicts)->toBe([])
+        ->and($peak)->toBeLessThan(64 * 1024 * 1024);
+})->with($formats);
+
+test('two long paragraphs reordered align without a quadratic word table', function (string $format) {
+    $a = implode(' ', array_map(static fn (int $i): string => "alpha{$i}", range(1, 600)));
+    $b = implode(' ', array_map(static fn (int $i): string => "beta{$i}", range(1, 600)));
+    $base = "<p>{$a}</p><p>{$b}</p>";
+    $ours = "<p>{$b}</p><p>{$a}</p>";
+    $theirs = "<p>{$a}</p><p>{$b} tail</p>";
+
+    $before = memory_get_peak_usage();
+    $result = mergeRich($format, $base, $ours, $theirs);
+    $peak = memory_get_peak_usage() - $before;
+
+    expect(richHtml($result->value))->toBe("<p>{$b} tail</p><p>{$a}</p>")
+        ->and($result->conflicts)->toBe([])
+        ->and($peak)->toBeLessThan(64 * 1024 * 1024);
+})->with($formats);
+
+test('a document parsed from HTML with custom block config is canonical in JSON form', function () {
+    $html = '<p>a</p><div data-type="customBlock" data-id="cta" data-config="{&quot;label&quot;:&quot;Buy&quot;}"></div>';
+    $engine = richMerge('json');
+    $parsed = RichMergeEditor::make()->setContent($html)->getDocument();
+
+    expect($engine->isCanonical($parsed))->toBeTrue()
+        ->and($engine->isCanonical($engine->canonical($parsed)))->toBeTrue()
+        ->and($engine->isCanonical(json_decode((string) json_encode($parsed), true)))->toBeTrue();
+});
