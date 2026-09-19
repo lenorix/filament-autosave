@@ -67,6 +67,8 @@ test('an idle poll adds exactly one query on a plain form', function () {
 });
 
 test('an idle poll adds exactly one query on a relationship-heavy form and never a relationship query', function () {
+    config(['filament-autosave.poll_relationships' => false]);
+
     $post = Post::create(['title' => 'Original']);
     $page = Livewire::test(RelationshipEditPost::class, ['record' => $post->getKey()]);
 

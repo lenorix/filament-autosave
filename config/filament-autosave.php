@@ -32,9 +32,10 @@ return [
     // UNION. A relation whose rows have no timestamps is re-read on every
     // poll instead. Nested relationship repeaters are refreshed with their
     // parent; a change in a nested row alone is noticed only when the parent
-    // row is touched ($touches). Off by default: forms with many relations
-    // pay for it on every poll.
-    'poll_relationships' => false,
+    // row is touched ($touches). On by default: the extra query is one per
+    // poll no matter how many relations the form has. Set to false if a
+    // form's poll cost must stay column-only.
+    'poll_relationships' => true,
 
     // Top-level text fields whose concurrent edits are merged instead of
     // last-write-wins: TextInput, Textarea and MarkdownEditor word by word

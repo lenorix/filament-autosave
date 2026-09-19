@@ -356,21 +356,22 @@ A poll:
   `refreshed`, `stale`) and in the `AutosaveSynced` package event;
 - stays quiet when nothing changed, so an idle page never flickers.
 
-By default that's columns only. Turn on `poll_relationships` and the same
-rules also cover relationship repeaters, relation selects, upload columns and
-Spatie media collections: a clean one refills exactly as it would on page
+That covers relationship repeaters, relation selects, upload columns and
+Spatie media collections too: a clean one refills exactly as it would on page
 load, a dirty one is reported `stale` instead. Detecting a change costs one
 extra query per poll, no matter how many relations the form has — a `count()`
 and the latest `updated_at` for each, in a single query — except a relation
 whose rows carry no timestamps, which is re-read on every poll since nothing
 cheaper can tell an edit apart. A nested repeater refreshes with its parent; an
 edit to only a nested row is noticed once the parent row's own timestamp moves.
+Turn it off with `poll_relationships` if a form's poll cost must stay
+column-only:
 
 ```php
-AutosavePlugin::make()->pollRelationships();
+AutosavePlugin::make()->pollRelationships(false);
 
 // or in config/filament-autosave.php
-'poll_relationships' => true,
+'poll_relationships' => false,
 ```
 
 A poll never writes to the database, never touches Undo snapshots, and never

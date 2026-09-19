@@ -2,17 +2,16 @@
 
 ## Unreleased
 
-- Polling can now refresh relationship repeaters, relation selects, upload
-  columns and Spatie media too, opt-in with `poll_relationships`
-  (`AutosavePlugin::pollRelationships()`), off by default. A clean field
-  refills exactly like a page load; a field you're editing is reported
-  `stale` instead. Detection is one extra query per poll no matter how many
-  relations the form has (a UNION of `count()` + latest `updated_at` per
-  relation), except a relation whose rows have no timestamps, which is
-  re-read every poll. Also fixed on the way: the `updated_at` fast path
-  compared a cast `Carbon` against the raw stored string and so never
-  matched on a timestamped model, making every idle poll re-read the whole
-  record.
+- Polling now also refreshes relationship repeaters, relation selects, upload
+  columns and Spatie media, on by default (`poll_relationships`,
+  `AutosavePlugin::pollRelationships()`). A clean field refills exactly like
+  a page load; a field you're editing is reported `stale` instead. Detection
+  is one extra query per poll no matter how many relations the form has (a
+  UNION of `count()` + latest `updated_at` per relation), except a relation
+  whose rows have no timestamps, which is re-read every poll. Also fixed on
+  the way: the `updated_at` fast path compared a cast `Carbon` against the
+  raw stored string and so never matched on a timestamped model, making
+  every idle poll re-read the whole record.
 
 - The browser flushes an edit still waiting on its debounce when the tab is
   hidden or the page is being left (`beforeunload`, request sent with

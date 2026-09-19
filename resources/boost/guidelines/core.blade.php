@@ -207,7 +207,7 @@ it relies on the same refill. Same eligibility rule as the
 post-save refresh, shared in `HasAutosaveBase` (`autosaveRefreshablePaths`,
 `refillAutosavePaths`): never relationships, uploads, excluded or dirty fields.
 A dirty field that also changed remotely is reported as `stale` and left
-alone. `poll_relationships` (default false; plugin `pollRelationships()`)
+alone. `poll_relationships` (default true; plugin `pollRelationships()`)
 extends the same refill/stale rule to relationship repeaters, relation
 selects, upload columns and Spatie media, via `autosavePolledRelationFields`,
 `autosaveChangedRelationPaths` (one UNION detector query: count + max
