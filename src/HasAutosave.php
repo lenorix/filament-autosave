@@ -530,6 +530,7 @@ trait HasAutosave
         $this->autosaveWrittenFieldHashes = $this->hashAutosaveFields(array_intersect_key(
             $this->prepareAutosavePayload($this->getAutosaveData()), $data,
         ));
+        $this->autosaveWrittenPaths = array_keys($data + $uploads + $relationships);
 
         // Merged columns come back with the value actually stored; a column
         // left contended is dropped so nothing acknowledges the user's text.
@@ -1205,14 +1206,20 @@ trait HasAutosave
         } catch (\Throwable $e) {
             // A failed commit must never leave a notification queued for a
             // later request.
+            $this->clearQueuedAutosaveNotification();
+
+            // A Halt that kept the transaction committed the write: its
+            // hashes and Undo snapshot are valid, only the report is quiet.
+            if ($this->autosaveHaltCommittedWrite()) {
+                throw $e;
+            }
+
             $this->autosaveFieldHashes = $fieldHashes;
             $this->autosaveSnapshotHash = $snapshotHash;
 
             if ($this->autosaveUndoPrepared) {
                 $this->resetAutosaveUndo();
             }
-
-            $this->clearQueuedAutosaveNotification();
 
             throw $e;
         }

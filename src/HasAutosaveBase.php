@@ -81,6 +81,18 @@ trait HasAutosaveBase
 
     protected bool $autosaveCycleWrote = false;
 
+    /**
+     * Top-level paths the current cycle handed to the record write, set right
+     * before it. A Halt raised after that point, with Filament's default of
+     * keeping the transaction, has committed these.
+     *
+     * @var array<int, string>
+     */
+    protected array $autosaveWrittenPaths = [];
+
+    /** Whether the transaction wrapper committed on a Halt instead of rolling back. */
+    protected bool $autosaveHaltCommitted = false;
+
     /** Notifications are sent only after the surrounding write commits. */
     protected bool $autosaveNotificationPending = false;
 
@@ -407,12 +419,20 @@ trait HasAutosaveBase
     {
         $this->autosaveCycleActive = true;
         $this->autosaveCycleWrote = false;
+        $this->autosaveWrittenPaths = [];
+        $this->autosaveHaltCommitted = false;
         $this->resetAutosaveMergeReport();
 
         try {
             $this->runAutosaveCycle(fn () => $this->performAutosave($persist));
         } catch (Halt $e) {
-            $this->discardAutosaveStoredUploads();
+            // Halt's default keeps the transaction: a Halt raised after the
+            // write (an afterSave hook) has committed the columns, so the
+            // files they point at must stay and the write be acknowledged,
+            // or the next cycle rewrites it and the column names a deleted file.
+            $this->autosaveHaltCommittedWrite()
+                ? $this->autosaveCommitPhase([])
+                : $this->discardAutosaveStoredUploads();
             $this->dispatchAutosaveIdle();
 
             if ($this->autosaveThrows) {
@@ -561,6 +581,12 @@ trait HasAutosaveBase
         return is_array($written) ? $written : $data;
     }
 
+    /** A Halt after the record write, with the transaction kept: the write is in. */
+    protected function autosaveHaltCommittedWrite(): bool
+    {
+        return $this->autosaveHaltCommitted && $this->autosaveWrittenPaths !== [];
+    }
+
     /** Acknowledge the write: snapshot hash, staged uploads, cycle flag. */
     protected function autosaveCommitPhase(array $written): void
     {
@@ -707,9 +733,12 @@ trait HasAutosaveBase
 
             return $result;
         } catch (Halt $exception) {
-            $exception->shouldRollbackDatabaseTransaction()
-                ? $this->rollBackDatabaseTransaction()
-                : $this->commitDatabaseTransaction();
+            if ($exception->shouldRollbackDatabaseTransaction()) {
+                $this->rollBackDatabaseTransaction();
+            } else {
+                $this->commitDatabaseTransaction();
+                $this->autosaveHaltCommitted = true;
+            }
 
             throw $exception;
         } catch (\Throwable $exception) {
@@ -738,7 +767,12 @@ trait HasAutosaveBase
 
             return $result;
         } catch (Halt $exception) {
-            $exception->shouldRollbackDatabaseTransaction() ? DB::rollBack() : DB::commit();
+            if ($exception->shouldRollbackDatabaseTransaction()) {
+                DB::rollBack();
+            } else {
+                DB::commit();
+                $this->autosaveHaltCommitted = true;
+            }
 
             throw $exception;
         } catch (\Throwable $exception) {

@@ -353,6 +353,7 @@ trait HasAutosaveForForm
         $this->putAutosaveFormUndo('external', $externalUndo);
 
         $merge = $this->extractAutosaveMergeColumns($columns);
+        $this->autosaveWrittenPaths = array_keys($data + $uploads);
 
         if (method_exists($this, 'handleRecordUpdate')) {
             $this->handleRecordUpdate($record, $columns);
@@ -558,12 +559,21 @@ trait HasAutosaveForForm
 
             return $result;
         } catch (\Throwable $e) {
+            $this->clearQueuedAutosaveNotification();
+
+            // A Halt that kept the transaction committed the write: acknowledge
+            // the written fields (the hook interrupted that step) and keep Undo.
+            if ($this->autosaveHaltCommittedWrite()) {
+                $this->acknowledgeAutosaveFormFields($this->autosaveWrittenPaths);
+
+                throw $e;
+            }
+
             $this->autosaveFieldHashes = $fieldHashes;
             $this->autosaveSnapshotHash = $snapshotHash;
             // A failed write or commit invalidates the snapshot prepared for
             // this request. Do not leave a stale generic Undo target behind.
             $this->resetAutosaveFormUndo();
-            $this->clearQueuedAutosaveNotification();
 
             throw $e;
         }
