@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The indicator is now built only from Filament components: skipped and stale
+  fields render as badges and validation messages inside a `callout`, so the
+  panel's light and dark themes apply everywhere. The package stylesheet and
+  its Filament asset registration are gone (nothing to publish).
 - Generic forms fold every upload field's hash into `autosaveObservedHash`,
   as Edit pages already did, so the browser watcher notices an upload-only
   server-side change; the watcher itself now also runs in `form` mode.

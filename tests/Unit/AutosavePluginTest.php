@@ -153,6 +153,15 @@ test('the indicator ships its controller inline', function (string $mode) {
 
     // Undo is rendered in every mode and hidden client-side while
     // $wire.autosaveCanUndo is false, so record-backed generic forms get it too.
-    expect($xpath->query('//button[@type="button"]')->length)->toBe(3)
-        ->and($xpath->query('//button[@data-autosave-action="undo"]')->length)->toBe(1);
+    // It appears twice: in the plain "saved" badge and in the callout shown
+    // when some fields were skipped.
+    expect($xpath->query('//button[@type="button"]')->length)->toBe(4)
+        ->and($xpath->query('//button[@data-autosave-action="undo"]')->length)->toBe(2);
+
+    // Everything visual is a Filament component; none of our former helper
+    // classes or raw Tailwind utilities remain (Filament's own markup may
+    // carry whatever classes its theme compiles, so only ours are asserted).
+    expect($html)->toContain('fi-callout')
+        ->not->toContain('fi-autosave-stack')->not->toContain('fi-autosave-note')->not->toContain('fi-autosave-list')
+        ->not->toContain('text-gray-')->not->toContain('flex-col')->not->toContain('text-xs');
 })->with(['edit', 'create', 'form']);

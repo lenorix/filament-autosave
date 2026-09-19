@@ -1,8 +1,21 @@
 @php
+    use Illuminate\Support\HtmlString;
+
     $debounce = $debounce ?? 1500;
     $showTimestamp = $showTimestamp ?? true;
     $mode = $mode ?? 'edit';
     $statusMeta = \Lenorix\FilamentAutosave\AutosaveStatus::statusMeta();
+
+    // Every visual element is a Filament component (badge, link, callout), so
+    // light/dark theming and typography come from the panel theme; the view
+    // ships no CSS of its own. Alpine-bound text lives in spans passed through
+    // the callout's HtmlString props.
+    $alpineText = fn (string $expression, string $extra = ''): HtmlString => new HtmlString(
+        sprintf('<span x-text="%s"%s></span>', e($expression), $extra),
+    );
+
+    // Alpine expression for the "Stored at HH:MM" label, shared by the badge and the callout.
+    $savedAtExpression = \Illuminate\Support\Js::from(__('filament-autosave::autosave.saved_at').' ').' + timestamp';
 @endphp
 
 <div
@@ -46,26 +59,42 @@
         </x-filament::badge>
     </template>
 
-    <template x-if="status === statuses.saved">
-        <div class="fi-autosave-stack">
-            <x-filament::badge color="success" icon="heroicon-m-check-circle">
-                @if ($showTimestamp)
-                    <span x-text="@js(__('filament-autosave::autosave.saved_at') . ' ') + timestamp"></span>
-                @else
-                    {{ __('filament-autosave::autosave.saved') }}
-                @endif
-                {{-- Not gated on $mode: record-backed generic forms offer Undo too; drafts keep autosaveCanUndo false. --}}
+    {{-- Saved with nothing left over: a single badge. --}}
+    <template x-if="status === statuses.saved && ! pendingFields.length">
+        <x-filament::badge color="success" icon="heroicon-m-check-circle">
+            @if ($showTimestamp)
+                <span x-text="{{ $savedAtExpression }}"></span>
+            @else
+                {{ __('filament-autosave::autosave.saved') }}
+            @endif
+            {{-- Not gated on $mode: record-backed generic forms offer Undo too; drafts keep autosaveCanUndo false. --}}
+            <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo" data-autosave-action="undo">
+                {{ __('filament-autosave::autosave.undo') }}
+            </x-filament::link>
+        </x-filament::badge>
+    </template>
+
+    {{-- Saved, but some fields were skipped: the callout lists them as badges. --}}
+    <template x-if="status === statuses.saved && pendingFields.length">
+        <x-filament::callout
+            color="success"
+            icon="heroicon-m-check-circle"
+            :heading="$showTimestamp ? $alpineText($savedAtExpression) : __('filament-autosave::autosave.saved')"
+            :description="__('filament-autosave::autosave.pending')"
+        >
+            <x-slot name="footer">
+                <template x-for="field in pendingFields" :key="field">
+                    <x-filament::badge color="gray" size="sm">
+                        <span x-text="field"></span>
+                    </x-filament::badge>
+                </template>
+            </x-slot>
+            <x-slot name="controls">
                 <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo" data-autosave-action="undo">
                     {{ __('filament-autosave::autosave.undo') }}
                 </x-filament::link>
-            </x-filament::badge>
-            <template x-if="pendingFields.length">
-                <p class="fi-autosave-note">
-                    {{ __('filament-autosave::autosave.pending') }}
-                    <span x-text="pendingFields.join(', ')"></span>
-                </p>
-            </template>
-        </div>
+            </x-slot>
+        </x-filament::callout>
     </template>
 
     <template x-if="status === statuses.undone">
@@ -92,36 +121,57 @@
         </x-filament::badge>
     </template>
 
+    {{-- Validation: messages in the description, skipped fields as badges. --}}
     <template x-if="status === statuses.validation">
-        <div class="fi-autosave-stack">
-            <x-filament::badge color="warning" icon="heroicon-m-exclamation-triangle">
-                {{ __('filament-autosave::autosave.validation') }}
-            </x-filament::badge>
-            <ul class="fi-autosave-list">
-                <template x-for="(messages, field) in validationErrors" :key="field">
-                    <li x-text="messages.join(' ')"></li>
+        <x-filament::callout
+            color="warning"
+            icon="heroicon-m-exclamation-triangle"
+            :heading="__('filament-autosave::autosave.validation')"
+            :description="$alpineText(
+                'Object.values(validationErrors).map((messages) => messages.join(\' \')).join(\' · \')',
+                ' data-autosave-validation-messages',
+            )"
+        >
+            <x-slot name="footer">
+                <template x-if="pendingFields.length">
+                    <x-filament::badge color="gray" size="sm" data-autosave-pending-label>
+                        {{ __('filament-autosave::autosave.pending') }}
+                    </x-filament::badge>
                 </template>
-            </ul>
-            <template x-if="pendingFields.length">
-                <p class="fi-autosave-note">
-                    {{ __('filament-autosave::autosave.pending') }}
-                    <span x-text="pendingFields.join(', ')"></span>
-                </p>
-            </template>
-        </div>
+                <template x-for="field in pendingFields" :key="field">
+                    <x-filament::badge color="warning" size="sm">
+                        <span x-text="field"></span>
+                    </x-filament::badge>
+                </template>
+            </x-slot>
+        </x-filament::callout>
     </template>
 
-    <template x-if="status === statuses.synced">
-        <div class="fi-autosave-stack" data-autosave-synced>
-            <x-filament::badge color="info" icon="heroicon-m-arrow-path">
-                {{ __('filament-autosave::autosave.synced') }}
-            </x-filament::badge>
-            <template x-if="staleFields.length">
-                <p class="fi-autosave-note" data-autosave-stale>
-                    {{ __('filament-autosave::autosave.stale') }}
-                    <span x-text="staleFields.join(', ')"></span>
-                </p>
-            </template>
-        </div>
+    {{-- Synced from another editor with nothing in conflict: a single badge. --}}
+    <template x-if="status === statuses.synced && ! staleFields.length">
+        <x-filament::badge color="info" icon="heroicon-m-arrow-path" data-autosave-synced>
+            {{ __('filament-autosave::autosave.synced') }}
+        </x-filament::badge>
+    </template>
+
+    {{-- Synced, but fields the user is editing also changed elsewhere. --}}
+    <template x-if="status === statuses.synced && staleFields.length">
+        <x-filament::callout
+            color="info"
+            icon="heroicon-m-arrow-path"
+            :heading="__('filament-autosave::autosave.synced')"
+            :description="__('filament-autosave::autosave.stale')"
+            data-autosave-synced
+        >
+            <x-slot name="footer">
+                <div data-autosave-stale>
+                    <template x-for="field in staleFields" :key="field">
+                        <x-filament::badge color="warning" size="sm">
+                            <span x-text="field"></span>
+                        </x-filament::badge>
+                    </template>
+                </div>
+            </x-slot>
+        </x-filament::callout>
     </template>
 </div>
