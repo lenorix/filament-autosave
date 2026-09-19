@@ -151,6 +151,9 @@ trait HasAutosaveUploads
             }
         }
 
+        $entries = [];
+        $records = [];
+
         foreach ($fields as $field) {
             $record = method_exists($field, 'getRecord') ? $field->getRecord() : null;
 
@@ -164,16 +167,14 @@ trait HasAutosaveUploads
                 continue;
             }
 
-            // getMedia() reads the model's already-loaded `media` relation,
-            // which Filament populates once when the form hydrates. Reload it
-            // so a later snapshot (e.g. right after this cycle wrote new
-            // media) actually observes what Spatie just wrote instead of the
-            // relation state captured at mount time.
-            if (method_exists($record, 'load')) {
-                $record->load('media');
-            }
-
             $key = $record::class.':'.($record->getKey() ?? 'new').':'.$collection;
+            $entries[$key] = [$record, $collection];
+            $records[spl_object_id($record)] = $record;
+        }
+
+        $this->reloadAutosaveExternalMediaRelation($records);
+
+        foreach ($entries as $key => [$record, $collection]) {
             $snapshot[$key] = [];
 
             foreach ($record->getMedia($collection) as $media) {
@@ -364,6 +365,33 @@ trait HasAutosaveUploads
                     // protects its metadata and new files are still removed.
                 }
             }
+        }
+    }
+
+    /**
+     * Reload the `media` relation on every record a snapshot will read.
+     *
+     * getMedia() serves the relation Filament loaded once at hydration, so
+     * without a reload a snapshot taken right after Spatie wrote a row would
+     * still look like mount time. Records are grouped by class so each group
+     * costs one `whereIn` query instead of one query per field.
+     *
+     * @param  array<int, object>  $records
+     */
+    protected function reloadAutosaveExternalMediaRelation(array $records): void
+    {
+        $groups = [];
+
+        foreach ($records as $record) {
+            if ($record instanceof Model) {
+                $groups[$record::class][] = $record;
+            } elseif (method_exists($record, 'load')) {
+                $record->load('media');
+            }
+        }
+
+        foreach ($groups as $group) {
+            $group[0]->newCollection($group)->load('media');
         }
     }
 
