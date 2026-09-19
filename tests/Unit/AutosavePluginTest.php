@@ -211,3 +211,21 @@ test('the indicator ships the merge runtime only for a component that lists merg
     expect($plain)->not->toContain('<script')
         ->and($plain)->toContain('mergeFields: []');
 });
+
+test('plugin fallbacks match the shipped config file when a key is missing', function () {
+    $shipped = require dirname(__DIR__, 2).'/config/filament-autosave.php';
+
+    foreach (['debounce', 'draft_ttl', 'undo_ttl', 'poll_interval', 'show_saved_at', 'position', 'merge_fields'] as $key) {
+        config(["filament-autosave.{$key}" => null]);
+    }
+
+    $plugin = AutosavePlugin::make();
+
+    expect($plugin->getDebounce())->toBe($shipped['debounce'])
+        ->and($plugin->getCacheTtl())->toBe($shipped['draft_ttl'])
+        ->and($plugin->getUndoCacheTtl())->toBe($shipped['undo_ttl'])
+        ->and($plugin->getPollInterval())->toBe($shipped['poll_interval'])
+        ->and($plugin->shouldShowTimestamp())->toBe($shipped['show_saved_at'])
+        ->and($plugin->getIndicatorPosition())->toBe($shipped['position'])
+        ->and($plugin->getMergeFields())->toBe($shipped['merge_fields']);
+});

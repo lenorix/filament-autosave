@@ -84,7 +84,7 @@ class AutosavePlugin implements Plugin
             return (int) $this->evaluate($this->pollInterval);
         }
 
-        return (int) config('filament-autosave.poll_interval', 5000);
+        return (int) (config('filament-autosave.poll_interval') ?? self::shippedDefault('poll_interval'));
     }
 
     /** @var array<string>|Closure|null */
@@ -110,7 +110,7 @@ class AutosavePlugin implements Plugin
             return array_values((array) $this->evaluate($this->mergeFields));
         }
 
-        return array_values((array) config('filament-autosave.merge_fields', []));
+        return array_values((array) (config('filament-autosave.merge_fields') ?? self::shippedDefault('merge_fields')));
     }
 
     public function debounce(int|Closure $milliseconds): static
@@ -170,7 +170,7 @@ class AutosavePlugin implements Plugin
             return $this->evaluate($this->debounce);
         }
 
-        return config('filament-autosave.debounce', 1500);
+        return config('filament-autosave.debounce') ?? self::shippedDefault('debounce');
     }
 
     /** @return array<string> */
@@ -191,7 +191,7 @@ class AutosavePlugin implements Plugin
             return $this->evaluate($this->showTimestamp);
         }
 
-        return (bool) config('filament-autosave.show_saved_at', true);
+        return (bool) (config('filament-autosave.show_saved_at') ?? self::shippedDefault('show_saved_at'));
     }
 
     public function getIndicatorPosition(): string
@@ -200,7 +200,7 @@ class AutosavePlugin implements Plugin
             return $this->indicatorPosition;
         }
 
-        return config('filament-autosave.position', 'before');
+        return config('filament-autosave.position') ?? self::shippedDefault('position');
     }
 
     public function getCacheTtl(): int
@@ -209,7 +209,7 @@ class AutosavePlugin implements Plugin
             return $this->evaluate($this->cacheTtl);
         }
 
-        return config('filament-autosave.draft_ttl', 24);
+        return config('filament-autosave.draft_ttl') ?? self::shippedDefault('draft_ttl');
     }
 
     public function getUndoCacheTtl(): int
@@ -218,7 +218,20 @@ class AutosavePlugin implements Plugin
             return $this->evaluate($this->undoTtl);
         }
 
-        return config('filament-autosave.undo_ttl', 30);
+        return config('filament-autosave.undo_ttl') ?? self::shippedDefault('undo_ttl');
+    }
+
+    /**
+     * The value the shipped config file gives a key, for a host whose
+     * published config lacks it: one source for every default.
+     */
+    protected static function shippedDefault(string $key): mixed
+    {
+        static $shipped = null;
+
+        $shipped ??= require __DIR__.'/../config/filament-autosave.php';
+
+        return $shipped[$key] ?? null;
     }
 
     public function register(Panel $panel): void {}

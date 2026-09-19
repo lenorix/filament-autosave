@@ -114,9 +114,9 @@ class EditArticle extends EditRecord
 }
 ```
 
-The browser watches the form for you. After 1.5 seconds without changes it
-saves whatever is safe to save and updates the indicator. Right after a save
-the user gets a few seconds to undo it.
+The browser watches the form for you. After 750 ms without changes (the
+`debounce`) it saves whatever is safe to save and updates the indicator. Right
+after a save the user gets a few seconds to undo it.
 
 If you need to hook custom frontend code into this, the locked
 `autosaveDataPath` property holds the resolved state path.
@@ -830,9 +830,9 @@ one wins, except `except`, whose entries are merged across all three.
 
 ```php
 // config/filament-autosave.php
-'debounce' => 1500,
+'debounce' => 750,
 'except' => ['password', 'password_confirmation'],
-'draft_ttl' => 24,
+'draft_ttl' => 72,
 'undo_ttl' => 90,
 'dirty_only' => true,
 'refresh_unchanged_fields' => true,
