@@ -138,7 +138,10 @@ caused the container to be dropped.
 are removed before `mutateFormDataBeforeSave()`; dirty-only filtering happens
 just before the column write.
 Edit autosave calls Filament's `beforeValidate`, `afterValidate`, `beforeSave`,
-and `afterSave` hooks, dispatches `RecordUpdated` and `RecordSaved`, and sends
+and `afterSave` hooks, dispatches `RecordUpdated` and `RecordSaved` (built only
+when the host is a `Filament\Resources\Pages\Page` — an Edit page or a custom
+resource page with `HasAutosaveForForm`; relation managers, actions and plain
+components dispatch neither), and sends
 the standard saved notification after commit. `mutateFormDataBeforeSave()` runs
 inside the transaction.
 

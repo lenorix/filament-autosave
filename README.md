@@ -227,10 +227,11 @@ schema, override `persistAutosaveForm()`.
 <details>
 <summary>Differences from Edit pages</summary>
 
-- Filament's `RecordUpdated` and `RecordSaved` events are only fired on real
-  `Filament\Resources\Pages\Page` instances. A relation manager or action isn't
-  one, so `HasAutosaveForForm` doesn't dispatch them. Use `afterAutosave()` or
-  the package's own events instead.
+- Filament's `RecordUpdated` and `RecordSaved` events need a real
+  `Filament\Resources\Pages\Page` to be built. A custom resource page that
+  hosts its own form with `HasAutosaveForForm` gets them; a relation manager,
+  action or plain Livewire component isn't a page, so nothing is dispatched
+  there. Use `afterAutosave()` or the package's own events instead.
 - Record-backed generic forms get the same upload lifecycle as Edit pages;
   recordless drafts never store permanent files or media. Undo on a generic
   form covers model columns and supported relationships. Files, media, and

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- A `HasAutosaveForForm` host that is a resource page (a custom
+  `Filament\Resources\Pages\Page` with its own form) now receives Filament's
+  `RecordUpdated`/`RecordSaved` as real event objects; relation managers,
+  actions and plain components still dispatch neither. The base fallback that
+  sent the class name with an array payload — which threw inside typed
+  listeners and was swallowed as an autosave failure — is gone.
+- The rich merge no longer builds an O(n·m) table over a paragraph's words
+  (a 2 000-word paragraph exhausted 512 MB); text and rich merges share one
+  capped Myers diff. `isCanonical()` recognises a document parsed from HTML.
+- phpstan now analyses the trait bodies through analysis-only hosts; the
+  findings (array value types, relation generics, a `void` transaction
+  wrapper whose result was read) are fixed.
 - A failed or skipped cycle rolls back only the Spatie media it created. The
   baseline was captured at page load and carried across requests, so any
   no-write cycle (validation skip, Halt, a failing hook) deleted every media

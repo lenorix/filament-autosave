@@ -8,6 +8,7 @@ use Filament\Notifications\NotificationsServiceProvider;
 use Filament\Tables\TablesServiceProvider;
 use Filament\Widgets\WidgetsServiceProvider;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\View;
 use LaraZeus\SpatieTranslatable\SpatieTranslatableServiceProvider;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Panel\AutosavePanelProvider;
 use Spatie\MediaLibrary\MediaLibraryServiceProvider;
@@ -18,6 +19,8 @@ abstract class IntegrationTestCase extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        View::addNamespace('autosave-fixtures', __DIR__.'/Fixtures/views');
 
         Schema::create('posts', function ($table) {
             $table->id();

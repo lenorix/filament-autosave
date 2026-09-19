@@ -165,17 +165,14 @@ trait HasAutosaveBase
      * Eloquent model, but the parameter stays duck-typed so callers are not
      * forced into an Eloquent dependency they may not have.
      *
-     * `RecordUpdated`/`RecordSaved` declare a constructor, so dispatching
-     * them by class name with an array payload (the pattern Filament's own
-     * `EditRecord::save()` uses) never builds that object: Laravel spreads
-     * the array positionally into each listener instead, which throws a
-     * `TypeError` for any listener type-hinted against the event class, and
-     * that error was silently swallowed by the autosave failure handler.
-     * Real instances are built whenever the record and this component
-     * satisfy the constructor; otherwise a generic Livewire component
-     * (a relation manager, a bare form) cannot supply a real
-     * `Filament\Resources\Pages\Page`, so the payload falls back to
-     * Filament's own convention for parity, with the same caveat.
+     * `RecordUpdated`/`RecordSaved` take a `Filament\Resources\Pages\Page`
+     * in their constructor, so they are built only when this component is
+     * one — an Edit page, or a custom resource page hosting its own form.
+     * A relation manager, action or bare Livewire component is not, and
+     * dispatches nothing: sending the class name with an array payload
+     * instead (Filament's own `EditRecord::save()` idiom) never builds the
+     * object and throws a `TypeError` inside any typed listener. Use the
+     * package's own events there.
      *
      * @param  array<string, mixed>  $data
      */
@@ -190,12 +187,7 @@ trait HasAutosaveBase
         if ($record instanceof Model && $this instanceof Page) {
             Event::dispatch(new RecordUpdated($record, $data, $this));
             Event::dispatch(new RecordSaved($record, $data, $this));
-
-            return;
         }
-
-        Event::dispatch(RecordUpdated::class, ['record' => $record, 'data' => $data, 'page' => $this]);
-        Event::dispatch(RecordSaved::class, ['record' => $record, 'data' => $data, 'page' => $this]);
     }
 
     /**
