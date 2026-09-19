@@ -49,7 +49,8 @@ final class AutosaveSync
      * @param  array<string, mixed>  $attributes  The record's raw attributes.
      * @param  callable(string, mixed): bool  $isClean
      * @param  callable(string): bool  $isExcluded
-     * @return array{refill: list<string>, stale: list<string>, patches: array<string, array{theirs: string, hash: string}>}
+     * @param  callable(string, mixed): mixed|null  $remoteValue  Turns a raw column value into what the browser holds (a document for rich content); plain text otherwise.
+     * @return array{refill: list<string>, stale: list<string>, patches: array<string, array{theirs: mixed, hash: string}>}
      */
     public static function plan(
         array $changed,
@@ -60,6 +61,7 @@ final class AutosaveSync
         array $attributes,
         callable $isClean,
         callable $isExcluded,
+        ?callable $remoteValue = null,
     ): array {
         $refill = [];
         $stale = [];
@@ -86,12 +88,14 @@ final class AutosaveSync
                 continue;
             }
 
-            $theirs = $attributes[$attribute] ?? null;
-            $theirs = is_scalar($theirs) ? (string) $theirs : '';
-            $hash = self::hash($theirs);
+            $raw = $attributes[$attribute] ?? null;
+            $hash = self::hash(is_scalar($raw) ? (string) $raw : '');
 
             if (($baseHashes[$attribute] ?? null) !== $hash) {
-                $patches[$attribute] = ['theirs' => $theirs, 'hash' => $hash];
+                $patches[$attribute] = [
+                    'theirs' => $remoteValue === null ? (is_scalar($raw) ? (string) $raw : '') : $remoteValue($attribute, $raw),
+                    'hash' => $hash,
+                ];
             }
         }
 
@@ -103,7 +107,7 @@ final class AutosaveSync
     /**
      * @param  array<string, mixed>  $refreshed
      * @param  list<string>  $stale
-     * @param  array<string, array{theirs: string, hash: string}>  $patches
+     * @param  array<string, array{theirs: mixed, hash: string}>  $patches
      * @return array<string, mixed>
      */
     public static function syncedPayload(array $refreshed, array $stale, array $patches): array
@@ -118,9 +122,9 @@ final class AutosaveSync
     }
 
     /**
-     * @param  array<string, string>  $merged
-     * @param  array<string, list<array{ours: string, theirs: string, position: int, reason: string}>>  $conflicts
-     * @param  array<string, array{theirs: string, hash: string}>  $patches
+     * @param  array<string, mixed>  $merged
+     * @param  array<string, list<array<string, mixed>>>  $conflicts
+     * @param  array<string, array{theirs: mixed, hash: string}>  $patches
      * @return array<string, mixed>
      */
     public static function savedPayload(array $merged, array $conflicts, array $patches): array

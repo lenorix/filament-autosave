@@ -142,10 +142,27 @@ trait HasAutosave
         $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
     }
 
-    /** Filament's partial refresh applies casts and fill hooks like a normal fill. */
+    /**
+     * Filament's partial refresh applies casts and fill hooks like a normal
+     * fill, but cannot carry an array attribute; those are filled whole.
+     */
     protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void
     {
-        $this->refreshFormData($paths);
+        $attributes = method_exists($record, 'attributesToArray') ? $record->attributesToArray() : [];
+        $arrays = array_values(array_filter($paths, static fn (string $path): bool => is_array($attributes[$path] ?? null)));
+        $scalars = array_values(array_diff($paths, $arrays));
+
+        if ($scalars !== []) {
+            $this->refreshFormData($scalars);
+        }
+
+        if ($arrays !== [] && ($form = $this->resolveAutosaveForm()) !== null) {
+            $this->fillAutosavePathsPartially(
+                $form,
+                method_exists($this, 'mutateFormDataBeforeFill') ? $this->mutateFormDataBeforeFill($attributes) : $attributes,
+                $arrays,
+            );
+        }
     }
 
     /**

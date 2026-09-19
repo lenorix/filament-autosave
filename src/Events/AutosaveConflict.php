@@ -11,7 +11,7 @@ namespace Lenorix\FilamentAutosave\Events;
 final class AutosaveConflict
 {
     /**
-     * @param  array<string, list<array{ours: string, theirs: string, position: int, reason: string}>>  $conflicts  Empty for an Undo conflict.
+     * @param  array<string, list<array<string, mixed>>>  $conflicts  `{ours, theirs, position, reason}`, plus `kind` and `block` for rich content. Empty for an Undo conflict.
      */
     public function __construct(
         public readonly object $page,

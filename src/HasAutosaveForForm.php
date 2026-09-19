@@ -189,7 +189,11 @@ trait HasAutosaveForForm
                     continue;
                 }
 
-                if (method_exists($field, 'getRawState')) {
+                // A RichEditor is a column: the form holds its document, the
+                // column takes its state cast (HTML or JSON).
+                if ($field instanceof RichEditor) {
+                    data_set($data, $fieldPath, $field->getState());
+                } elseif (method_exists($field, 'getRawState')) {
                     data_set($data, $fieldPath, $field->getRawState());
                 }
             }
@@ -487,7 +491,8 @@ trait HasAutosaveForForm
     {
         $attributes = $record->attributesToArray();
 
-        $this->resolveAutosaveForm()->fillPartially(
+        $this->fillAutosavePathsPartially(
+            $this->resolveAutosaveForm(),
             method_exists($this, 'mutateFormDataBeforeFill') ? $this->mutateFormDataBeforeFill($attributes) : $attributes,
             $paths,
         );
