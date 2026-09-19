@@ -603,7 +603,7 @@ stored uuids with the record's collections.
 
 ### Failure cleanup, ledger and transactions
 
-Autosaves that involve files keep Undo disabled by default. A registered
+Auto saves that involve files keep Undo disabled by default. A registered
 external adapter can make a provider reversible; without one, a later
 validation, hook, relationship or database failure still cleans up the new
 paths and tracked media where the provider allows it. Side effects of a custom
