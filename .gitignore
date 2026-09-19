@@ -8,3 +8,4 @@ composer.lock
 /tests/Browser/screenshots/
 /tests/Browser/console/
 /tests/Browser/source/
+.DS_Store
