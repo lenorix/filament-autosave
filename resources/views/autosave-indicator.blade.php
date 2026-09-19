@@ -46,7 +46,7 @@
     </template>
 
     <template x-if="status === statuses.saved">
-        <div class="flex flex-col gap-1">
+        <div class="fi-autosave-stack">
             <x-filament::badge color="success" icon="heroicon-m-check-circle">
                 @if ($showTimestamp)
                     <span x-text="@js(__('filament-autosave::autosave.saved_at') . ' ') + timestamp"></span>
@@ -60,7 +60,7 @@
                 @endif
             </x-filament::badge>
             <template x-if="pendingFields.length">
-                <p class="text-xs text-gray-600 dark:text-gray-400">
+                <p class="fi-autosave-note">
                     {{ __('filament-autosave::autosave.pending') }}
                     <span x-text="pendingFields.join(', ')"></span>
                 </p>
@@ -93,17 +93,17 @@
     </template>
 
     <template x-if="status === statuses.validation">
-        <div class="flex flex-col gap-1">
+        <div class="fi-autosave-stack">
             <x-filament::badge color="warning" icon="heroicon-m-exclamation-triangle">
                 {{ __('filament-autosave::autosave.validation') }}
             </x-filament::badge>
-            <ul class="text-xs text-gray-600 dark:text-gray-400">
+            <ul class="fi-autosave-list">
                 <template x-for="(messages, field) in validationErrors" :key="field">
                     <li x-text="messages.join(' ')"></li>
                 </template>
             </ul>
             <template x-if="pendingFields.length">
-                <p class="text-xs text-gray-600 dark:text-gray-400">
+                <p class="fi-autosave-note">
                     {{ __('filament-autosave::autosave.pending') }}
                     <span x-text="pendingFields.join(', ')"></span>
                 </p>

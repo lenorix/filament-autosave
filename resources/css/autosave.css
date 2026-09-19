@@ -1,0 +1,28 @@
+/*
+ * Indicator helper text. Filament 4/5 ships no generic Tailwind utilities in
+ * its compiled theme, so these rules use its design tokens directly and are
+ * registered through FilamentAsset; the host needs no Tailwind build.
+ */
+.fi-autosave-indicator .fi-autosave-stack {
+    display: flex;
+    flex-direction: column;
+    row-gap: calc(var(--spacing, 0.25rem) * 1);
+}
+
+.fi-autosave-indicator .fi-autosave-note,
+.fi-autosave-indicator .fi-autosave-list {
+    margin: 0;
+    font-size: var(--text-xs, 0.75rem);
+    line-height: var(--text-xs--line-height, 1.3333);
+    color: var(--gray-600);
+}
+
+.fi-autosave-indicator .fi-autosave-list {
+    list-style: none;
+    padding: 0;
+}
+
+.dark .fi-autosave-indicator .fi-autosave-note,
+.dark .fi-autosave-indicator .fi-autosave-list {
+    color: var(--gray-400);
+}

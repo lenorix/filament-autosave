@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fix the indicator's helper text (pending fields, validation messages, stale
+  fields) rendering unstyled and without a dark variant: it relied on Tailwind
+  utilities that Filament 4/5 does not ship in its compiled theme. The
+  indicator now uses `fi-autosave-*` classes backed by a small stylesheet
+  registered as a Filament asset (published by `filament:assets`), using
+  Filament's colour tokens in light and dark mode.
 - `refresh_unchanged_fields` now also applies to record-backed generic forms
   (`HasAutosaveForForm`): after a successful save, clean model-backed columns
   are re-read from the record and reported in the status event's `refreshed`
