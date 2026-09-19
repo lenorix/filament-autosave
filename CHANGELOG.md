@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add polling for other editors' changes. With `poll_interval` (default 5000
+  ms, `0` disables; plugin `pollInterval()`, page `autosavePollInterval()`) the
+  browser calls the new public `syncAutosave()` on a timer: clean, model-backed
+  columns another editor changed are refilled using the same eligibility rule
+  as the post-save refresh, fields that are dirty locally and changed remotely
+  are reported as `stale` and left untouched, and a new `synced` status carries
+  `refreshed` and `stale` to the indicator. `AutosaveSynced` (`page`, `record`,
+  `refreshed`, `stale`) is dispatched alongside. Polling pauses while a save is
+  pending or in flight and while the tab is hidden, and backs off after three
+  consecutive failures. An idle poll costs one query. The post-save refresh on
+  Edit pages and generic forms now shares this code path in `HasAutosaveBase`.
 - `refresh_unchanged_fields` now also applies to record-backed generic forms
   (`HasAutosaveForForm`): after a successful save, clean model-backed columns
   are re-read from the record and reported in the status event's `refreshed`

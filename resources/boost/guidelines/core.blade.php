@@ -95,12 +95,13 @@ AutosaveSkipped, AutosaveFailed, AutosaveUndone, AutosaveConflict}` as objects
 
 Only trait members tagged `@api` are stable (list pinned by
 `tests/Unit/ExtensionContractTest.php`): `shouldAutosave`, `autosaveDebounce`,
-`autosaveExcept`, `beforeAutosave`, `getAutosaveValidationRules`,
-`afterAutosave`, `getUndoTtlMinutes`, `resolveAutosaveForm`,
-`getAutosaveStatePath`, `persistAutosaveForm`, `getAutosaveFormContext`, plus
-the public `autosave`, `flushAutosave`, `undoAutosave`, `restoreDraft`,
-`discardDraft`, `clearAutosaveDraft`, `isAutosaveEnabled`,
-`getAutosaveDebounce`, `getAutosaveExcept`. Every other `protected` method is
+`autosaveExcept`, `autosavePollInterval`, `beforeAutosave`,
+`getAutosaveValidationRules`, `afterAutosave`, `getUndoTtlMinutes`,
+`resolveAutosaveForm`, `getAutosaveStatePath`, `persistAutosaveForm`,
+`getAutosaveFormContext`, plus the public `autosave`, `flushAutosave`,
+`syncAutosave`, `undoAutosave`, `restoreDraft`, `discardDraft`,
+`clearAutosaveDraft`, `isAutosaveEnabled`, `getAutosaveDebounce`,
+`getAutosavePollInterval`, `getAutosaveExcept`. Every other `protected` method is
 internal: never tell a consumer to override it, and prefer the package events
 for observation. Adding an `@api` tag is an API decision that must update the
 test, README and CHANGELOG together.
@@ -177,9 +178,21 @@ is last-write-wins. With `refresh_unchanged_fields` enabled, a successful save
 also refreshes clean top-level model-backed fields from the record in the same
 response; local dirty fields, relationships, and uploads are retained. The same
 applies to record-backed `HasAutosaveForForm` components (the trait fills the
-schema partially itself; drafts are never refreshed). This is not polling, so
-later changes wait for another request. Set `dirty_only` to
+schema partially itself; drafts are never refreshed). Set `dirty_only` to
 `false` only when the full eligible payload is required.
+
+Polling (`poll_interval`, default 5000 ms, `0` off; plugin `pollInterval()`;
+page `autosavePollInterval()`) makes the browser call the public
+`syncAutosave()` on a timer so other editors' writes reach the fields this
+user is not editing without waiting for a save. Same eligibility rule as the
+post-save refresh, shared in `HasAutosaveBase` (`autosaveRefreshablePaths`,
+`refillAutosavePaths`): never relationships, uploads, excluded or dirty fields.
+A dirty field that also changed remotely is reported as `stale` and left
+alone. It emits `status: synced` (+ `refreshed`, `stale`) and the
+`AutosaveSynced` event only when something changed, never writes to the
+database, never touches Undo. The controller pauses polling while a save is
+pending/in flight or the tab is hidden and backs off after 3 failures (max
+60 s). Idle cost: one query (`updated_at` only on timestamped models).
 
 When changing this behavior, test two edit instances changing different columns
 with `dirty_only` enabled, plus upload add/remove/reorder cases, including
