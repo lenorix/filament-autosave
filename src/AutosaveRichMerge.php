@@ -16,15 +16,20 @@ use Tiptap\Editor;
  * Algorithm (what the client side must mirror):
  *
  * 1. Block level. Every node list (document children, list items, blockquote
- *    or details content, grid columns…) is aligned base↔ours and base↔theirs:
- *    nodes carrying `attrs.id` (image, customBlock, mention, mergeTag) match
- *    by `type#id` wherever they are — a moved node is a move, not a
- *    delete-plus-insert; other nodes match in order by content similarity
- *    (same type, or both text blocks, with ≥ 50 % of their words in common,
- *    or byte-equal), never by index alone. Insertions from both sides at the
- *    same point are both kept, ours first. A block one side deleted and the
- *    other left untouched is deleted; deleted on one side and changed on the
- *    other is an overlap.
+ *    or details content, grid columns…) is aligned base↔ours and base↔theirs
+ *    by a weighted in-order match (heaviest common subsequence): two nodes
+ *    match when both carry the same `type#attrs.id` (image, customBlock,
+ *    mention, mergeTag), or neither has an id and they are equal after
+ *    projection, or both are text blocks / of the same type with ≥ 50 % of
+ *    their lower-cased words in common. A matched id-bearing pair weighs
+ *    0.5, an id-less pair 1.0, so when either could stay in place the block
+ *    with an id is the one reported as moved. Base nodes left unmatched are
+ *    then paired with unmatched side nodes — by id first, then by the same
+ *    similarity — as moves; the rest are deletions and insertions. Nothing
+ *    matches by index alone. Insertions from both sides at the same point
+ *    are both kept, ours first. A block one side deleted and the other left
+ *    untouched is deleted; deleted on one side and changed (or moved) on the
+ *    other is an overlap; moved by both sides it lands where ours put it.
  * 2. Node level. A matched node is compared after projection (image `src`
  *    is ignored when the image has an `id`, since the state cast nulls it
  *    for private attachments; custom block `label`/`preview` are ignored).
@@ -43,9 +48,17 @@ use Tiptap\Editor;
  *    overlap. Adjacent tokens with equal marks are joined back into one text
  *    node.
  *
- * Positions in conflicts are code-point offsets into `plainText()`: leaf
- * blocks in document order, text nodes concatenated, `hardBreak` as "\n",
- * other inline nodes as "", blocks joined by "\n".
+ * Conflicts (see `AutosaveRichMergeResult`) are `{kind, ours, theirs,
+ * reason: 'overlap', block, position}`: `kind` is `inline` or `block`;
+ * `ours`/`theirs` are fragments in the column format — an HTML string, or a
+ * list of nodes for JSON columns — holding, for `inline`, one block of the
+ * conflicting block's type with just the range, and for `block` the node
+ * itself (an empty fragment when that side deleted it); `block` is the path
+ * of child indexes from the root to the block in the merged value (for a
+ * deleted block, the index where it would be re-inserted); `position` is a
+ * code-point offset into `plainText()`: leaf blocks in document order, text
+ * nodes concatenated, `hardBreak` as "\n", other inline nodes as "", blocks
+ * joined by "\n".
  *
  * @internal
  */
