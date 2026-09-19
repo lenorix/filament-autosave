@@ -843,100 +843,46 @@ trait HasAutosaveUploads
     }
 
     /**
-     * Persist media-library uploads through their relationship callback, and
-     * journal the files they write so a process killed after this point but
-     * before the surrounding transaction commits still leaves a durable trail
-     * for pruning to find. Standard `FileUpload` files are journaled earlier,
-     * in `storeAutosavePendingUploads()`, because that is when they are
-     * written; Spatie only writes files once its relationship callback runs.
+     * Persist media-library uploads through their relationship callback and
+     * journal every file they create the moment its `media` row exists.
+     *
+     * Spatie saves the row first (the path is derived from its id) and copies
+     * the file afterwards, so listening to the model's `created` event puts
+     * the path in the ledger before the file reaches disk: a process killed
+     * anywhere after that point still leaves a durable trail for pruning,
+     * and one killed before it never wrote a file. Standard `FileUpload`
+     * files are journaled in `storeAutosavePendingUploads()` instead,
+     * because that is where they are written.
      */
     protected function persistAutosaveUploadRelationships(array $uploads): void
     {
+        $journal = app(AutosaveMediaJournal::class);
+
         foreach ($uploads as $path => $field) {
             if (! $field instanceof SpatieMediaLibraryFileUpload) {
                 continue;
             }
 
-            $before = $this->autosaveExternalMediaSnapshotFor($field);
-            $field->saveRelationships();
-            $after = $this->autosaveExternalMediaSnapshotFor($field);
+            $record = method_exists($field, 'getRecord') ? $field->getRecord() : null;
+            $collection = $this->autosaveExternalMediaCollection($field);
 
-            $newFiles = $this->autosaveNewExternalMediaFiles($before, $after);
+            if (! $record instanceof Model || $collection === null) {
+                $field->saveRelationships();
 
-            if ($newFiles !== []) {
-                $this->autosaveUploadLedgerTokens[$path] = app(AutosaveUploadLedger::class)->register($newFiles);
-            }
-        }
-    }
-
-    /**
-     * Snapshot of the media a single Spatie field's record currently holds
-     * in its collection, in the same shape `captureAutosaveExternalMedia()`
-     * builds per field before flattening it under a shared record key.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    protected function autosaveExternalMediaSnapshotFor(object $field): array
-    {
-        $record = method_exists($field, 'getRecord') ? $field->getRecord() : null;
-
-        if (! is_object($record) || ! method_exists($record, 'getMedia')) {
-            return [];
-        }
-
-        $collection = $this->autosaveExternalMediaCollection($field);
-
-        if ($collection === null) {
-            return [];
-        }
-
-        // getMedia() reads the model's already-loaded `media` relation. A
-        // relation loaded before this cycle's save would otherwise still
-        // look empty right after Spatie writes the new row.
-        if (method_exists($record, 'load')) {
-            $record->load('media');
-        }
-
-        $snapshot = [];
-
-        foreach ($record->getMedia($collection) as $media) {
-            $snapshot[] = $this->autosaveExternalMediaMetadata($media);
-        }
-
-        return $snapshot;
-    }
-
-    /**
-     * Every disk/path pair for media rows present after but not before,
-     * original file plus conversions, in the ledger's flat file-list shape.
-     *
-     * @param  array<int, array<string, mixed>>  $before
-     * @param  array<int, array<string, mixed>>  $after
-     * @return array<int, array{disk: string, path: string}>
-     */
-    protected function autosaveNewExternalMediaFiles(array $before, array $after): array
-    {
-        $existingUuids = array_column($before, 'uuid');
-        $files = [];
-
-        foreach ($after as $media) {
-            if (in_array($media['uuid'] ?? null, $existingUuids, true)) {
                 continue;
             }
 
-            $paths = [[
-                'disk' => $media['disk'] ?? null,
-                'path' => $media['path'] ?? null,
-            ], ...($media['conversion_paths'] ?? [])];
+            $token = $journal->capture(
+                $record,
+                $collection,
+                $this->autosaveUploadLedgerTokens[$path] ?? null,
+                fn () => $field->saveRelationships(),
+            );
 
-            foreach ($paths as $entry) {
-                if (is_string($entry['disk'] ?? null) && is_string($entry['path'] ?? null)) {
-                    $files[] = ['disk' => $entry['disk'], 'path' => $entry['path']];
-                }
+            if ($token !== null) {
+                $this->autosaveUploadLedgerTokens[$path] = $token;
             }
         }
-
-        return $files;
     }
 
     /** Acknowledge upload hashes only after their persistence completed. */

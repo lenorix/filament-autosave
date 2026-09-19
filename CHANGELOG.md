@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Spatie Media Library files are journaled in the upload ledger the moment
+  their `media` row is created (a boot-time `created` listener on the media
+  model), before the file reaches disk. This closes the residual window where a
+  process killed between Spatie's file write and the journal entry left an
+  untracked file. `AutosaveUploadLedger::append()` extends an existing entry.
 - Refactor: one-step Undo storage and its optimistic conflict checks now live in
   a single `AutosaveUndo` engine shared by Edit pages and generic forms, and
   both use the same per-field hash. Generic forms (`HasAutosaveForForm`)

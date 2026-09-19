@@ -21,6 +21,7 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditNes
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditSecretUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditUploadPost;
 use Livewire\Livewire;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 beforeEach(function () {
     Storage::fake('public');
@@ -404,4 +405,33 @@ test('a changed FileUpload still withholds undo even when a column changes along
         ->call('autosave')
         ->assertDispatched('autosave-status', status: 'saved')
         ->assertSet('autosaveCanUndo', false);
+});
+
+test('a spatie media file is in the upload ledger the moment its row is created, before it reaches disk', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+    $observed = [];
+    $page = Livewire::test(EditUploadPost::class, ['record' => $post->getKey()]);
+
+    // Spatie saves the `media` row first and copies the file afterwards, so
+    // this fires in the window a killed process would leave the file behind.
+    // Registered after mount, like any host listener would be: the package
+    // registers its own at mount, so it runs first.
+    Media::created(function (Media $media) use (&$observed): void {
+        $path = $media->getPathRelativeToRoot();
+        $entries = Cache::get('filament-autosave:upload-ledger') ?? [];
+        $journaled = collect($entries)->pluck('files')->flatten(1)
+            ->contains(fn (array $file): bool => $file['path'] === $path);
+
+        $observed[] = ['journaled' => $journaled, 'on_disk' => Storage::disk('public')->exists($path)];
+    });
+
+    $page->set('data.gallery', [UploadedFile::fake()->create('media.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($observed)->toHaveCount(1)
+        ->and($observed[0]['on_disk'])->toBeFalse()
+        ->and($observed[0]['journaled'])->toBeTrue();
+
+    expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull()
+        ->and($post->fresh()->getMedia())->toHaveCount(1);
 });

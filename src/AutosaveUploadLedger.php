@@ -41,6 +41,33 @@ final class AutosaveUploadLedger
         return $token;
     }
 
+    /**
+     * Add files to an existing entry, keeping its expiry. A token that no
+     * longer exists is re-created rather than dropped: losing the journal
+     * entry is the one outcome this class exists to prevent.
+     *
+     * @param  array<int, array{disk:string,path:string}>  $files
+     */
+    public function append(string $token, array $files): void
+    {
+        if ($files === []) {
+            return;
+        }
+
+        $cacheTtl = max(1, (int) config('filament-autosave.upload_ledger_ttl', 180));
+
+        $this->withLock(function () use ($token, $files, $cacheTtl): void {
+            $entries = $this->entries();
+            $entry = $entries[$token] ?? [
+                'files' => [],
+                'expires_at' => now()->addMinutes($cacheTtl)->timestamp,
+            ];
+            $entry['files'] = array_values(array_unique([...$entry['files'], ...$files], SORT_REGULAR));
+            $entries[$token] = $entry;
+            Cache::put(self::INDEX_KEY, $entries, now()->addMinutes($cacheTtl));
+        });
+    }
+
     public function commit(string $token): void
     {
         $this->forget($token);
