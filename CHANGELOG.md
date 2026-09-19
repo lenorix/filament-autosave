@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Ship a Spanish (`es`) translation; a test keeps every shipped locale in
+  key parity with English.
 - Fix `HasAutosaveForForm` components nested in a page never receiving their
   own `autosave-status` event: a plain Livewire dispatch from a nested
   component only reached global listeners, so the indicator stuck at "saving"
