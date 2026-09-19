@@ -2,13 +2,13 @@
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BudgetMediaEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BudgetMediaPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BudgetMediaPostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RelationshipEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\BudgetMediaPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\BudgetMediaPostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Relationship\RelationshipEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\BudgetMediaEditPost;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 

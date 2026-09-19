@@ -1,7 +1,7 @@
 <?php
 
 use Lenorix\FilamentAutosave\Tests\BrowserTestCase;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 
 test('clearing a required field lists it as pending while a sibling change is still saved', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);

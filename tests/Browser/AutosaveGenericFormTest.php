@@ -1,7 +1,7 @@
 <?php
 
 use Lenorix\FilamentAutosave\Tests\BrowserTestCase;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 
 /**
  * A `HasAutosaveForForm` component hosted on a plain panel page, with the

@@ -1,11 +1,11 @@
 <?php
 
 use Filament\Forms\Components\RichEditor;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PlainRichEditorEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PlainRichEditorRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PlainRichPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RichUploadEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RichUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\PlainRichEditorRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PlainRichPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\RichUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\RichUpload\PlainRichEditorEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\RichUpload\RichUploadEditPost;
 use Livewire\Livewire;
 
 beforeEach(function () {

@@ -1,8 +1,8 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveColumnsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
 use Livewire\Component;
 use Livewire\Livewire;
 

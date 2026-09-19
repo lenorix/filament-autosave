@@ -1,7 +1,7 @@
 <?php
 
 use Lenorix\FilamentAutosave\Tests\BrowserTestCase;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 
 test('undo is refused with a conflict badge when another editor changed the same column in between', function () {
     $post = Post::create(['title' => 'Original']);

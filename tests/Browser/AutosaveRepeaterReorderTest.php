@@ -1,8 +1,8 @@
 <?php
 
 use Lenorix\FilamentAutosave\Tests\BrowserTestCase;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
 
 /**
  * Reordering through the Repeater's move buttons (drag-and-drop is too

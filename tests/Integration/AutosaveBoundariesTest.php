@@ -1,10 +1,10 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\FailingAutosaveEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAutosaveEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\CreatePost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 

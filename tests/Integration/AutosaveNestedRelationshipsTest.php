@@ -2,21 +2,21 @@
 
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Lenorix\FilamentAutosave\HasAutosave;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BuilderEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Category;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Comment;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\DeepRelationshipEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\MorphToEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\NestedRelationshipEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PolymorphicEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubSubItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RelationshipEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RelationshipSavingHookEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\UnsavedAlertEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\RelationshipSavingHookEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\UnsavedAlertEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Author;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Category;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Comment;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostSubItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostSubSubItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Builder\BuilderEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Deep\DeepRelationshipEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\MorphTo\MorphToEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Polymorphic\PolymorphicEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Relationship\NestedRelationshipEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Relationship\RelationshipEditPost;
 use Livewire\Livewire;
 
 test('autosave persists a changed belongsTo relation from a real select', function () {

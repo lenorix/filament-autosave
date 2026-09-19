@@ -1,11 +1,11 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AlwaysMismatchingAuthorsAdapter;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AlwaysMismatchingItemsAdapter;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\TwoRelationshipsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Adapters\AlwaysMismatchingAuthorsAdapter;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Adapters\AlwaysMismatchingItemsAdapter;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\TwoRelationshipsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Author;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
 use Livewire\Livewire;
 
 test('undoing a generic form autosave is not cancelled by a concurrent change to an untouched relationship', function () {

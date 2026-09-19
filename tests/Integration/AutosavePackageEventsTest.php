@@ -6,12 +6,12 @@ use Lenorix\FilamentAutosave\Events\AutosaveFailed;
 use Lenorix\FilamentAutosave\Events\AutosaveSaved;
 use Lenorix\FilamentAutosave\Events\AutosaveSkipped;
 use Lenorix\FilamentAutosave\Events\AutosaveUndone;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EventsFailingAfterSaveEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EventsTitleOnlyRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\EventsFailingAfterSaveEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosavePostForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\EventsTitleOnlyRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\CreatePost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
 use Livewire\Livewire;
 
 test('a saved edit-page autosave dispatches AutosaveSaved with the written data', function () {

@@ -2,13 +2,13 @@
 
 use Illuminate\Support\Facades\Event;
 use Lenorix\FilamentAutosave\Events\AutosaveSynced;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Category;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PollingEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\PollingEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveColumnsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosavePostForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Category;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\CreatePost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 

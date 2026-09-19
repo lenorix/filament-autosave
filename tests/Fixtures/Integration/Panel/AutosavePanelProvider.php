@@ -1,0 +1,36 @@
+<?php
+
+namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Panel;
+
+use Filament\Panel;
+use Filament\PanelProvider;
+use LaraZeus\SpatieTranslatable\SpatieTranslatablePlugin;
+use Lenorix\FilamentAutosave\AutosavePlugin;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserReorderPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserUploadPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Builder\BuilderPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Deep\DeepRelationshipPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\MorphTo\MorphToPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Polymorphic\PolymorphicPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\PostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Relationship\NestedRelationshipPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Relationship\RelationshipPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\RichUpload\RichUploadPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Translatable\TranslatablePostResource;
+
+class AutosavePanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->default()
+            ->id('admin')
+            ->path('admin')
+            ->resources([PostResource::class, RelationshipPostResource::class, NestedRelationshipPostResource::class, DeepRelationshipPostResource::class, MorphToPostResource::class, PolymorphicPostResource::class, RichUploadPostResource::class, BuilderPostResource::class, TranslatablePostResource::class, BrowserUploadPostResource::class, BrowserReorderPostResource::class])
+            ->pages([BrowserGenericFormPage::class])
+            ->plugins([
+                AutosavePlugin::make(),
+                SpatieTranslatablePlugin::make()->defaultLocales(['en', 'es']),
+            ]);
+    }
+}

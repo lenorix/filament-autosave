@@ -1,6 +1,6 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 
 /**
  * Poll the page until a JavaScript expression is truthy; bounded, no sleeps

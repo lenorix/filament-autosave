@@ -1,7 +1,7 @@
 <?php
 
 use Lenorix\FilamentAutosave\Tests\BrowserTestCase;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 
 /**
  * The Edit-page flow a user actually performs: type across two fields

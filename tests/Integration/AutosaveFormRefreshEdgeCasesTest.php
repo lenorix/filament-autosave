@@ -2,12 +2,12 @@
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveMixedRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Category;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveColumnsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveMixedRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosavePostForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Author;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Category;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 

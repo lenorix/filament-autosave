@@ -5,7 +5,7 @@ namespace Lenorix\FilamentAutosave\Tests;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BrowserUser;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\BrowserUser;
 use RuntimeException;
 
 /**

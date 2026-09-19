@@ -1,7 +1,7 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveColumnsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Livewire\Livewire;
 
 beforeEach(function () {
