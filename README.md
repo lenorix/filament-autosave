@@ -42,7 +42,10 @@ public function panel(Panel $panel): Panel
 ```
 
 The status indicator is included automatically and uses Filament's built-in
-components. No extra frontend build step is required.
+components. Its small stylesheet is registered as a Filament asset, so it is
+published together with Filament's own assets by `php artisan filament:assets`
+and follows the panel's light and dark themes. No Tailwind build step is
+required.
 
 Publish configuration, translations, or views only when you need to customise
 them:

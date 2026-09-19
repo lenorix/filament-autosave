@@ -16,8 +16,8 @@ use RuntimeException;
  * hands each request to the same Laravel kernel this test booted), so the
  * `:memory:` database, package providers, model events and schema from
  * {@see IntegrationTestCase} carry over unchanged. Only Filament's compiled
- * assets need to exist on disk: the page loads Alpine and the autosave
- * controller through them.
+ * assets need to exist on disk: the page loads Alpine, the autosave
+ * controller and the package stylesheet through them.
  *
  * Tests select the indicator through the `data-autosave-status` and
  * `data-autosave-action` attributes the view exposes, never through
@@ -58,7 +58,8 @@ abstract class BrowserTestCase extends IntegrationTestCase
             'password' => bcrypt('secret'),
         ]));
 
-        if (! is_file(public_path('js/filament/filament/app.js'))) {
+        if (! is_file(public_path('js/filament/filament/app.js'))
+            || ! is_file(public_path('css/lenorix/filament-autosave/filament-autosave.css'))) {
             $this->artisan('filament:assets');
         }
     }
