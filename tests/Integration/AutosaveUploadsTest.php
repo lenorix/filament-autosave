@@ -68,6 +68,27 @@ test('a later hook failure removes files stored during the autosave cycle', func
         ->and(Storage::disk('public')->allFiles())->toBeEmpty();
 });
 
+test('a failed cycle never deletes media another editor added since this tab loaded', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+    $page = Livewire::test(FailingAfterSaveUploadPost::class, ['record' => $post->getKey()]);
+
+    // Another editor uploads to the gallery after this tab's page loaded.
+    $theirs = $post->addMediaFromString('theirs')->usingFileName('theirs.txt')->toMediaCollection('default', 'public');
+
+    // This tab's cycle fails in a hook: only what THIS cycle created may be rolled back.
+    $page->set('data.title', 'Changed')->call('autosave')
+        ->assertDispatched('autosave-status', status: 'error');
+
+    expect(Media::query()->where('uuid', $theirs->uuid)->exists())->toBeTrue()
+        ->and(Storage::disk('public')->exists($theirs->getPathRelativeToRoot()))->toBeTrue();
+
+    // A validation skip is a no-write cycle too.
+    $page->set('data.title', '')->call('autosave');
+
+    expect(Media::query()->where('uuid', $theirs->uuid)->exists())->toBeTrue()
+        ->and(Storage::disk('public')->exists($theirs->getPathRelativeToRoot()))->toBeTrue();
+});
+
 test('upload validation leaves existing files intact while another field saves', function () {
     Storage::disk('public')->put('existing.txt', 'existing');
     $post = UploadPost::create(['title' => 'Original', 'settings' => ['existing.txt']]);

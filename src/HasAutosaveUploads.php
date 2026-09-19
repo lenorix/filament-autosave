@@ -57,8 +57,13 @@ trait HasAutosaveUploads
     #[Locked]
     public array $autosaveExternalMediaBaseline = [];
 
-    #[Locked]
-    public bool $autosaveExternalMediaBaselineCaptured = false;
+    /**
+     * Request-local on purpose: the baseline is what THIS cycle found before
+     * it dehydrated the form, so a failed cycle rolls back only the media it
+     * created. Carried across requests it would date from page load, and a
+     * no-write cycle would delete everything another editor added since.
+     */
+    protected bool $autosaveExternalMediaBaselineCaptured = false;
 
     /** @var array<string, array<int, mixed>> */
     #[Locked]
