@@ -23,6 +23,7 @@ enum AutosaveStatus: string
     case Restored = 'restored';
     case Undone = 'undone';
     case Conflict = 'conflict';
+    case Synced = 'synced';
 
     /**
      * Statuses that leave the form aligned with the server state.
@@ -63,13 +64,14 @@ enum AutosaveStatus: string
             self::Saved->value => 5000,
             self::Restored->value => 3000,
             self::Undone->value => 3000,
+            self::Synced->value => 5000,
         ];
     }
 
     /**
      * Everything the Alpine controller needs to keep its status logic in PHP.
      *
-     * @return array{event: string, idle: string, unsaved: string, saving: string, draftAvailable: string, error: string, conflict: string, validation: string, settled: array<int, string>, saveResults: array<int, string>, fadeMs: array<string, int>}
+     * @return array{event: string, idle: string, unsaved: string, saving: string, draftAvailable: string, error: string, conflict: string, validation: string, synced: string, settled: array<int, string>, saveResults: array<int, string>, fadeMs: array<string, int>}
      */
     public static function statusMeta(): array
     {
@@ -85,6 +87,7 @@ enum AutosaveStatus: string
             'validation' => self::Validation->value,
             'restored' => self::Restored->value,
             'undone' => self::Undone->value,
+            'synced' => self::Synced->value,
             'settled' => self::settledStatuses(),
             'saveResults' => self::saveResultStatuses(),
             'fadeMs' => self::fadeMsByStatus(),

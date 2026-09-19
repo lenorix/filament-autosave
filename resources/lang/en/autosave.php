@@ -15,4 +15,6 @@ return [
     'restore' => 'Load draft',
     'discard' => 'Delete draft',
     'restored' => 'Draft loaded back',
+    'synced' => 'Updated with another editor\'s changes',
+    'stale' => 'Another editor also changed:',
 ];

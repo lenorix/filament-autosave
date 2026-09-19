@@ -43,9 +43,6 @@ trait HasAutosave
     /** @var array<string, array<object>> Relationship fields changed this request. */
     protected array $autosavePendingRelationships = [];
 
-    /** @var array<string, mixed> Values refreshed from the record for the status event. */
-    protected array $autosaveRefreshState = [];
-
     /** Undo has been prepared but the surrounding transaction has not committed. */
     protected bool $autosaveUndoPrepared = false;
 
@@ -83,19 +80,18 @@ trait HasAutosave
         }
 
         $this->autosaveDebounceMs = $this->getAutosaveDebounce();
+        $this->autosavePollMs = $this->getAutosavePollInterval();
 
         $this->resetAutosaveHashes();
+
+        if (($record = $this->autosaveSyncRecord()) !== null) {
+            $this->rememberAutosaveSyncedAttributes($record);
+        }
     }
 
     protected function autosaveDirtyOnly(): bool
     {
         return (bool) config('filament-autosave.dirty_only', true);
-    }
-
-    protected function shouldRefreshAutosaveUnchangedFields(): bool
-    {
-        return $this->autosaveDirtyOnly()
-            && (bool) config('filament-autosave.refresh_unchanged_fields', true);
     }
 
     /** @param array<string, mixed> $data */
@@ -119,93 +115,42 @@ trait HasAutosave
         $this->resetAutosaveRelationshipHashes();
     }
 
-    protected function resetAutosaveRefreshState(): void
-    {
-        $this->autosaveRefreshState = [];
-    }
-
-    /** @return array<string, mixed> */
-    protected function getAutosaveRefreshState(): array
-    {
-        return $this->autosaveRefreshState;
-    }
-
-    /**
-     * Refresh clean top-level fields after persistence and leave local edits intact.
-     *
-     * Filament's partial form refresh applies casts and fill hooks, so the
-     * response contains the same representation users see after a normal fill.
-     */
+    /** Post-save refresh of clean columns; see HasAutosaveBase::refreshAutosaveFieldsFromRecord(). */
     protected function refreshAutosaveUnchangedFields(): void
     {
         $this->autosaveRefreshState = [];
 
-        if (! $this->shouldRefreshAutosaveUnchangedFields()
-            || $this->autosaveFieldHashes === null
-            || ! method_exists($this, 'refreshFormData')) {
+        if ($this->autosaveFieldHashes === null) {
             return;
         }
 
-        $record = $this->getRecord();
+        $this->refreshAutosaveFieldsFromRecord($this->getRecord());
+    }
 
-        if (! method_exists($record, 'attributesToArray')) {
-            return;
-        }
+    protected function autosaveSyncRecord(): ?object
+    {
+        return method_exists($this, 'getRecord') ? $this->getRecord() : null;
+    }
 
-        $current = $this->prepareAutosavePayload($this->getAutosaveData());
-        $dirty = [];
+    protected function autosaveCanRefillFromRecord(): bool
+    {
+        return $this->autosaveFieldHashes !== null && method_exists($this, 'refreshFormData');
+    }
 
-        foreach ($current as $path => $value) {
-            if (($this->autosaveFieldHashes[$path] ?? null) !== $this->hashAutosaveValue($value)) {
-                $dirty[AutosaveFieldTree::topLevelKey($path)] = true;
-            }
-        }
+    protected function autosaveFieldIsClean(string $path, mixed $value): bool
+    {
+        return ($this->autosaveFieldHashes[$path] ?? null) === $this->hashAutosaveValue($value);
+    }
 
-        foreach ($this->autosaveRelationshipFields() as $path => $fields) {
-            $dirty[AutosaveFieldTree::topLevelKey($path)] = true;
-        }
+    protected function acknowledgeAutosaveRefreshedField(string $path, mixed $value): void
+    {
+        $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
+    }
 
-        foreach ($this->autosaveUploadFields() as $path => $field) {
-            $dirty[AutosaveFieldTree::topLevelKey($path)] = true;
-        }
-
-        $attributes = $record->attributesToArray();
-        $paths = [];
-
-        foreach (array_keys($current) as $path) {
-            $top = AutosaveFieldTree::topLevelKey($path);
-
-            if (isset($dirty[$top])
-                || $this->autosavePathExcluded($top)
-                || ! array_key_exists($top, $attributes)) {
-                continue;
-            }
-
-            $paths[$top] = true;
-        }
-
-        if ($paths === []) {
-            return;
-        }
-
-        try {
-            $this->refreshFormData(array_keys($paths));
-        } catch (\Throwable $e) {
-            Log::warning('Autosave unchanged-field refresh failed', ['exception' => $e::class]);
-
-            return;
-        }
-
-        $refreshed = $this->prepareAutosavePayload($this->getAutosaveData());
-
-        foreach (array_keys($paths) as $path) {
-            if (! array_key_exists($path, $refreshed)) {
-                continue;
-            }
-
-            $this->autosaveRefreshState[$path] = $refreshed[$path];
-            $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($refreshed[$path]);
-        }
+    /** Filament's partial refresh applies casts and fill hooks like a normal fill. */
+    protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void
+    {
+        $this->refreshFormData($paths);
     }
 
     /**

@@ -68,6 +68,25 @@ class AutosavePlugin implements Plugin
         return static::tryGet() ?? static::make();
     }
 
+    protected int|Closure|null $pollInterval = null;
+
+    /** Milliseconds between polls for other editors' changes; 0 disables polling. */
+    public function pollInterval(int|Closure $milliseconds): static
+    {
+        $this->pollInterval = $milliseconds;
+
+        return $this;
+    }
+
+    public function getPollInterval(): int
+    {
+        if ($this->pollInterval !== null) {
+            return (int) $this->evaluate($this->pollInterval);
+        }
+
+        return (int) config('filament-autosave.poll_interval', 5000);
+    }
+
     public function debounce(int|Closure $milliseconds): static
     {
         $this->debounce = $milliseconds;

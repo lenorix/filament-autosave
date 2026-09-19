@@ -20,6 +20,7 @@ use Lenorix\FilamentAutosave\Events\AutosaveConflict;
 use Lenorix\FilamentAutosave\Events\AutosaveFailed;
 use Lenorix\FilamentAutosave\Events\AutosaveSaved;
 use Lenorix\FilamentAutosave\Events\AutosaveSkipped;
+use Lenorix\FilamentAutosave\Events\AutosaveSynced;
 use Lenorix\FilamentAutosave\Events\AutosaveUndone;
 use Livewire\Attributes\Locked;
 
@@ -34,6 +35,22 @@ trait HasAutosaveBase
 
     #[Locked]
     public int $autosaveDebounceMs = 0;
+
+    /** Poll interval for pulling other editors' changes, in milliseconds; 0 disables polling. */
+    #[Locked]
+    public int $autosavePollMs = 0;
+
+    /**
+     * Hash of each raw record attribute as this component last observed it.
+     * A poll compares against these to tell a remote write from noise.
+     *
+     * @var array<string, string>
+     */
+    #[Locked]
+    public array $autosaveSyncedAttributeHashes = [];
+
+    /** @var array<string, mixed> Clean columns re-read from the record for the status event. */
+    protected array $autosaveRefreshState = [];
 
     /** Livewire path watched by the indicator; defaults to the Filament form path. */
     #[Locked]
@@ -212,6 +229,33 @@ trait HasAutosaveBase
         }
 
         return AutosavePlugin::resolve()->getDebounce();
+    }
+
+    /**
+     * Return milliseconds between polls for other editors' changes; null uses
+     * plugin or config, 0 disables polling for this component.
+     *
+     * @api
+     */
+    protected function autosavePollInterval(): ?int
+    {
+        return null;
+    }
+
+    /**
+     * Resolved poll interval in milliseconds (page, then plugin, then config); 0 means off.
+     *
+     * @api
+     */
+    public function getAutosavePollInterval(): int
+    {
+        $pageInterval = $this->autosavePollInterval();
+
+        if ($pageInterval !== null) {
+            return max(0, $pageInterval);
+        }
+
+        return max(0, AutosavePlugin::resolve()->getPollInterval());
     }
 
     /**
@@ -1422,5 +1466,336 @@ trait HasAutosaveBase
         }
 
         return null;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Refreshing clean fields from the record: after this component's own save
+    // and, by polling, when another editor writes.
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Pull other editors' changes into the fields this user is not editing.
+     *
+     * Called by the browser on a timer. Reads the record once, refills the
+     * clean, model-backed columns another editor changed, and reports fields
+     * that are dirty locally *and* changed remotely as `stale` without
+     * touching them. Emits a `synced` status only when something changed, so
+     * an idle page stays silent. Never writes to the database and never
+     * touches Undo snapshots. Drafts and Create pages are a no-op.
+     *
+     * @api
+     */
+    public function syncAutosave(): void
+    {
+        if (! $this->isAutosaveEnabled() || $this->isAutosaving || $this->autosaveCycleActive) {
+            return;
+        }
+
+        $record = $this->autosaveSyncRecord();
+
+        if (! is_object($record) || ! method_exists($record, 'getAttributes') || ! ($record->exists ?? false)) {
+            return;
+        }
+
+        $this->authorizeAutosaveAccess();
+
+        try {
+            if (! $this->autosaveRecordChangedRemotely($record)) {
+                return;
+            }
+
+            $changed = $this->autosaveChangedRecordAttributes($record);
+            $this->rememberAutosaveSyncedAttributes($record);
+
+            if ($changed === []) {
+                return;
+            }
+
+            $this->autosaveFieldsCache = null;
+            $current = $this->prepareAutosavePayload($this->getAutosaveData());
+            $candidates = $this->autosaveRefreshablePaths($record, $current);
+            $stale = [];
+
+            foreach ($changed as $attribute) {
+                if (! array_key_exists($attribute, $current) || isset($candidates[$attribute])) {
+                    continue;
+                }
+
+                if (! $this->autosaveFieldIsClean($attribute, $current[$attribute])
+                    && ! $this->autosavePathExcluded($attribute)) {
+                    $stale[] = $attribute;
+                }
+            }
+
+            $refreshed = $this->refillAutosavePaths($record, array_values(array_intersect(array_keys($candidates), $changed)));
+        } catch (\Throwable $e) {
+            $this->handleAutosaveFailure($e, 'sync');
+
+            return;
+        }
+
+        sort($stale);
+
+        if ($refreshed === [] && $stale === []) {
+            return;
+        }
+
+        $this->dispatchAutosaveStatus(AutosaveStatus::Synced, ['refreshed' => $refreshed, 'stale' => $stale]);
+        Event::dispatch(new AutosaveSynced($this, $record, $refreshed, $stale));
+    }
+
+    /** The record polling reads; traits that own one override this. */
+    protected function autosaveSyncRecord(): ?object
+    {
+        return null;
+    }
+
+    /**
+     * Whether this component can refill form fields from its record. The
+     * hooks below stay no-ops on traits that cannot (Create pages).
+     */
+    protected function autosaveCanRefillFromRecord(): bool
+    {
+        return false;
+    }
+
+    /** Whether a top-level field still matches the value last acknowledged as saved. */
+    protected function autosaveFieldIsClean(string $path, mixed $value): bool
+    {
+        return false;
+    }
+
+    /** Record a refreshed value as the field's new acknowledged state. */
+    protected function acknowledgeAutosaveRefreshedField(string $path, mixed $value): void {}
+
+    /**
+     * Fill the given top-level paths from the record, applying the same
+     * casts and fill hooks a normal form fill would.
+     *
+     * @param  array<int, string>  $paths
+     */
+    protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void {}
+
+    protected function autosaveRefreshEnabled(): bool
+    {
+        return (bool) config('filament-autosave.dirty_only', true)
+            && (bool) config('filament-autosave.refresh_unchanged_fields', true);
+    }
+
+    protected function resetAutosaveRefreshState(): void
+    {
+        $this->autosaveRefreshState = [];
+    }
+
+    /** @return array<string, mixed> */
+    protected function getAutosaveRefreshState(): array
+    {
+        return $this->autosaveRefreshState;
+    }
+
+    /**
+     * After this component's own write: re-read every clean, model-backed
+     * column so another editor's changes to untouched fields show up in the
+     * same response. Shared by the save path and the poll so the two can
+     * never disagree on which fields are eligible.
+     */
+    protected function refreshAutosaveFieldsFromRecord(object $record): void
+    {
+        $this->autosaveRefreshState = [];
+        $this->rememberAutosaveSyncedAttributes($record);
+
+        if (! $this->autosaveRefreshEnabled() || ! method_exists($record, 'attributesToArray')) {
+            return;
+        }
+
+        $current = $this->prepareAutosavePayload($this->getAutosaveData());
+        $paths = array_keys($this->autosaveRefreshablePaths($record, $current));
+
+        if ($paths === []) {
+            return;
+        }
+
+        try {
+            $this->autosaveRefreshState = $this->refillAutosavePaths($record, $paths, onlyChanged: false);
+        } catch (\Throwable $e) {
+            Log::warning('Autosave unchanged-field refresh failed', ['exception' => $e::class]);
+        }
+    }
+
+    /**
+     * Top-level paths eligible for a refresh: clean by hash, not a
+     * relationship, not an upload, not excluded, and backed by a record
+     * attribute.
+     *
+     * @param  array<string, mixed>  $current  Prepared payload of the live form.
+     * @return array<string, true>
+     */
+    protected function autosaveRefreshablePaths(object $record, array $current): array
+    {
+        if (! $this->autosaveCanRefillFromRecord() || ! method_exists($record, 'attributesToArray')) {
+            return [];
+        }
+
+        $skip = [];
+
+        foreach ($current as $path => $value) {
+            if (! $this->autosaveFieldIsClean((string) $path, $value)) {
+                $skip[AutosaveFieldTree::topLevelKey((string) $path)] = true;
+            }
+        }
+
+        if (method_exists($this, 'autosaveRelationshipFields')) {
+            foreach (array_keys($this->autosaveRelationshipFields()) as $path) {
+                $skip[AutosaveFieldTree::topLevelKey((string) $path)] = true;
+            }
+        }
+
+        if (method_exists($this, 'autosaveUploadFields')) {
+            foreach (array_keys($this->autosaveUploadFields()) as $path) {
+                $skip[AutosaveFieldTree::topLevelKey((string) $path)] = true;
+            }
+        }
+
+        $attributes = $record->attributesToArray();
+        $paths = [];
+
+        foreach (array_keys($current) as $path) {
+            $top = AutosaveFieldTree::topLevelKey((string) $path);
+
+            if (! isset($skip[$top]) && ! $this->autosavePathExcluded($top) && array_key_exists($top, $attributes)) {
+                $paths[$top] = true;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Refill paths from the record and acknowledge their new values.
+     *
+     * @param  array<int, string>  $paths
+     * @param  bool  $onlyChanged  Report only paths whose value actually changed
+     *                             (a poll), or every refilled path (post-save).
+     * @return array<string, mixed> path => value, for the status event.
+     */
+    protected function refillAutosavePaths(object $record, array $paths, bool $onlyChanged = true): array
+    {
+        if ($paths === []) {
+            return [];
+        }
+
+        $this->refillAutosaveFieldsFromRecord($record, $paths);
+
+        $this->autosaveFieldsCache = null;
+        $after = $this->prepareAutosavePayload($this->getAutosaveData());
+        $refreshed = [];
+
+        foreach ($paths as $path) {
+            if (! array_key_exists($path, $after)) {
+                continue;
+            }
+
+            $unchanged = $this->autosaveFieldIsClean($path, $after[$path]);
+            $this->acknowledgeAutosaveRefreshedField($path, $after[$path]);
+
+            if (! $onlyChanged || ! $unchanged) {
+                $refreshed[$path] = $after[$path];
+            }
+        }
+
+        return $refreshed;
+    }
+
+    /**
+     * Cheapest possible "did anyone else write?" check: a timestamped model
+     * costs one narrow query when nothing changed; otherwise one refresh.
+     */
+    protected function autosaveRecordChangedRemotely(object $record): bool
+    {
+        if (method_exists($record, 'usesTimestamps') && $record->usesTimestamps()
+            && method_exists($record, 'getUpdatedAtColumn') && ($column = $record->getUpdatedAtColumn()) !== null) {
+            $stamp = $record->newQuery()->whereKey($record->getKey())->value($column);
+            $seen = $this->autosaveSyncedAttributeHashes['__updated_at'] ?? null;
+
+            if ($seen !== null && $this->autosaveStore()->snapshotHash(['v' => $stamp]) === $seen) {
+                return false;
+            }
+        }
+
+        $this->reloadAutosaveRecordAttributes($record);
+
+        return $this->autosaveChangedRecordAttributes($record) !== [];
+    }
+
+    /**
+     * Re-read the record's own columns in one query. Model::refresh() would
+     * also reload every relation the form already hydrated, which is exactly
+     * the per-poll cost this method exists to avoid.
+     */
+    protected function reloadAutosaveRecordAttributes(object $record): void
+    {
+        if (! method_exists($record, 'newQueryWithoutScopes') || ! method_exists($record, 'setRawAttributes')) {
+            $record->refresh();
+
+            return;
+        }
+
+        $fresh = $record->newQueryWithoutScopes()->whereKey($record->getKey())->first();
+
+        if ($fresh === null) {
+            return;
+        }
+
+        $record->setRawAttributes($fresh->getAttributes(), sync: true);
+    }
+
+    /**
+     * Raw attributes whose value differs from what this component last saw.
+     *
+     * @return array<int, string>
+     */
+    protected function autosaveChangedRecordAttributes(object $record): array
+    {
+        $seen = $this->autosaveSyncedAttributeHashes;
+
+        if ($seen === []) {
+            return [];
+        }
+
+        $changed = [];
+
+        foreach ($this->autosaveRecordAttributeHashes($record) as $attribute => $hash) {
+            if ($attribute !== '__updated_at' && ($seen[$attribute] ?? null) !== $hash) {
+                $changed[] = $attribute;
+            }
+        }
+
+        return $changed;
+    }
+
+    protected function rememberAutosaveSyncedAttributes(object $record): void
+    {
+        $this->autosaveSyncedAttributeHashes = $this->autosaveRecordAttributeHashes($record);
+    }
+
+    /** @return array<string, string> */
+    protected function autosaveRecordAttributeHashes(object $record): array
+    {
+        if (! method_exists($record, 'getAttributes')) {
+            return [];
+        }
+
+        $hashes = [];
+
+        foreach ($record->getAttributes() as $attribute => $value) {
+            $hashes[(string) $attribute] = $this->autosaveStore()->snapshotHash(['v' => $value]);
+        }
+
+        if (method_exists($record, 'usesTimestamps') && $record->usesTimestamps()
+            && method_exists($record, 'getUpdatedAtColumn') && ($column = $record->getUpdatedAtColumn()) !== null) {
+            $hashes['__updated_at'] = $this->autosaveStore()->snapshotHash(['v' => $record->getAttributes()[$column] ?? null]);
+        }
+
+        return $hashes;
     }
 }

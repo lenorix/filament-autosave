@@ -17,6 +17,7 @@ const AUTOSAVE_API = [
     'afterAutosave',
     'autosaveDebounce',
     'autosaveExcept',
+    'autosavePollInterval',
     'beforeAutosave',
     'getAutosaveFormContext',
     'getAutosaveStatePath',
@@ -32,8 +33,10 @@ const AUTOSAVE_API = [
     'flushAutosave',
     'getAutosaveDebounce',
     'getAutosaveExcept',
+    'getAutosavePollInterval',
     'isAutosaveEnabled',
     'restoreDraft',
+    'syncAutosave',
     'undoAutosave',
 ];
 
