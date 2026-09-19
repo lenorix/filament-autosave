@@ -3,6 +3,7 @@
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\BrokenMediaSnapshotUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\ClearMediaInHookEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\DropUploadColumnEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\EditFailingAfterValidateUploadPost;
@@ -405,6 +406,17 @@ test('a failure after spatie media is written removes the file and forgets its l
 
     expect($post->fresh()->getMedia())->toHaveCount(0);
     expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
+});
+
+test('a spatie file is removed through its ledger token when the media snapshot itself fails', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+
+    Livewire::test(BrokenMediaSnapshotUploadPost::class, ['record' => $post->getKey()])
+        ->set('data.gallery', [UploadedFile::fake()->create('media.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'error');
+
+    expect(Storage::disk('public')->allFiles())->toBeEmpty()
+        ->and(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
 });
 
 test('an untouched FileUpload does not disable undo for a column-only edit page autosave', function () {
