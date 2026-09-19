@@ -110,9 +110,10 @@ trait HasAutosaveForForm
      *
      * @api
      */
-    public function autosave(): void
+    public function autosave(array $mergePatches = []): void
     {
         $this->assertAutosaveFormContext();
+        $this->acceptAutosaveMergePatches($mergePatches);
         $this->performAutosave(fn (array $data): bool|array => $this->persistAutosaveForm($data));
     }
 
@@ -325,10 +326,25 @@ trait HasAutosaveForForm
         $this->putAutosaveFormUndo('relationships', $relationshipUndo);
         $this->putAutosaveFormUndo('external', $externalUndo);
 
+        $merge = $this->extractAutosaveMergeColumns($columns);
+
         if (method_exists($this, 'handleRecordUpdate')) {
             $this->handleRecordUpdate($record, $columns);
         } else {
             $record->update($columns);
+        }
+
+        if ($merge !== []) {
+            // Merged columns carry the value actually stored; a column left
+            // contended is dropped everywhere so the user's text stays dirty
+            // and Undo never touches it.
+            $result = $this->writeAutosaveMergeColumns($record, $merge);
+            $contended = $this->autosaveContendedValues;
+            $columns = array_diff_key(array_replace($columns, $result['written']), $contended);
+            $data = array_diff_key(array_replace($data, $result['written']), $contended);
+            $previous = array_diff_key(array_replace($previous, $result['previous']), $contended);
+            $this->autosaveUndo()->replace(AutosaveUndo::VALUES, AutosaveStore::normalizeScalars($previous));
+            $this->markAutosavePendingFields($this->autosaveContendedPaths());
         }
 
         if (($form = $this->resolveAutosaveForm()) !== null
@@ -356,6 +372,7 @@ trait HasAutosaveForForm
         // Before the hashes below acknowledge this write, so "clean" still
         // means "unchanged since the last acknowledged state".
         $this->refreshAutosaveUnchangedFields($record);
+        $this->refreshAutosaveMergedFields($record);
 
         // A relationship callback may have persisted state that is not a
         // model column. Acknowledge every top-level value supplied to the

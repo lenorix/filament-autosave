@@ -87,6 +87,32 @@ class AutosavePlugin implements Plugin
         return (int) config('filament-autosave.poll_interval', 5000);
     }
 
+    /** @var array<string>|Closure|null */
+    protected array|Closure|null $mergeFields = null;
+
+    /**
+     * Top-level plain-text fields merged word by word when two editors change
+     * them at once; anything else stays last-write-wins.
+     *
+     * @param  array<string>|Closure  $fields
+     */
+    public function mergeFields(array|Closure $fields): static
+    {
+        $this->mergeFields = $fields;
+
+        return $this;
+    }
+
+    /** @return array<string> */
+    public function getMergeFields(): array
+    {
+        if ($this->mergeFields !== null) {
+            return array_values((array) $this->evaluate($this->mergeFields));
+        }
+
+        return array_values((array) config('filament-autosave.merge_fields', []));
+    }
+
     public function debounce(int|Closure $milliseconds): static
     {
         $this->debounce = $milliseconds;

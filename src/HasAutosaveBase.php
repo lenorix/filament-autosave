@@ -27,6 +27,8 @@ use Livewire\Attributes\Locked;
 
 trait HasAutosaveBase
 {
+    use HasAutosaveMerge;
+
     // Expose the server decision to Alpine and lock it from the client.
     #[Locked]
     public bool $autosaveEnabled = true;
@@ -387,6 +389,7 @@ trait HasAutosaveBase
     {
         $this->autosaveCycleActive = true;
         $this->autosaveCycleWrote = false;
+        $this->resetAutosaveMergeReport();
 
         try {
             $this->runAutosaveCycle(fn () => $this->performAutosave($persist));
@@ -555,10 +558,17 @@ trait HasAutosaveBase
             $this->autosaveEventRecord(),
             $written,
             $this->autosavePendingFields,
+            $this->autosaveMergedValues,
+            $this->autosaveMergeConflicts,
         ));
+        $this->dispatchAutosaveContended();
+
+        // A field still contended after every retry was not written: the
+        // cycle is reported like one with pending fields, not as a clean save.
+        $clean = $this->autosaveValidationErrors === [] && $this->autosaveContendedValues === [];
 
         $this->dispatchAutosaveStatus(
-            $this->autosaveValidationErrors === [] ? AutosaveStatus::Saved : AutosaveStatus::Validation,
+            $clean ? AutosaveStatus::Saved : AutosaveStatus::Validation,
             [
                 'timestamp' => now()->isoFormat('LT'),
                 'errors' => $this->autosaveValidationErrors,
@@ -566,6 +576,7 @@ trait HasAutosaveBase
                 'refreshed' => method_exists($this, 'getAutosaveRefreshState')
                     ? $this->getAutosaveRefreshState()
                     : [],
+                ...$this->autosaveMergeReport(),
             ],
         );
     }
@@ -1604,9 +1615,15 @@ trait HasAutosaveBase
      * an idle page stays silent. Never writes to the database and never
      * touches Undo snapshots. Drafts and Create pages are a no-op.
      *
+     * A stale field listed as mergeable also gets the other editor's current
+     * value in `patches`, unless the browser sent that value's hash in
+     * `$mergeBaseHashes` (path => xxh128), meaning it already holds it.
+     *
+     * @param  array<string, string>  $mergeBaseHashes
+     *
      * @api
      */
-    public function syncAutosave(): void
+    public function syncAutosave(array $mergeBaseHashes = []): void
     {
         if (! $this->isAutosaveEnabled() || $this->isAutosaving || $this->autosaveCycleActive) {
             return;
@@ -1634,35 +1651,30 @@ trait HasAutosaveBase
 
             $this->autosaveFieldsCache = null;
             $current = $this->prepareAutosavePayload($this->getAutosaveData());
-            $candidates = $this->autosaveRefreshablePaths($record, $current);
-            $stale = [];
+            $plan = AutosaveSync::plan(
+                $changed,
+                $current,
+                $this->autosaveRefreshablePaths($record, $current),
+                $this->autosaveMergeablePaths(),
+                array_filter($mergeBaseHashes, 'is_string'),
+                $record->getAttributes(),
+                $this->autosaveFieldIsClean(...),
+                $this->autosavePathExcluded(...),
+            );
 
-            foreach ($changed as $attribute) {
-                if (! array_key_exists($attribute, $current) || isset($candidates[$attribute])) {
-                    continue;
-                }
-
-                if (! $this->autosaveFieldIsClean($attribute, $current[$attribute])
-                    && ! $this->autosavePathExcluded($attribute)) {
-                    $stale[] = $attribute;
-                }
-            }
-
-            $refreshed = $this->refillAutosavePaths($record, array_values(array_intersect(array_keys($candidates), $changed)));
+            $refreshed = $this->refillAutosavePaths($record, $plan['refill']);
         } catch (\Throwable $e) {
             $this->handleAutosaveFailure($e, 'sync');
 
             return;
         }
 
-        sort($stale);
-
-        if ($refreshed === [] && $stale === []) {
+        if ($refreshed === [] && $plan['stale'] === []) {
             return;
         }
 
-        $this->dispatchAutosaveStatus(AutosaveStatus::Synced, ['refreshed' => $refreshed, 'stale' => $stale]);
-        Event::dispatch(new AutosaveSynced($this, $record, $refreshed, $stale));
+        $this->dispatchAutosaveStatus(AutosaveStatus::Synced, AutosaveSync::syncedPayload($refreshed, $plan['stale'], $plan['patches']));
+        Event::dispatch(new AutosaveSynced($this, $record, $refreshed, $plan['stale'], $plan['patches']));
     }
 
     /** The record polling reads; traits that own one override this. */

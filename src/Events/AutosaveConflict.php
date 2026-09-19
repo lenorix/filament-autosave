@@ -3,13 +3,19 @@
 namespace Lenorix\FilamentAutosave\Events;
 
 /**
- * Undo was cancelled because the value it would restore was changed
- * elsewhere after the autosave wrote it.
+ * Something could not be reconciled with another editor's write: Undo was
+ * cancelled because the value it would restore changed elsewhere, or a
+ * mergeable field stayed contended through every retry and was left
+ * unwritten (`$conflicts` names it with `reason => 'contended'`).
  */
 final class AutosaveConflict
 {
+    /**
+     * @param  array<string, list<array{ours: string, theirs: string, position: int, reason: string}>>  $conflicts  Empty for an Undo conflict.
+     */
     public function __construct(
         public readonly object $page,
         public readonly ?object $record,
+        public readonly array $conflicts = [],
     ) {}
 }

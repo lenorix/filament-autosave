@@ -81,6 +81,19 @@ final class AutosaveUndo
         return true;
     }
 
+    /**
+     * Like put(), but an empty value forgets the part instead of leaving a
+     * stale snapshot behind.
+     *
+     * @param  array<string, mixed>  $value
+     */
+    public function replace(string $part, array $value): void
+    {
+        if (! $this->put($part, $value)) {
+            Cache::forget($this->key($part));
+        }
+    }
+
     /** @return array<string, mixed>|null */
     public function get(string $part): ?array
     {
