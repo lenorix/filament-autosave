@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Autosave `SpatieMediaLibraryFileUpload` fields inside a JSON (non-relationship)
+  `Repeater` when every row resolves its own distinct collection (a persisted
+  `Hidden` uuid plus `->collection(fn (Get $get) => 'row_'.$get('uuid'))`).
+  Each row's media is written to its own collection, rows can be reordered
+  without moving media, and a failure after the write removes only the affected
+  row's new files. Rows sharing one collection stay blocked and are reported as
+  pending. Deleting a row does not delete its collection; the host cleans orphans.
 - Refactor: one-step Undo storage and its optimistic conflict checks now live in
   a single `AutosaveUndo` engine shared by Edit pages and generic forms, and
   both use the same per-field hash. Generic forms (`HasAutosaveForForm`)

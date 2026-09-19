@@ -164,8 +164,11 @@ Filament Spatie plugin is installed. Both kinds are also persisted inside a
 media in an existing row attaches to the row's record, media in a new row is
 attached by the repeater once it creates the row, and a row failing validation
 skips the whole relationship without storing any file. Media inside a JSON
-(non-relationship) repeater is not autosaved because rows would share one
-collection. Create drafts never store uploads/media.
+(non-relationship) repeater is autosaved only when every row resolves its own
+distinct collection (persist a `Hidden` uuid per row and use
+`->collection(fn (Get $get) => 'row_'.$get('uuid'))`); a shared collection
+stays blocked and reported as pending, and deleting a row never deletes its
+collection (the host cleans orphans). Create drafts never store uploads/media.
 
 Password fields, `except` fields, temporary uploads, and undeclared client keys
 are excluded. Nested groups/repeaters are one top-level value; an incomplete

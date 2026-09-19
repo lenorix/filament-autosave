@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\ClearMediaInHookEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\DropUploadColumnEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\EditFailingAfterValidateUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAfterSaveRowMediaPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAfterSaveUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\HookedEditUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\LedgerSpyEditUploadPost;
@@ -18,7 +19,9 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditFai
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditMediaItemsPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditNamedUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditNestedUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditRowMediaPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditSecretUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditSharedRowMediaPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditUploadPost;
 use Livewire\Livewire;
 
@@ -404,4 +407,111 @@ test('a changed FileUpload still withholds undo even when a column changes along
         ->call('autosave')
         ->assertDispatched('autosave-status', status: 'saved')
         ->assertSet('autosaveCanUndo', false);
+});
+
+// --- Spatie media inside a JSON (non-relationship) repeater, one collection per row ---
+
+function rowMediaPost(array $rows): UploadPost
+{
+    $settings = [];
+
+    foreach ($rows as $uuid => $label) {
+        $settings[] = ['uuid' => $uuid, 'label' => $label];
+    }
+
+    return UploadPost::create(['title' => 'Original', 'settings' => $settings]);
+}
+
+function rowKeys(object $page): array
+{
+    return array_keys($page->get('data.settings'));
+}
+
+test('media in a per-row collection is saved for each JSON repeater row without touching the others', function () {
+    $post = rowMediaPost(['aaa' => 'A', 'bbb' => 'B']);
+    $page = Livewire::test(EditRowMediaPost::class, ['record' => $post->getKey()]);
+    [$rowA, $rowB] = rowKeys($page);
+
+    $page->set("data.settings.{$rowA}.images", [UploadedFile::fake()->create('a.txt', 1)])
+        ->set("data.settings.{$rowB}.images", [UploadedFile::fake()->create('b.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->getMedia('row_aaa'))->toHaveCount(1)
+        ->and($post->fresh()->getMedia('row_bbb'))->toHaveCount(1)
+        ->and($post->fresh()->getMedia('default'))->toHaveCount(0);
+});
+
+test('editing one JSON repeater row leaves the media of the other rows intact', function () {
+    $post = rowMediaPost(['aaa' => 'A', 'bbb' => 'B']);
+    $post->addMediaFromString('b')->usingFileName('b.txt')->toMediaCollection('row_bbb', 'public');
+    $page = Livewire::test(EditRowMediaPost::class, ['record' => $post->getKey()]);
+    [$rowA] = rowKeys($page);
+
+    $page->set("data.settings.{$rowA}.label", 'A changed')
+        ->set("data.settings.{$rowA}.images", [UploadedFile::fake()->create('a.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->getMedia('row_bbb')->pluck('file_name')->all())->toBe(['b.txt'])
+        ->and($post->fresh()->getMedia('row_aaa'))->toHaveCount(1)
+        ->and(collect($post->fresh()->settings)->firstWhere('uuid', 'aaa')['label'])->toBe('A changed');
+});
+
+test('reordering JSON repeater rows keeps each media collection with its row uuid', function () {
+    $post = rowMediaPost(['aaa' => 'A', 'bbb' => 'B']);
+    $post->addMediaFromString('a')->usingFileName('a.txt')->toMediaCollection('row_aaa', 'public');
+    $post->addMediaFromString('b')->usingFileName('b.txt')->toMediaCollection('row_bbb', 'public');
+    $page = Livewire::test(EditRowMediaPost::class, ['record' => $post->getKey()]);
+    $rows = $page->get('data.settings');
+    [$rowA, $rowB] = array_keys($rows);
+
+    $page->set('data.settings', [$rowB => $rows[$rowB], $rowA => $rows[$rowA]])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect(array_column($post->fresh()->settings, 'uuid'))->toBe(['bbb', 'aaa'])
+        ->and($post->fresh()->getMedia('row_aaa')->pluck('file_name')->all())->toBe(['a.txt'])
+        ->and($post->fresh()->getMedia('row_bbb')->pluck('file_name')->all())->toBe(['b.txt']);
+});
+
+test('a new JSON repeater row with media gets its own fresh collection', function () {
+    $post = rowMediaPost(['aaa' => 'A']);
+    $page = Livewire::test(EditRowMediaPost::class, ['record' => $post->getKey()]);
+    $rows = $page->get('data.settings');
+    $rows['new-row'] = ['uuid' => 'ccc', 'label' => 'C', 'images' => []];
+
+    $page->set('data.settings', $rows)
+        ->set('data.settings.new-row.images', [UploadedFile::fake()->create('c.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->getMedia('row_ccc'))->toHaveCount(1)
+        ->and(array_column($post->fresh()->settings, 'uuid'))->toBe(['aaa', 'ccc']);
+});
+
+test('a shared collection across JSON repeater rows stays blocked and is reported as pending', function () {
+    $post = rowMediaPost(['aaa' => 'A', 'bbb' => 'B']);
+    $post->addMediaFromString('kept')->usingFileName('kept.txt')->toMediaCollection('gallery', 'public');
+    $page = Livewire::test(EditSharedRowMediaPost::class, ['record' => $post->getKey()]);
+    [$rowA] = rowKeys($page);
+
+    $page->set("data.settings.{$rowA}.images", [UploadedFile::fake()->create('a.txt', 1)])
+        ->set('data.title', 'Changed')
+        ->call('autosave')
+        ->assertDispatched('autosave-status', fn (string $event, array $params): bool => in_array('settings', $params['pending'] ?? [], true));
+
+    expect($post->fresh()->title)->toBe('Changed')
+        ->and($post->fresh()->getMedia('gallery')->pluck('file_name')->all())->toBe(['kept.txt']);
+});
+
+test('a failure after a per-row media write cleans only the affected row collection', function () {
+    $post = rowMediaPost(['aaa' => 'A', 'bbb' => 'B']);
+    $post->addMediaFromString('a')->usingFileName('a-existing.txt')->toMediaCollection('row_aaa', 'public');
+    $post->addMediaFromString('b')->usingFileName('b.txt')->toMediaCollection('row_bbb', 'public');
+    $page = Livewire::test(FailingAfterSaveRowMediaPost::class, ['record' => $post->getKey()]);
+    [$rowA] = rowKeys($page);
+    // Add a file next to the existing media uuid instead of replacing the row
+    // state, so the existing file is not abandoned by the row's component.
+    $page->set("data.settings.{$rowA}.images.new", UploadedFile::fake()->create('a-new.txt', 1))
+        ->call('autosave')->assertDispatched('autosave-status', status: 'error');
+
+    expect($post->fresh()->getMedia('row_aaa')->pluck('file_name')->all())->toBe(['a-existing.txt'])
+        ->and($post->fresh()->getMedia('row_bbb')->pluck('file_name')->all())->toBe(['b.txt']);
 });

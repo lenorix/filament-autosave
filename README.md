@@ -258,7 +258,7 @@ applied, while fields marked `dehydrated(false)` are left out.
 | `FileUpload` backed by a column, including nested fields | Yes, after upload validation |
 | Top-level `SpatieMediaLibraryFileUpload` | Yes, changed collections only |
 | `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row | Yes, with the row's relationship write |
-| `SpatieMediaLibraryFileUpload` inside a JSON (non-relationship) repeater | No |
+| `SpatieMediaLibraryFileUpload` inside a JSON (non-relationship) repeater | Yes, when every row resolves its own collection; otherwise pending |
 | Relationships inside groups, repeaters, and builders | Yes, when the relationship changes |
 | Relationship `Repeater` nested inside another relationship `Repeater` (any depth) | Yes; each nested repeater saves its own rows, innermost first |
 | Other `dehydrated(false)` fields | No |
@@ -477,8 +477,40 @@ together with that relationship, on Edit pages and record-backed generic forms.
 Media in an existing row is attached to the row's own record; media in a new
 row is attached once the relationship component has created the row. If any
 field in the repeater fails validation, the whole relationship write is skipped
-and no file is stored. Media inside a repeater stored in a JSON column is not
-autosaved, because every row would share the parent record's media collection.
+and no file is stored.
+
+### Media inside a JSON repeater
+
+A `Repeater` stored in a JSON column has no record per row: every
+`SpatieMediaLibraryFileUpload` inside it hangs off the parent record. When the
+rows share one collection, saving one row's component deletes every file the
+other rows own (Filament's `deleteAbandonedFiles()`), so the package keeps that
+case blocked: the repeater column is reported as `pending` in the status event
+and nothing is written until you save explicitly.
+
+Give each row its own collection and the rows are autosaved independently:
+
+```php
+Repeater::make('settings')->schema([
+    Hidden::make('uuid')->default(fn (): string => (string) Str::uuid()),
+    TextInput::make('label'),
+    SpatieMediaLibraryFileUpload::make('images')
+        ->multiple()
+        ->collection(fn (Get $get): string => 'row_'.$get('uuid')),
+]),
+```
+
+The rule is exact: the media field is autosaved when every row's component
+resolves a non-empty collection other than `default`, all of those collections
+are distinct, and none of them is also used by a top-level media field of the
+same record. Any other configuration is blocked and reported as pending. The
+`Hidden` uuid must be persisted in the row JSON so a reordered row keeps its
+collection and a new row gets a fresh one.
+
+The host application remains responsible for cleaning up: deleting a row does
+not delete its collection, so remove the orphaned media yourself (for example
+in a model observer that compares the stored uuids with the record's
+collections).
 
 ### Failure cleanup, ledger, and transactions
 
