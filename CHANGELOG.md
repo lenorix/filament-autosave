@@ -15,6 +15,8 @@
   entry points; failed schema/record lookups while a component mounts are
   logged at `debug` (component and exception class) and a failed cycle's
   warning names the component and record key — never the exception message.
+- `phpunit.xml` validates against the installed PHPUnit's schema instead of
+  a pinned 11.0 URL.
 - phpstan now analyses the trait bodies through analysis-only hosts; the
   findings (array value types, relation generics, a `void` transaction
   wrapper whose result was read) are fixed.
