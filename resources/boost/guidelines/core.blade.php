@@ -1,6 +1,7 @@
 # Lenorix Filament Autosave
 
-Debounced autosave and a Filament status indicator.
+Column-by-column autosave for Filament forms with one-step Undo, drafts, and a
+status indicator; untouched fields pick up other editors' changes.
 
 - Edit pages persist eligible fields to the record.
 - Create/custom pages store drafts in Laravel Cache until explicit submit.

@@ -1,6 +1,6 @@
 {
     "name": "lenorix/filament-autosave",
-    "description": "Save Filament forms automatically, with a live status indicator, undo support, and local drafts",
+    "description": "Column-by-column autosave for Filament forms: nothing is lost on a closed tab, two editors never overwrite each other, and every save can be undone",
     "keywords": ["filament", "autosave", "laravel", "forms", "livewire"],
     "license": "Unlicense",
     "homepage": "https://github.com/lenorix/filament-autosave",
