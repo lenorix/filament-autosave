@@ -28,10 +28,12 @@
 @endphp
 
 @if ($mergeFields !== [])
-    @once
-        {{-- Dependency-free diff/merge runtime, shipped with the views: no asset publishing, no build step. --}}
+    {{-- Dependency-free diff/merge runtime, shipped with the views: no asset
+         publishing, no build step. Livewire's @assets loads it once per page
+         and keeps it out of every later response. --}}
+    @assets
         <script data-autosave-merge>{!! file_get_contents($mergeScript) !!}</script>
-    @endonce
+    @endassets
 @endif
 
 <div

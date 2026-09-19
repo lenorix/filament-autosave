@@ -223,8 +223,9 @@ is `validation`. Overlapping ranges: last save wins there only, `reason =
 mergeable fields unless the browser's hash matches. Without a patch a field
 stays last-write-wins.
 
-Browser side: `resources/js/autosave-merge.js` (inline `<script>` from the
-indicator view, `@once`, only when `getAutosaveMergeFields()` is non-empty;
+Browser side: `resources/js/autosave-merge.js` (inlined by the indicator view
+through Livewire's `@assets`, so it loads once into the head and never rides
+in a component re-render; only when `getAutosaveMergeFields()` is non-empty;
 no asset publishing) exposes `window.FilamentAutosaveMerge = { engine,
 createSync, apply }`. `engine` mirrors the PHP tokenizer/diff/diff3/patch
 text on code-point arrays (a browser test pins parity with `makePatch()`

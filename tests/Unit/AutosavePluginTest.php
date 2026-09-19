@@ -6,6 +6,7 @@ use Filament\View\PanelsRenderHook;
 use Lenorix\FilamentAutosave\AutosavePlugin;
 use Lenorix\FilamentAutosave\Tests\Fixtures\AutosaveCreateFormComponent;
 use Lenorix\FilamentAutosave\Tests\Fixtures\AutosaveEditFormComponent;
+use Livewire\Features\SupportScriptsAndAssets\SupportScriptsAndAssets;
 
 test('mode detection identifies edit pages', function () {
     $mode = (fn ($c) => $this->detectMode($c))->call(autosavePlugin(), AutosaveEditFormComponent::class);
@@ -187,10 +188,15 @@ test('the indicator ships the merge runtime only for a component that lists merg
     $controller = $xpath->query('//*[@class="fi-autosave-indicator"]')->item(0)->getAttribute('x-data');
 
     // One inline, dependency-free script (no asset publishing, no build
-    // step) exposing the engine, the sync state and the input applier.
-    expect($xpath->query('//script[@data-autosave-merge]')->length)->toBe(1)
-        ->and($html)->toContain('window.FilamentAutosaveMerge = window.FilamentAutosaveMerge ||')
-        ->and($html)->toContain('createSync', 'makePatch', 'mapOffset', 'toInput')
+    // step) exposing the engine, the sync state and the input applier. It
+    // goes through Livewire's @assets, so it lands in the page head once
+    // and never travels in the component's own HTML (nor its re-renders).
+    $assets = implode('', SupportScriptsAndAssets::$nonLivewireAssets);
+
+    expect($html)->not->toContain('<script')
+        ->and(substr_count($assets, '<script data-autosave-merge>'))->toBe(1)
+        ->and($assets)->toContain('window.FilamentAutosaveMerge = window.FilamentAutosaveMerge ||')
+        ->and($assets)->toContain('createSync', 'makePatch', 'mapOffset', 'toInput')
         ->and($controller)->toContain('mergeFields: JSON.parse(', 'body', 'summary');
 
     $plain = view('filament-autosave::autosave-indicator', ['mode' => 'edit', '__livewire' => new class

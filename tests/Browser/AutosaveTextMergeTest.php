@@ -93,6 +93,11 @@ test('the browser builds the same patches and merges as the server', function ()
     // Caret offsets are UTF-16 in the browser: an astral character before
     // the caret still maps to the right place.
     expect($page->script('FilamentAutosaveMerge.engine.mapOffset("😀 alpha beta", "😀 zero alpha beta", 8)'))->toBe(13);
+
+    // The runtime is loaded once into the head, outside the component, so
+    // a re-render never carries it again.
+    expect($page->script('document.querySelectorAll("script[data-autosave-merge]").length'))->toBe(1)
+        ->and($page->script('document.querySelector("script[data-autosave-merge]").closest("[wire\\\\:id]")'))->toBeNull();
     $this->assertNoBrowserErrors($page);
 });
 
@@ -203,6 +208,63 @@ test('a field contended through every retry adopts the merge against the latest 
     $this->waitUntil($page, controller().'.mergeSync.base("body") === "alpha beta gamma delta"', 'the base to move to the latest value');
     expect($page->script(controller().'.mergeSync.patches({ body: document.querySelector('.json_encode(MERGE_BODY).').value })'))->toHaveKey('body');
 
+    $this->assertNoBrowserErrors($page);
+});
+
+test('text typed while a save is in flight survives the merge that comes back', function () {
+    $post = Post::create(['title' => 'Original', 'body' => 'alpha beta gamma']);
+
+    $one = visit("/admin/merge-posts/{$post->getKey()}/edit")->assertValue(MERGE_BODY, 'alpha beta gamma');
+    $two = visit("/admin/merge-posts/{$post->getKey()}/edit")->assertValue(MERGE_BODY, 'alpha beta gamma');
+
+    $one->fill(MERGE_BODY, 'ALPHA beta gamma');
+    $this->waitForStatus($one, 'saved');
+
+    $two->fill(MERGE_BODY, 'alpha beta gamma mine');
+    $this->waitForStatus($two, 'unsaved');
+
+    // Start the save by hand and keep typing before the reply arrives.
+    $two->script(sprintf(<<<'JS'
+        (() => {
+            const el = document.querySelector(%s)
+            const flight = %s.save()
+            el.focus()
+            el.setSelectionRange(el.value.length, el.value.length)
+            el.value += ' more'
+            el.setSelectionRange(el.value.length, el.value.length)
+            el.dispatchEvent(new Event('input', { bubbles: true }))
+            return flight
+        })()
+        JS, json_encode(MERGE_BODY), controller()));
+
+    // The reply merges the other editor's start into the field without
+    // touching the word typed meanwhile, and the follow-up save lands it.
+    waitForBody($two, 'ALPHA beta gamma mine more');
+    $this->waitForDatabase($two, fn (): bool => $post->fresh()->body === 'ALPHA beta gamma mine more', 'the in-flight word to land');
+    expect(selectionOf($two))->toBe([26, 26]);
+
+    $two->assertMissing('[data-autosave-conflicts]');
+    $this->assertNoBrowserErrors($two);
+});
+
+test('a generic record form merges from the browser too, with its base advancing after each save', function () {
+    $post = Post::create(['title' => 'Hello World', 'slug' => 'original']);
+    $title = BrowserTestCase::field('form.title');
+
+    $page = visit("/admin/generic-form/{$post->getKey()}")->assertValue($title, 'Hello World');
+
+    $page->fill($title, 'Hello Big World');
+    $this->waitForStatus($page, 'saved');
+
+    // Someone else changes the first word; this form changes the last one,
+    // and its patch must start from its own last save, not from mount.
+    Post::query()->whereKey($post->getKey())->update(['title' => 'HELLO Big World']);
+    $page->fill($title, 'Hello Big Universe');
+    $this->waitForStatus($page, 'saved');
+
+    expect($post->fresh()->title)->toBe('HELLO Big Universe');
+    $this->waitForInputValue($page, $title, 'HELLO Big Universe');
+    $page->assertMissing('[data-autosave-conflicts]');
     $this->assertNoBrowserErrors($page);
 });
 

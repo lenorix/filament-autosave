@@ -471,8 +471,10 @@ travels alongside it.
 #### In the browser
 
 Nothing to install or build: when a page lists merge fields, the indicator
-includes a small dependency-free runtime (the same word-level diff and patch
-format as the server) and the controller takes it from there.
+loads a small dependency-free runtime once per page (about 24 KB, through
+Livewire's `@assets`, so it never rides in a Livewire response; the same
+word-level diff and patch format as the server) and the controller takes it
+from there.
 
 - It keeps, per mergeable field, the last value the server acknowledged — on
   load, after each save, after each refill or merge — and sends only the

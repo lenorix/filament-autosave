@@ -17,9 +17,10 @@
   `AutosaveConflict` gain matching properties (new optional constructor
   parameters).
 - The browser does its part of the merge, with no build step and no
-  dependency: when a component lists merge fields, the indicator ships an
-  inline runtime (`resources/js/autosave-merge.js`, the same word-level
-  diff, diff3 and patch format as the server) and the controller keeps the
+  dependency: when a component lists merge fields, the indicator loads a
+  runtime once per page through Livewire's `@assets`
+  (`resources/js/autosave-merge.js`, ~24 KB, the same word-level diff, diff3
+  and patch format as the server; never part of a Livewire response) and the controller keeps the
   last acknowledged value of each field as its base, sends a patch per dirty
   field with `autosave()` and the hashes it holds with `syncAutosave()`, and
   merges `merged` / `patches.theirs` into the input while keeping the caret
