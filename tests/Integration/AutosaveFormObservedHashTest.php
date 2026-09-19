@@ -2,8 +2,8 @@
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveUploadRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Livewire\Livewire;
 
 /**

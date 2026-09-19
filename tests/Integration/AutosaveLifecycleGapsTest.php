@@ -1,9 +1,9 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\HookOrderRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\OwnFormActionsComponent;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\HookOrderRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\OwnFormActionsComponent;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
 use Livewire\Livewire;
 
 test('generic forms run beforeSave before the mutator, like Filament', function () {

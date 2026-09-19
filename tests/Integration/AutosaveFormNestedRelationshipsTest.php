@@ -1,12 +1,12 @@
 <?php
 
 use Filament\Forms\Components\Repeater;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\DeepRelationshipDraftForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\DeepRelationshipRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubSubItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\DeepRelationshipDraftForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\DeepRelationshipRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostSubItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostSubSubItem;
 use Livewire\Livewire;
 
 function seedDeepGraph(): array

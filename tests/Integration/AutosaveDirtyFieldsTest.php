@@ -1,11 +1,11 @@
 <?php
 
 use Filament\Facades\Filament;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AfterChangedEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\HaltedSaveEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\ServerChangedEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\AfterChangedEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\HaltedSaveEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\ServerChangedEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 

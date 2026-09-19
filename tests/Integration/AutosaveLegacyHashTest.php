@@ -1,7 +1,7 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\LegacyHashRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\LegacyHashRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Livewire\Livewire;
 
 /**

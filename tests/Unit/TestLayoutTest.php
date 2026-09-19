@@ -46,3 +46,25 @@ test('every fixture file declares exactly one class named after the file', funct
 
     expect($offenders)->toBe([]);
 });
+
+test('every fixture namespace mirrors its directory under tests/Fixtures', function () {
+    $root = dirname(__DIR__).'/Fixtures';
+    $offenders = [];
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root));
+
+    foreach ($files as $file) {
+        if ($file->getExtension() !== 'php' || str_contains($file->getPathname(), '/views/')) {
+            continue;
+        }
+
+        preg_match('/^namespace\s+([^;]+);/m', (string) file_get_contents($file->getPathname()), $match);
+        $relative = trim(str_replace($root, '', dirname($file->getPathname())), '/');
+        $expected = rtrim('Lenorix\\FilamentAutosave\\Tests\\Fixtures\\'.str_replace('/', '\\', $relative), '\\');
+
+        if (($match[1] ?? null) !== $expected) {
+            $offenders[] = $file->getBasename().': '.($match[1] ?? 'no namespace').' (expected '.$expected.')';
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});

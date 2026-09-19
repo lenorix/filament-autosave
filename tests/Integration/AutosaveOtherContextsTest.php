@@ -2,17 +2,17 @@
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveActionForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveCommentForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveCommentsRelationManager;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveDropUploadRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveTableForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Comment;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveActionForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveCommentForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveCommentsRelationManager;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveDropUploadRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosavePostForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveTableForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveUploadForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveUploadRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Author;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Comment;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Livewire\Livewire;
 
 test('a relation manager can opt into an isolated autosave draft', function () {
@@ -20,7 +20,7 @@ test('a relation manager can opt into an isolated autosave draft', function () {
 
     Livewire::test(AutosaveCommentsRelationManager::class, [
         'ownerRecord' => $post,
-        'pageClass' => 'Lenorix\\FilamentAutosave\\Tests\\Fixtures\\Integration\\RelationshipEditPost',
+        'pageClass' => 'Lenorix\\FilamentAutosave\\Tests\\Fixtures\\Integration\\Resources\\Relationship\\RelationshipEditPost',
     ])
         ->set('data.body', 'Draft comment')
         ->call('autosave')
@@ -39,7 +39,7 @@ test('a relation manager action persists and undoes its related record', functio
 
     $page = Livewire::test(AutosaveCommentsRelationManager::class, [
         'ownerRecord' => $post,
-        'pageClass' => 'Lenorix\\FilamentAutosave\\Tests\\Fixtures\\Integration\\RelationshipEditPost',
+        'pageClass' => 'Lenorix\\FilamentAutosave\\Tests\\Fixtures\\Integration\\Resources\\Relationship\\RelationshipEditPost',
     ]);
     $instance = $page->instance();
     $instance->mountTableAction('edit', (string) $comment->getKey());

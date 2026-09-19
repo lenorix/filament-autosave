@@ -2,13 +2,13 @@
 
 use Illuminate\Validation\ValidationException;
 use Lenorix\FilamentAutosave\AutosaveManager;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\GuardedFlushEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\ReentrantFlushEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\GuardedFlushEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\ReentrantFlushEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosavePostForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveUploadRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\CreatePost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Post\EditPost;
 use Livewire\Livewire;
 
 test('flushAutosave writes dirty fields synchronously and reports whether it wrote', function () {

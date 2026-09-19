@@ -9,7 +9,7 @@ use Filament\Tables\TablesServiceProvider;
 use Filament\Widgets\WidgetsServiceProvider;
 use Illuminate\Support\Facades\Schema;
 use LaraZeus\SpatieTranslatable\SpatieTranslatableServiceProvider;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePanelProvider;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Panel\AutosavePanelProvider;
 use Spatie\MediaLibrary\MediaLibraryServiceProvider;
 
 /** Runs resource tests with in-memory SQLite. */

@@ -1,9 +1,9 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\TranslatableEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\TranslatablePost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostSubItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\TranslatablePost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Translatable\TranslatableEditPost;
 use Livewire\Livewire;
 
 function makeTranslatablePost(): TranslatablePost

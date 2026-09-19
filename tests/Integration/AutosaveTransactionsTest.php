@@ -1,12 +1,12 @@
 <?php
 
 use Filament\Facades\Filament;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\FailingAfterSaveDeepEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\FailingAfterSaveEditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\TransactionLevelSpyEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAfterSaveDeepEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAfterSaveEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\TransactionLevelSpyEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostSubItem;
 use Livewire\Livewire;
 
 test('the test panel has database transactions disabled, as Filament does by default', function () {

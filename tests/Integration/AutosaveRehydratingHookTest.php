@@ -1,9 +1,9 @@
 <?php
 
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RehydratingHookEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\RehydratingHookEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostSubItem;
 use Livewire\Livewire;
 
 test('a new nested row survives a handleRecordUpdate() that refills the form without saving relationships', function () {
