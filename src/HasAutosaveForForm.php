@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Locked;
 
 /**
@@ -49,6 +50,9 @@ trait HasAutosaveForForm
     /** @var array<string, string> Hashes of the last acknowledged top-level fields. */
     #[Locked]
     public array $autosaveFieldHashes = [];
+
+    /** @var array<string, mixed> Clean columns re-read from the record for the status event. */
+    protected array $autosaveRefreshState = [];
 
     /**
      * Call from mount(); Livewire lifecycle, not an extension point.
@@ -332,6 +336,10 @@ trait HasAutosaveForForm
             && ($previous !== [] || $relationshipUndo !== [] || $externalUndo !== []);
         $this->clearAutosaveDraft();
 
+        // Before the hashes below acknowledge this write, so "clean" still
+        // means "unchanged since the last acknowledged state".
+        $this->refreshAutosaveUnchangedFields($record);
+
         // A relationship callback may have persisted state that is not a
         // model column. Acknowledge every top-level value supplied to the
         // form, otherwise the same relation is considered dirty forever.
@@ -357,6 +365,90 @@ trait HasAutosaveForForm
      * `afterAutosave()` or the package's own hooks here instead.
      */
     protected function dispatchAutosaveRecordEvents(object $record, array $data): void {}
+
+    protected function resetAutosaveRefreshState(): void
+    {
+        $this->autosaveRefreshState = [];
+    }
+
+    /** @return array<string, mixed> */
+    protected function getAutosaveRefreshState(): array
+    {
+        return $this->autosaveRefreshState;
+    }
+
+    /**
+     * Re-read clean, model-backed columns from the record after a write so
+     * another editor's changes to fields this user is not touching show up
+     * in the same response. Dirty fields, relationships, uploads, and
+     * excluded paths are never refreshed. Mirrors the Edit-page behaviour;
+     * generic components have no refreshFormData(), so this fills the schema
+     * partially itself.
+     */
+    protected function refreshAutosaveUnchangedFields(Model $record): void
+    {
+        $this->autosaveRefreshState = [];
+
+        if (! (bool) config('filament-autosave.dirty_only', false)
+            || ! (bool) config('filament-autosave.refresh_unchanged_fields', true)
+            || ! $record->exists
+            || ($form = $this->resolveAutosaveForm()) === null
+            || ! method_exists($form, 'fillPartially')) {
+            return;
+        }
+
+        $current = $this->prepareAutosavePayload($this->getAutosaveData());
+        $skip = [];
+
+        foreach ($current as $path => $value) {
+            if (($this->autosaveFieldHashes[(string) $path] ?? null) !== $this->hashAutosaveFormValue($value)) {
+                $skip[AutosaveFieldTree::topLevelKey((string) $path)] = true;
+            }
+        }
+
+        foreach (array_keys($this->autosaveRelationshipFields()) as $path) {
+            $skip[AutosaveFieldTree::topLevelKey($path)] = true;
+        }
+
+        foreach (array_keys($this->autosaveUploadFields()) as $path) {
+            $skip[AutosaveFieldTree::topLevelKey($path)] = true;
+        }
+
+        $attributes = $record->attributesToArray();
+        $paths = [];
+
+        foreach (array_keys($current) as $path) {
+            $top = AutosaveFieldTree::topLevelKey((string) $path);
+
+            if (! isset($skip[$top]) && ! $this->autosavePathExcluded($top) && array_key_exists($top, $attributes)) {
+                $paths[$top] = true;
+            }
+        }
+
+        if ($paths === []) {
+            return;
+        }
+
+        try {
+            $form->fillPartially(
+                method_exists($this, 'mutateFormDataBeforeFill') ? $this->mutateFormDataBeforeFill($attributes) : $attributes,
+                array_keys($paths),
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Autosave unchanged-field refresh failed', ['exception' => $e::class]);
+
+            return;
+        }
+
+        $refreshed = $this->prepareAutosavePayload($this->getAutosaveData());
+
+        foreach (array_keys($paths) as $path) {
+            if (array_key_exists($path, $refreshed)) {
+                $this->autosaveRefreshState[$path] = $refreshed[$path];
+                $this->autosaveFieldHashes[$path] = $this->hashAutosaveFormValue($refreshed[$path]);
+            }
+        }
+    }
 
     protected function getAutosaveFormRecord(): ?Model
     {

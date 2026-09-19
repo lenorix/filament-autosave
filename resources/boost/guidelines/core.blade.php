@@ -175,8 +175,10 @@ advance only for fields actually written. Explicit saves and Undo reset them.
 Different columns edited by two page instances are preserved; the same column
 is last-write-wins. With `refresh_unchanged_fields` enabled, a successful save
 also refreshes clean top-level model-backed fields from the record in the same
-response; local dirty fields, relationships, and uploads are retained. This is
-not polling, so later changes wait for another request. Set `dirty_only` to
+response; local dirty fields, relationships, and uploads are retained. The same
+applies to record-backed `HasAutosaveForForm` components (the trait fills the
+schema partially itself; drafts are never refreshed). This is not polling, so
+later changes wait for another request. Set `dirty_only` to
 `false` only when the full eligible payload is required.
 
 When changing this behavior, test two edit instances changing different columns

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `refresh_unchanged_fields` now also applies to record-backed generic forms
+  (`HasAutosaveForForm`): after a successful save, clean model-backed columns
+  are re-read from the record and reported in the status event's `refreshed`
+  payload, so another editor's changes to untouched fields show up in the same
+  response. Dirty, relationship, upload, and excluded fields are never touched;
+  drafts are unaffected.
 - Declare the stable extension surface: the trait members consumers may
   override or call are tagged `@api` and pinned by a test; every other member
   is internal and may change in a minor release. No behaviour change.
