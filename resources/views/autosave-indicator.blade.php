@@ -33,6 +33,7 @@
          and keeps it out of every later response. --}}
     @assets
         <script data-autosave-merge>{!! file_get_contents($mergeScript) !!}</script>
+        <script data-autosave-rich-merge>{!! file_get_contents(dirname($mergeScript).'/autosave-rich-merge.js') !!}</script>
     @endassets
 @endif
 
@@ -194,7 +195,7 @@
                         </template>
                         <template x-if="conflict.reason !== 'contended'">
                             <span>
-                                <span x-text="conflict.theirs"></span>
+                                <span x-text="conflict.preview ?? conflict.theirs"></span>
                                 <x-filament::link tag="button" type="button" size="sm" x-on:click="recoverConflict(index)" data-autosave-action="recover">
                                     {{ __('filament-autosave::autosave.recover') }}
                                 </x-filament::link>

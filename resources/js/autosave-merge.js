@@ -499,9 +499,14 @@ window.FilamentAutosaveMerge = window.FilamentAutosaveMerge || (function () {
      * it, that value's hash, echoed back so a poll can skip it. A base only
      * ever advances to a value the input reflects.
      */
-    function createSync(fields) {
+    function createSync(fields, { rich = null } = {}) {
         const bases = {}
         const hashes = {}
+        // Rich fields hold a document, not text: `rich.is(path)` says which,
+        // `rich.serialize(path, value)` gives the string the base is kept as
+        // (the editor's own JSON), so a save carries `{base, ours}` for them.
+        const isRich = (path) => Boolean(rich && rich.is(path))
+        const serialize = (path, value) => (isRich(path) ? rich.serialize(path, value) : text(value))
 
         return {
             fields,
@@ -514,9 +519,11 @@ window.FilamentAutosaveMerge = window.FilamentAutosaveMerge || (function () {
                 return bases[path]
             },
 
+            isRich,
+
             // Mount, or a value the server wrote/refilled: known, unhashed.
             acknowledge(path, value, hash = null) {
-                bases[path] = text(value)
+                bases[path] = serialize(path, value)
 
                 if (hash) {
                     hashes[path] = hash
@@ -547,6 +554,24 @@ window.FilamentAutosaveMerge = window.FilamentAutosaveMerge || (function () {
 
                 for (const path of fields) {
                     if (!this.has(path)) {
+                        continue
+                    }
+
+                    // A document: the server merges the form's own value on
+                    // top of the base the browser started from.
+                    if (isRich(path)) {
+                        if (serialize(path, values?.[path]) !== bases[path]) {
+                            let base = bases[path]
+
+                            try {
+                                base = JSON.parse(base)
+                            } catch (e) {
+                                // Seeded from HTML before the editor existed: sent as is.
+                            }
+
+                            patches[path] = { base }
+                        }
+
                         continue
                     }
 
@@ -590,6 +615,25 @@ window.FilamentAutosaveMerge = window.FilamentAutosaveMerge || (function () {
                     // A value the server refilled is the base and the input alike.
                     if (Object.prototype.hasOwnProperty.call(refreshed, path)) {
                         this.acknowledge(path, refreshed[path])
+                        continue
+                    }
+
+                    // A document is merged by the editor itself: hand it the
+                    // value, the base it came from and what the save sent.
+                    if (isRich(path) && (Object.prototype.hasOwnProperty.call(merged, path) || Object.prototype.hasOwnProperty.call(patches, path))) {
+                        const contended = Object.prototype.hasOwnProperty.call(patches, path)
+                        const value = Object.prototype.hasOwnProperty.call(merged, path) ? merged[path] : patches[path].theirs
+
+                        updates[path] = { rich: true, value, base: bases[path], sent: sent?.[path] ?? null, contended: contended && Boolean(sent) }
+
+                        for (const conflict of reported[path] || []) {
+                            conflicts.push({ path, ...conflict })
+                        }
+
+                        contended
+                            ? this.acknowledge(path, patches[path].theirs, patches[path].hash)
+                            : this.acknowledge(path, value)
+
                         continue
                     }
 
