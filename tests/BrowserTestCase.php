@@ -69,6 +69,15 @@ abstract class BrowserTestCase extends IntegrationTestCase
 
         $app['config']->set('cache.default', 'array');
         $app['config']->set('filament-autosave.debounce', self::DEBOUNCE_MS);
+
+        // Livewire routes temporary uploads to a `tmp-for-tests` disk whenever
+        // the app is running unit tests, which it is inside the plugin's
+        // in-process server too; the disk only exists when we define it.
+        $app['config']->set('filesystems.disks.tmp-for-tests', [
+            'driver' => 'local',
+            'root' => storage_path('framework/testing/livewire-tmp'),
+            'throw' => false,
+        ]);
     }
 
     /** Selector for the indicator root while it reports the given status. */
@@ -133,6 +142,31 @@ abstract class BrowserTestCase extends IntegrationTestCase
             'autosave to settle after typing',
             timeoutMs: 15_000,
         );
+    }
+
+    /**
+     * Wait until a server-side condition holds, yielding to the in-process
+     * HTTP server between checks.
+     *
+     * A plain `usleep()` loop would starve the plugin's event loop: the app is
+     * served from this very process, so Livewire requests only progress while
+     * the test is inside a Playwright call. Use this for anything that a
+     * transient indicator status cannot pin reliably, such as a write landing.
+     */
+    protected function waitForDatabase(object $page, callable $condition, string $description, int $timeoutMs = 10_000): object
+    {
+        $deadline = hrtime(true) + $timeoutMs * 1_000_000;
+
+        do {
+            if ($condition()) {
+                return $page;
+            }
+
+            $page->script('true');
+            usleep(100_000);
+        } while (hrtime(true) < $deadline);
+
+        throw new RuntimeException("Timed out after {$timeoutMs}ms waiting for {$description}.");
     }
 
     /** Current status reported by the indicator, `idle` when hidden. */
