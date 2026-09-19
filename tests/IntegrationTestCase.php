@@ -8,6 +8,7 @@ use Filament\Notifications\NotificationsServiceProvider;
 use Filament\Tables\TablesServiceProvider;
 use Filament\Widgets\WidgetsServiceProvider;
 use Illuminate\Support\Facades\Schema;
+use LaraZeus\SpatieTranslatable\SpatieTranslatableServiceProvider;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePanelProvider;
 use Spatie\MediaLibrary\MediaLibraryServiceProvider;
 
@@ -68,6 +69,12 @@ abstract class IntegrationTestCase extends TestCase
             $table->string('label');
         });
 
+        Schema::create('translatable_posts', function ($table) {
+            $table->id();
+            $table->json('title');
+            $table->string('slug')->nullable();
+        });
+
         Schema::create('post_sub_sub_items', function ($table) {
             $table->id();
             $table->foreignId('post_sub_item_id');
@@ -82,6 +89,7 @@ abstract class IntegrationTestCase extends TestCase
         return [
             ...parent::getPackageProviders($app),
             MediaLibraryServiceProvider::class,
+            SpatieTranslatableServiceProvider::class,
             TablesServiceProvider::class,
             NotificationsServiceProvider::class,
             WidgetsServiceProvider::class,
