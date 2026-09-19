@@ -11,8 +11,8 @@ final class AutosaveSaved
     /**
      * @param  array<string, mixed>  $data  The payload the cycle persisted.
      * @param  array<int, string>  $pending  Fields skipped by this cycle, if any.
-     * @param  array<string, string>  $merged  Mergeable fields whose stored value differs from what the browser sent, path => stored value.
-     * @param  array<string, list<array{ours: string, theirs: string, position: int, reason: string}>>  $conflicts  Ranges resolved last-write-wins (`overlap`) or left unwritten (`contended`), by path.
+     * @param  array<string, mixed>  $merged  Mergeable fields whose stored value differs from what the browser sent, path => stored value (a document for rich content).
+     * @param  array<string, list<array<string, mixed>>>  $conflicts  `{ours, theirs, position, reason}`, plus `kind` and `block` for rich content: ranges resolved last-write-wins (`overlap`) or left unwritten (`contended`), by path.
      */
     public function __construct(
         public readonly object $page,

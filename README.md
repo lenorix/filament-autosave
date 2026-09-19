@@ -254,7 +254,7 @@ are applied and fields marked `dehydrated(false)` are left out.
 | Regular field backed by a database column | Yes |
 | `Repeater` or `CheckboxList` stored in one column | Yes |
 | Relationship field with a top-level `saveRelationships()` callback | Yes, when changed |
-| `RichEditor`, with or without a file attachment provider | Yes, as a column; attachments cleaned up via its callback |
+| `RichEditor`, with or without a file attachment provider | Yes, as a column; attachments cleaned up via its callback; [mergeable](#rich-text) |
 | `FileUpload` backed by a column, including nested fields | Yes, after upload validation |
 | Top-level `SpatieMediaLibraryFileUpload` | Yes, changed collections only |
 | `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row | Yes, with the row's relationship write |
@@ -407,9 +407,10 @@ ceilings.
 
 ### Merging text edits from other editors
 
-Some plain-text fields are the kind two people end up typing in at once: a
-title, a summary, a Markdown body. List them as mergeable and concurrent edits
-are combined word by word, instead of the last save replacing the whole thing:
+Some fields are the kind two people end up typing in at once: a title, a
+summary, a Markdown body, the rich text of an article. List them as mergeable
+and concurrent edits are combined, word by word in plain text and block by
+block in rich text, instead of the last save replacing the whole thing:
 
 ```php
 AutosavePlugin::make()->mergeFields(['title', 'body']);
@@ -421,9 +422,9 @@ protected function autosaveMergeFields(): ?array
 }
 ```
 
-Only top-level `TextInput`, `Textarea` and `MarkdownEditor` fields qualify.
-Anything else you list is ignored with one warning in the log and stays
-last-write-wins. `RichEditor` isn't merged.
+Only top-level `TextInput`, `Textarea`, `MarkdownEditor` and `RichEditor`
+fields qualify. Anything else you list is ignored with one warning in the log
+and stays last-write-wins.
 
 Here's how it works, with no WebSockets and no state kept on the server:
 
@@ -466,6 +467,79 @@ The cost on the server is one conditional `UPDATE` per merged column, plus one
 column read per retry. Livewire already sends every form value with each
 request because it lives in `$data`; the patch is small and rides along.
 
+#### Rich text
+
+A `RichEditor` is merged over its document, not its HTML. Both editors'
+documents and the stored one are parsed to the same Tiptap tree (Filament
+ships `ueberdosis/tiptap-php`, and the merge uses the editor's own extensions,
+so custom blocks and plugins are understood) and combined as a tree:
+
+- Blocks are matched by identity, never by position: an image, a mention, a
+  merge tag or a custom block by its id; a paragraph or heading by its words.
+  One of you inserting a section while the other deletes a paragraph further
+  down, or moves a list, just works.
+- Inside a paragraph both of you touched, the words are merged like plain
+  text, marks included. One of you bolding a sentence while the other fixes a
+  typo in it is not a conflict; both of you rewriting the same words is, and
+  the later save wins those words only.
+- Images, custom blocks, mentions and merge tags are atomic: they stay, move,
+  or go as a whole, and are never split or half-merged. Changing an image's
+  alt text while someone else removes it is a conflict, resolved like any
+  other: the later save wins, and the other version is reported.
+- Files are handled with care. The merge runs *before* the editor's own
+  attachment cleanup, so an image the other editor still uses is never
+  deleted by a save that didn't have it. Only images missing from the merged
+  document are cleaned up. What no merge can undo is a deletion that has
+  already happened: if someone removed an image and saved, its file is gone,
+  even if your later save wins the argument over that node.
+- Whatever the column stores, HTML or JSON, the result written is exactly
+  what the editor itself would have stored, so a document seeded some other
+  way is rewritten canonically once and then left alone.
+
+Two things to know: two nodes sharing one id are matched by their last
+occurrence, and a short paragraph rewritten almost entirely (fewer than half
+its words kept) is treated as removed and re-added, so the other editor's
+change to it shows up as a block conflict rather than a word merge. Undo stays
+off for a `RichEditor` with an attachment provider, like any file operation.
+
+The browser sends the document it started from with each save (a rich field
+has no compact patch), which costs a little more than a text patch on a very
+long document; on the server a rich merge adds exactly one query, the read of
+the rich columns before the form dehydrates.
+
+#### In the browser
+
+Nothing to install or build. When a page lists merge fields, the indicator
+loads a small dependency-free runtime once per page (about 24 KB, through
+Livewire's `@assets`, so it never travels inside a Livewire response). It
+speaks the same word-level diff and patch format as the server, and the
+controller takes it from there.
+
+- For each mergeable field it remembers the last value the server
+  acknowledged (on load, after each save, after each refill or merge) and
+  sends only the *difference* from it with every autosave. The base itself is
+  never sent, so a very long textarea costs no more than the words that
+  changed.
+- Whatever comes back, the merged text after a save or the other editor's
+  current value from a poll while you still have unsaved edits, is merged
+  **inside the input**, around what you're typing. The caret and selection
+  stay on the words they were on, and text typed while the request was in
+  flight is kept. The badge shows `synced` for a poll and `saved` for a save,
+  as usual.
+- If both of you changed the same words, the later save keeps its words and
+  the other editor's version shows up in a callout under the indicator, with
+  a link to put it back. It replaces your words if they're still there,
+  otherwise it's inserted at that spot. The callout stays until you recover
+  or dismiss it; recovering is an ordinary edit and gets saved like one.
+- If a field couldn't be written after every retry, the browser adopts the
+  merge computed against the latest value, takes that as its new base and
+  lets the next autosave retry from there. The field stays dirty and the
+  callout says why. Nothing you typed is lost at any point.
+
+The caret handling applies to `TextInput` and `Textarea`. A merged
+`MarkdownEditor` value is set on the state and the editor re-renders it (the
+merge is kept, the caret is not).
+
 <details>
 <summary>Payload contract (version 1)</summary>
 
@@ -480,17 +554,26 @@ The `autosave-status` event carries `v: 1` and, on `saved`/`validation`:
 - `patches`: `{path: {theirs, hash}}` for contended fields, the latest value
   and its xxh128 for the browser to rebase on.
 
+For a `RichEditor` every value is the Tiptap document the form holds,
+whatever the column stores: `merged[path]` and `patches[path].theirs` are
+documents, and a conflict's `ours`/`theirs` are lists of nodes, with `kind`
+(`inline` or `block`), `block` (the path of child indexes to the block in the
+merged document; for a deleted block, where it would go back) and `position`
+(a code-point offset into the document's plain text, blocks joined by
+newlines). `hash` is always the xxh128 of the raw column value.
+
 On `synced`: `refreshed`, `stale`, `patches` (same shape, for stale mergeable
 fields) and an always-empty `conflicts`.
 
 Parameters: `autosave(['title' => '<patch text>'])` or
-`autosave(['title' => ['base' => '…', 'ours' => '…']])`;
-`syncAutosave(['title' => '<xxh128 of the value the browser holds>'])`.
-`AutosaveSaved` gains `merged` and `conflicts`, `AutosaveSynced` gains
-`patches`, `AutosaveConflict` gains `conflicts`. Phase 2, a browser that
-builds patches and applies `merged` without losing the cursor, isn't shipped
-yet; today's controller sends no patches, so listed fields stay
-last-write-wins until it does.
+`autosave(['title' => ['base' => '…', 'ours' => '…']])` for plain text,
+`autosave(['body' => ['base' => <document>]])` for a `RichEditor` (the current
+value is taken from the form; a patch string sent for a rich field is
+ignored); `syncAutosave(['title' => '<xxh128 of the value the browser
+holds>'])`. `AutosaveSaved` gains `merged` and `conflicts`, `AutosaveSynced`
+gains `patches`, `AutosaveConflict` gains `conflicts`. A save that arrives
+without a patch (an older tab, or a field not listed) behaves exactly as
+before.
 
 </details>
 
