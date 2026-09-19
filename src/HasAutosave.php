@@ -272,18 +272,6 @@ trait HasAutosave
         return $this->hasPendingAutosaveUploadsPersistence() || $this->autosavePendingRelationships !== [];
     }
 
-    /** @return array<string, string> */
-    protected function hashAutosaveFields(array $data): array
-    {
-        return array_map($this->hashAutosaveValue(...), $data);
-    }
-
-    /** Hash one value the same way autosave field hashes are built. */
-    protected function hashAutosaveValue(mixed $value): string
-    {
-        return $this->autosaveStore()->snapshotHash(['value' => $value]);
-    }
-
     /** Only acknowledge fields the persistence callback actually wrote. */
     protected function autosaveSuccessSnapshotHash(array $written): string
     {

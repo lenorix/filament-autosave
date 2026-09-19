@@ -64,7 +64,7 @@ trait HasAutosaveForForm
         $this->autosaveHasDraft = $this->autosaveDraftAvailable();
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->autosaveObservedHash = $this->autosaveSnapshotHash;
-        $this->autosaveFieldHashes = $this->hashAutosaveFormFields($this->prepareAutosavePayload($this->getAutosaveData()));
+        $this->autosaveFieldHashes = $this->hashAutosaveFields($this->prepareAutosavePayload($this->getAutosaveData()));
         $this->resetAutosaveUploadHashes();
 
         $record = $this->getAutosaveFormRecord();
@@ -296,7 +296,7 @@ trait HasAutosaveForForm
         );
 
         $this->autosaveHasDraft = true;
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFormFields($payload));
+        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($payload));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
 
         return true;
@@ -360,7 +360,7 @@ trait HasAutosaveForForm
         // A relationship callback may have persisted state that is not a
         // model column. Acknowledge every top-level value supplied to the
         // form, otherwise the same relation is considered dirty forever.
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFormFields($data));
+        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($data));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->queueAutosaveSavedNotification();
 
@@ -409,12 +409,12 @@ trait HasAutosaveForForm
 
     protected function autosaveFieldIsClean(string $path, mixed $value): bool
     {
-        return ($this->autosaveFieldHashes[$path] ?? null) === $this->hashAutosaveFormValue($value);
+        return ($this->autosaveFieldHashes[$path] ?? null) === $this->hashAutosaveValue($value);
     }
 
     protected function acknowledgeAutosaveRefreshedField(string $path, mixed $value): void
     {
-        $this->autosaveFieldHashes[$path] = $this->hashAutosaveFormValue($value);
+        $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
     }
 
     /** Generic components have no refreshFormData(); fill the schema partially. */
@@ -580,7 +580,7 @@ trait HasAutosaveForForm
 
             $record->refresh();
             $this->fillAutosaveFormFromRecord($record, $snapshot);
-            $this->rehashAutosaveFormFields();
+            $this->rehashAutosaveFields();
             $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
             $this->resetAutosaveFormUndo();
 
@@ -728,13 +728,13 @@ trait HasAutosaveForForm
     /** Rebuild the acknowledged field hashes after a draft has been filled in. */
     protected function autosaveDraftRestored(): void
     {
-        $this->rehashAutosaveFormFields();
+        $this->rehashAutosaveFields();
     }
 
     /** Rebuild the field hashes so local edits are compared against disk state. */
-    protected function rehashAutosaveFormFields(): void
+    protected function rehashAutosaveFields(): void
     {
-        $this->autosaveFieldHashes = $this->hashAutosaveFormFields(
+        $this->autosaveFieldHashes = $this->hashAutosaveFields(
             $this->prepareAutosavePayload($this->getAutosaveData()),
         );
     }
@@ -831,7 +831,7 @@ trait HasAutosaveForForm
         return array_filter(
             $data,
             fn (mixed $value, string|int $key): bool => ($this->autosaveFieldHashes[(string) $key] ?? null)
-                !== $this->hashAutosaveFormValue($value),
+                !== $this->hashAutosaveValue($value),
             ARRAY_FILTER_USE_BOTH,
         );
     }
@@ -857,23 +857,6 @@ trait HasAutosaveForForm
         }
 
         return $payload;
-    }
-
-    /** @param array<string, mixed> $data @return array<string, string> */
-    protected function hashAutosaveFormFields(array $data): array
-    {
-        $hashes = [];
-
-        foreach ($data as $key => $value) {
-            $hashes[(string) $key] = $this->hashAutosaveFormValue($value);
-        }
-
-        return $hashes;
-    }
-
-    protected function hashAutosaveFormValue(mixed $value): string
-    {
-        return hash('sha256', serialize($value));
     }
 
     /** @param array<string, mixed> $data */
