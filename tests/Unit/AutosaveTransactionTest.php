@@ -293,12 +293,8 @@ test('a failed write clears the undo snapshot prepared for that transaction', fu
 
     $page->autosave();
 
-    $keys = [
-        (fn () => $this->getUndoCacheKey())->call($page),
-        (fn () => $this->getUndoRelationshipCacheKey())->call($page),
-        (fn () => $this->getUndoExpectedCacheKey())->call($page),
-        (fn () => $this->getUndoExpectedRelationshipCacheKey())->call($page),
-    ];
+    // Every part of the Undo target, not only the column snapshot.
+    $keys = (fn () => $this->autosaveUndo()->keys())->call($page);
 
     expect($page->autosaveCanUndo)->toBeFalse();
 
