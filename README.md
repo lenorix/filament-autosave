@@ -5,30 +5,33 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/lenorix/filament-autosave/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/lenorix/filament-autosave/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg?style=flat-square)](LICENSE.md)
 
-A closed tab, an expired session, a colleague saving over your work: on a
-long Filament form, the Save button is where changes go to die. Filament
-Autosave writes each field to the database as soon as the user pauses, so
-nothing is lost, and it does so column by column, so two people can edit
-different parts of the same record without overwriting each other. Every
-autosave can be undone in one step, and Undo refuses to clobber a change
-someone else made in the meantime.
+Autosave for Filament forms. Every field is written to the database as soon
+as the user pauses, column by column, so a closed tab loses nothing and two
+people can edit different fields of the same record at once. Each save can be
+undone in one step.
 
-- **Dirty-only writes, field by field.** Autosave writes only changed fields.
-  Clean fields keep other editors' updates after each save or configurable poll.
-  The field being edited is never refreshed.
-- **One-step Undo with conflict detection.** Undo covers columns, pivots, and
-  nested relationship rows. It skips the restore when someone changed the
-  record first.
-- **Create-page drafts.** Laravel Cache holds the draft until submission, with
-  controls to restore or discard it.
-- **Deep relationships and uploads.** Relationship repeaters work at any depth,
-  including Spatie Media Library. Failed writes are cleaned up, interrupted
-  requests use a recovery ledger, and a transaction is added when the panel
-  does not provide one.
-- **Every Filament form context.** Use it on Edit and Create pages, relation
-  managers, actions, modals, table forms, and standalone Livewire components.
-- **Ready for package consumers.** The stable `@api` surface is covered by a
-  test, with lifecycle events and 490+ tests, including browser flows.
+```php
+class EditArticle extends EditRecord
+{
+    use HasAutosave;
+}
+```
+
+**What you get**
+
+- Dirty-only writes per column; untouched fields pick up other editors'
+  changes after your save and on a configurable poll.
+- One-step Undo that backs off, never overwrites, when the record changed elsewhere.
+- Drafts on Create pages, restorable or discardable.
+- Nested relationship repeaters at any depth, uploads, and Spatie Media
+  Library, with cleanup on failure and a recovery ledger.
+- Works on Edit and Create pages, relation managers, actions, modals, table
+  forms, and standalone Livewire components.
+- Stable `@api` surface, lifecycle events, 490+ tests including real-browser flows.
+
+**Works with** Filament 4 and 5, Laravel 12 and 13, PHP 8.4 and 8.5,
+`filament/spatie-laravel-media-library-plugin`, and translatable Edit pages
+(`lara-zeus/spatie-translatable`); no Node build, no custom stylesheet.
 
 ## Contents
 
