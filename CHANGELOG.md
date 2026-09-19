@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restructure the README into a guided walkthrough with a table of contents;
+  no facts removed, internal details folded into collapsible blocks.
 - The indicator is now built only from Filament components: skipped and stale
   fields render as badges and validation messages inside a `callout`, so the
   panel's light and dark themes apply everywhere. The package stylesheet and
