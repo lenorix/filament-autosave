@@ -299,7 +299,13 @@ final class AutosaveRichMerge
      */
     private function align(array $base, array $side): array
     {
-        $pairs = $this->lcs($base, $side, fn (array $a, array $b): bool => $this->similar($a, $b));
+        // Nodes with a stable id are cheap to report as moved, so the in-order
+        // match prefers id-less blocks when both cannot be kept in place.
+        $pairs = $this->lcs($base, $side, fn (array $a, array $b): float => match (true) {
+            ! $this->similar($a, $b) => 0.0,
+            $this->idKey($a) !== null => 0.5,
+            default => 1.0,
+        });
         $baseToSide = [];
         $sideToBase = [];
 
@@ -351,6 +357,10 @@ final class AutosaveRichMerge
             if (isset($baseToSide[$i])) {
                 $nodes[$i] = $side[$baseToSide[$i]];
             }
+        }
+
+        foreach ($moved as $j => $i) {
+            $nodes[$i] = $side[$j];
         }
 
         $inserts = [];
@@ -627,7 +637,7 @@ final class AutosaveRichMerge
      */
     private function hunks(array $base, array $side, string $name): array
     {
-        $pairs = $this->lcs($base, $side, static fn (array $a, array $b): bool => $a['key'] === $b['key']);
+        $pairs = $this->lcs($base, $side, static fn (array $a, array $b): float => $a['key'] === $b['key'] ? 1.0 : 0.0);
         $hunks = [];
         $i = 0;
         $j = 0;
@@ -712,24 +722,29 @@ final class AutosaveRichMerge
     }
 
     /**
-     * Longest common subsequence as `[i, j]` pairs, under `$equal`.
+     * Heaviest common subsequence as `[i, j]` pairs; `$weight` returns 0
+     * for a mismatch and the value of keeping a pair in place otherwise.
      *
      * @param  list<mixed>  $a
      * @param  list<mixed>  $b
-     * @param  callable(mixed, mixed): bool  $equal
+     * @param  callable(mixed, mixed): float  $weight
      * @return list<array{0: int, 1: int}>
      */
-    private function lcs(array $a, array $b, callable $equal): array
+    private function lcs(array $a, array $b, callable $weight): array
     {
         $n = count($a);
         $m = count($b);
-        $table = array_fill(0, $n + 1, array_fill(0, $m + 1, 0));
+        $table = array_fill(0, $n + 1, array_fill(0, $m + 1, 0.0));
+        $weights = [];
 
         for ($i = $n - 1; $i >= 0; $i--) {
             for ($j = $m - 1; $j >= 0; $j--) {
-                $table[$i][$j] = $equal($a[$i], $b[$j])
-                    ? $table[$i + 1][$j + 1] + 1
-                    : max($table[$i + 1][$j], $table[$i][$j + 1]);
+                $w = $weights[$i][$j] = $weight($a[$i], $b[$j]);
+                $table[$i][$j] = max(
+                    $w > 0 ? $table[$i + 1][$j + 1] + $w : 0.0,
+                    $table[$i + 1][$j],
+                    $table[$i][$j + 1],
+                );
             }
         }
 
@@ -738,7 +753,9 @@ final class AutosaveRichMerge
         $j = 0;
 
         while ($i < $n && $j < $m) {
-            if ($equal($a[$i], $b[$j])) {
+            $w = $weights[$i][$j];
+
+            if ($w > 0 && $table[$i][$j] === $table[$i + 1][$j + 1] + $w) {
                 $pairs[] = [$i, $j];
                 $i++;
                 $j++;

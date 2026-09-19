@@ -451,3 +451,33 @@ test('a long document with many blocks merges in reasonable time', function (str
         ->and(richHtml($result->value))->toContain('number TEN ')->toContain('number ONE-NINETY ')
         ->and($result->conflicts)->toBe([]);
 })->with($formats);
+
+test('a block both sides moved to different places appears once, where ours put it', function (string $format) {
+    $result = mergeRich(
+        $format,
+        '<p>alpha beta</p><img src="/a.png" alt="A" data-id="att/a.png"><p>gamma delta</p><p>epsilon zeta</p>',
+        '<img src="/a.png" alt="A" data-id="att/a.png"><p>alpha beta</p><p>gamma delta</p><p>epsilon zeta</p>',
+        '<p>alpha beta</p><p>gamma delta</p><p>epsilon zeta</p><img src="/a.png" alt="A" data-id="att/a.png">',
+    );
+
+    expect(richHtml($result->value))->toBe('<img src="/a.png" alt="A" data-id="att/a.png"><p>alpha beta</p><p>gamma delta</p><p>epsilon zeta</p>')
+        ->and($result->conflicts)->toBe([]);
+})->with($formats);
+
+test('a block moved by one side and deleted by the other is an overlap resolved for ours', function (string $format) {
+    $base = '<p>alpha beta</p><img src="/a.png" alt="A" data-id="att/a.png"><p>gamma delta</p>';
+    $moved = '<img src="/a.png" alt="A" data-id="att/a.png"><p>alpha beta</p><p>gamma delta</p>';
+    $deleted = '<p>alpha beta</p><p>gamma delta</p>';
+
+    $oursMoved = mergeRich($format, $base, $moved, $deleted);
+
+    expect(richHtml($oursMoved->value))->toBe($moved)
+        ->and($oursMoved->conflicts)->toHaveCount(1)
+        ->and(richHtml($oursMoved->conflicts[0]['theirs']))->toBe('');
+
+    $theirsMoved = mergeRich($format, $base, $deleted, $moved);
+
+    expect(richHtml($theirsMoved->value))->toBe($deleted)
+        ->and($theirsMoved->conflicts)->toHaveCount(1)
+        ->and(richHtml($theirsMoved->conflicts[0]['theirs']))->toBe('<img src="/a.png" alt="A" data-id="att/a.png">');
+})->with($formats);
