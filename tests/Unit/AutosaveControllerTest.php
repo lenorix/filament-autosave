@@ -174,6 +174,14 @@ test('destroying the controller cancels timers and unregisters browser listeners
         ->toContain('this._offStatus?.()');
 });
 
+test('a save request that resolves without a status falls back to unsaved or idle', function () {
+    $markup = controllerMarkup();
+
+    expect($markup)
+        ->toContain("if (this.status === statuses.saving) {\n                    console.warn('[filament-autosave]")
+        ->toContain('this.status = JSON.stringify(this.stateValue()) !== this.baselineJson ? statuses.unsaved : statuses.idle');
+});
+
 test('an edit still inside the debounce is flushed when the tab is hidden or the page is left', function () {
     $markup = controllerMarkup();
 

@@ -12,6 +12,7 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\Browse
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserRichContendedPostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserRichJsonMergePostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserRichMergePostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserSilentPostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserUploadPostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Builder\BuilderPostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Deep\DeepRelationshipPostResource;
@@ -31,7 +32,7 @@ class AutosavePanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->resources([PostResource::class, RelationshipPostResource::class, NestedRelationshipPostResource::class, DeepRelationshipPostResource::class, MorphToPostResource::class, PolymorphicPostResource::class, RichUploadPostResource::class, BuilderPostResource::class, TranslatablePostResource::class, BrowserUploadPostResource::class, BrowserReorderPostResource::class, BrowserMergePostResource::class, BrowserContendedPostResource::class, BrowserRichMergePostResource::class, BrowserRichJsonMergePostResource::class, BrowserRichContendedPostResource::class])
+            ->resources([PostResource::class, RelationshipPostResource::class, NestedRelationshipPostResource::class, DeepRelationshipPostResource::class, MorphToPostResource::class, PolymorphicPostResource::class, RichUploadPostResource::class, BuilderPostResource::class, TranslatablePostResource::class, BrowserUploadPostResource::class, BrowserReorderPostResource::class, BrowserMergePostResource::class, BrowserContendedPostResource::class, BrowserRichMergePostResource::class, BrowserRichJsonMergePostResource::class, BrowserRichContendedPostResource::class, BrowserSilentPostResource::class])
             ->pages([BrowserGenericFormPage::class])
             ->plugins([
                 AutosavePlugin::make(),

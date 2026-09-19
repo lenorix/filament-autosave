@@ -287,6 +287,14 @@
                     return
                 }
 
+                // The request came back without a status: the badge would
+                // stay on "saving" and every later save would be coalesced
+                // away. The form is still dirty, say so and carry on.
+                if (this.status === statuses.saving) {
+                    console.warn('[filament-autosave] the autosave request finished without a status; the form is still unsaved.')
+                    this.status = JSON.stringify(this.stateValue()) !== this.baselineJson ? statuses.unsaved : statuses.idle
+                }
+
                 // A queued or concurrent edit is replayed exactly once, and
                 // only when there is genuinely new state to send. A queued
                 // save whose state was already covered is dropped: replaying

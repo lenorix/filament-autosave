@@ -115,3 +115,27 @@ test('leaving the page inside the debounce window still lands the last edit', fu
 
     $this->waitForDatabase($page, fn (): bool => $post->fresh()->title === 'Typed before leaving', 'the title flushed on beforeunload', timeoutMs: 3_000);
 });
+
+test('a save reply that carries no status leaves the form dirty instead of stuck on saving', function () {
+    $post = Post::create(['title' => 'Original', 'slug' => 'original']);
+
+    $page = visit("/admin/silent-posts/{$post->getKey()}/edit")
+        ->assertValue(BrowserTestCase::field('form.title'), 'Original');
+    installStatusLog($page);
+    $page->script('window.__warnings = []; const warn = console.warn; console.warn = (...a) => { window.__warnings.push(a.join(" ")); warn(...a) }');
+
+    $page->fill(BrowserTestCase::field('form.title'), 'Never acknowledged');
+    $this->waitForStatus($page, 'saving');
+    $this->waitForStatus($page, 'unsaved');
+
+    // The next edit is not swallowed by the "one save at a time" guard.
+    $page->fill(BrowserTestCase::field('form.title'), 'Second attempt');
+    $this->waitForStatus($page, 'saving');
+    $this->waitForStatus($page, 'unsaved');
+
+    expect(array_count_values($page->script('window.__statuses'))['saving'] ?? 0)->toBe(2)
+        ->and($page->script('window.__warnings.some((w) => w.includes("autosave"))'))->toBeTrue()
+        ->and($post->fresh()->title)->toBe('Original');
+
+    $this->assertNoBrowserErrors($page);
+});
