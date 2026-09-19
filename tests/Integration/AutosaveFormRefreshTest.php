@@ -1,6 +1,8 @@
 <?php
 
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\SlugifyingEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveColumnsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\SlugifyingRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Livewire\Livewire;
 
@@ -66,3 +68,23 @@ test('a refreshed column is acknowledged so the next cycle does not rewrite it',
     expect($post->fresh()->slug)->toBe('slug-newer')
         ->and($a->get('data.slug'))->toBe('slug-newer');
 });
+
+test('a field a mutator transforms is acknowledged as the form shows it, not as it was stored', function (string $component) {
+    $post = Post::create(['title' => 'Original', 'slug' => 'original']);
+    $a = Livewire::test($component, ['record' => $component === SlugifyingEditPost::class ? $post->getKey() : $post]);
+
+    $a->set('data.slug', 'Hello World')->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->slug)->toBe('hello-world');
+
+    // Another editor changes the slug; A did not touch it again, so its
+    // next save must not rewrite it and must pull the change in.
+    Post::query()->whereKey($post->getKey())->update(['slug' => 'by-someone-else']);
+
+    $a->set('data.title', 'Title by A')->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->slug)->toBe('by-someone-else')
+        ->and($a->get('data.slug'))->toBe('by-someone-else');
+})->with([SlugifyingRecordForm::class, SlugifyingEditPost::class]);

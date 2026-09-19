@@ -89,16 +89,25 @@ trait HasAutosave
         }
     }
 
-    /** @param array<string, mixed> $data */
-    protected function filterAutosavePayload(array $data): array
+    /**
+     * Dirty fields of a payload. Dirtiness is judged on the value the form
+     * holds (`$formValues`), not on what a mutator turned it into: the hashes
+     * acknowledge form values, so comparing a transformed value against them
+     * would report the field dirty on every cycle. A key the mutator added
+     * has no form value and is always written.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $formValues
+     */
+    protected function filterAutosavePayload(array $data, array $formValues = []): array
     {
         if (! $this->autosaveDirtyOnly() || $this->autosaveFieldHashes === null) {
             return $data;
         }
 
-        return array_filter($data, fn ($value, $key): bool => ($this->autosaveFieldHashes[$key] ?? null) !== $this->hashAutosaveValue($value),
-            ARRAY_FILTER_USE_BOTH,
-        );
+        return array_filter($data, fn ($value, $key): bool => ($this->autosaveFieldHashes[$key] ?? null) !== $this->hashAutosaveValue(
+            array_key_exists($key, $formValues) ? $formValues[$key] : $value,
+        ), ARRAY_FILTER_USE_BOTH);
     }
 
     protected function resetAutosaveHashes(): void
@@ -473,6 +482,7 @@ trait HasAutosave
             $uploads = $this->consumePendingUploads($data);
 
             $this->callAutosaveHook('beforeSave');
+            $formValues = $data;
 
             if (method_exists($this, 'mutateFormDataBeforeSave')) {
                 $data = $this->mutateFormDataBeforeSave($data);
@@ -480,7 +490,7 @@ trait HasAutosave
 
             // Keep the full state available to validation and page mutators;
             // only the final record write is reduced to dirty fields.
-            $data = $this->filterAutosavePayload($data);
+            $data = $this->filterAutosavePayload($data, $formValues);
 
             $relationships = $this->resolvePendingAutosaveRelationships($data);
 

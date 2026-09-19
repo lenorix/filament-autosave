@@ -253,6 +253,8 @@ trait HasAutosaveForForm
             $this->callAutosaveHook('beforeSave');
         }
 
+        $formValues = $this->prepareAutosavePayload($data);
+
         // Filament applies this mutator immediately before persistence. Keep
         // null, empty strings and empty arrays: they represent deliberate
         // deletions and must reach the model.
@@ -261,7 +263,7 @@ trait HasAutosaveForForm
         }
 
         $prepared = $this->prepareAutosavePayload($data);
-        $payload = $this->filterAutosaveFormPayload($prepared);
+        $payload = $this->filterAutosaveFormPayload($prepared, $formValues);
 
         if ($record instanceof Model && $record->exists) {
             $payload = $this->keepAutosaveUploadRelationshipOwners($payload, $prepared);
@@ -301,10 +303,30 @@ trait HasAutosaveForForm
         );
 
         $this->autosaveHasDraft = true;
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($payload));
+        $this->acknowledgeAutosaveFormFields(array_keys($payload));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
 
         return true;
+    }
+
+    /**
+     * Acknowledge the given top-level fields as saved, hashed from the form
+     * as the user sees it — never from the persisted payload. A mutator that
+     * stores a transformed value (a slug from a title) would otherwise leave
+     * the field "dirty" forever: rewritten on every cycle, last-write-wins,
+     * and never refreshed from another editor's change.
+     *
+     * @param  array<int, string>  $paths
+     */
+    protected function acknowledgeAutosaveFormFields(array $paths): void
+    {
+        $this->autosaveFieldsCache = null;
+        $live = $this->prepareAutosavePayload($this->getAutosaveData());
+
+        $this->autosaveFieldHashes = array_replace(
+            $this->autosaveFieldHashes,
+            $this->hashAutosaveFields(array_intersect_key($live, array_flip($paths))),
+        );
     }
 
     /**
@@ -381,7 +403,7 @@ trait HasAutosaveForForm
         // A relationship callback may have persisted state that is not a
         // model column. Acknowledge every top-level value supplied to the
         // form, otherwise the same relation is considered dirty forever.
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($data));
+        $this->acknowledgeAutosaveFormFields(array_keys($data));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->queueAutosaveSavedNotification();
 
@@ -891,8 +913,17 @@ trait HasAutosaveForForm
         }
     }
 
-    /** @param array<string, mixed> $data */
-    protected function filterAutosaveFormPayload(array $data): array
+    /**
+     * Dirty fields of a payload. Dirtiness is judged on the value the form
+     * holds (`$formValues`), not on what a mutator turned it into: the hashes
+     * acknowledge form values, so comparing a transformed value against them
+     * would report the field dirty on every cycle. A key the mutator added
+     * has no form value and is always written.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $formValues
+     */
+    protected function filterAutosaveFormPayload(array $data, array $formValues = []): array
     {
         if (! $this->autosaveDirtyOnly() || $this->autosaveFieldHashes === []) {
             return $data;
@@ -900,7 +931,10 @@ trait HasAutosaveForForm
 
         return array_filter(
             $data,
-            fn (mixed $value, string|int $key): bool => ! $this->autosaveFieldHashMatches((string) $key, $value),
+            fn (mixed $value, string|int $key): bool => ! $this->autosaveFieldHashMatches(
+                (string) $key,
+                array_key_exists($key, $formValues) ? $formValues[$key] : $value,
+            ),
             ARRAY_FILTER_USE_BOTH,
         );
     }
