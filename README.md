@@ -468,6 +468,36 @@ column (plus one column read per retry). Livewire already sends every form
 value with each request because it lives in `$data`; the patch is small and
 travels alongside it.
 
+#### In the browser
+
+Nothing to install or build: when a page lists merge fields, the indicator
+includes a small dependency-free runtime (the same word-level diff and patch
+format as the server) and the controller takes it from there.
+
+- It keeps, per mergeable field, the last value the server acknowledged — on
+  load, after each save, after each refill or merge — and sends only the
+  *difference* from it with every autosave. A base is never sent, so a very
+  long textarea costs no more than the words that changed.
+- What comes back — the merged text after a save, or the other editor's
+  current value from a poll while you still have unsaved edits in the field —
+  is merged **inside the input** around what you are typing, with the caret
+  and selection kept on the words they were on (text typed while the request
+  was in flight is kept too). The badge shows `synced` for a poll and `saved`
+  for a save, as usual.
+- If both of you changed the same words, the later save keeps its words and
+  the other editor's version appears in a callout under the indicator, with
+  a link to put it back (it replaces your words if they are still there,
+  otherwise it is inserted at that spot). The callout stays until you recover
+  or dismiss it; recovering is an ordinary edit and is saved like one.
+- When a field could not be written after every retry, the browser adopts
+  the merge computed against the latest value, takes that value as its new
+  base and lets the next autosave retry from there; the field stays dirty
+  and the callout says why. Nothing you typed is lost at any point.
+
+The caret handling applies to `TextInput` and `Textarea`. A merged
+`MarkdownEditor` value is set on the state and the editor re-renders it (the
+merge is kept, the caret is not).
+
 <details>
 <summary>Payload contract (version 1)</summary>
 
@@ -489,10 +519,8 @@ Parameters: `autosave(['title' => '<patch text>'])` or
 `autosave(['title' => ['base' => '…', 'ours' => '…']])`;
 `syncAutosave(['title' => '<xxh128 of the value the browser holds>'])`.
 `AutosaveSaved` gains `merged` and `conflicts`, `AutosaveSynced` gains
-`patches`, `AutosaveConflict` gains `conflicts`. Phase 2 (a browser that
-builds patches and applies `merged` without losing the cursor) is not shipped
-yet; today's controller sends no patches, so listed fields stay
-last-write-wins until it does.
+`patches`, `AutosaveConflict` gains `conflicts`. A save that arrives without
+a patch (an older tab, or a field not listed) behaves exactly as before.
 
 </details>
 

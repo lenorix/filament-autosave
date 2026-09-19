@@ -205,3 +205,30 @@ test('a field contended through every retry adopts the merge against the latest 
 
     $this->assertNoBrowserErrors($page);
 });
+
+test('the base follows consecutive saves and an undo, so later patches apply cleanly', function () {
+    $post = Post::create(['title' => 'Original', 'body' => 'alpha beta gamma']);
+    $page = visit("/admin/merge-posts/{$post->getKey()}/edit")->assertValue(MERGE_BODY, 'alpha beta gamma');
+
+    $page->fill(MERGE_BODY, 'ALPHA beta gamma');
+    $this->waitForStatus($page, 'saved');
+    $page->fill(MERGE_BODY, 'ALPHA beta GAMMA');
+    $this->waitForStatus($page, 'saved');
+    expect($post->fresh()->body)->toBe('ALPHA beta GAMMA');
+
+    $page->click(BrowserTestCase::action('undo'));
+    $this->waitForStatus($page, 'undone');
+    waitForBody($page, 'ALPHA beta gamma');
+    $this->waitUntil($page, controller().'.mergeSync.base("body") === "ALPHA beta gamma"', 'the base to follow the undo');
+
+    // Another editor changes the start after the undo; this browser's next
+    // patch must be relative to the undone value, not the one before it.
+    Post::query()->whereKey($post->getKey())->update(['body' => 'alpha beta gamma']);
+    $page->fill(MERGE_BODY, 'ALPHA beta gamma delta');
+    $this->waitForStatus($page, 'saved');
+
+    expect($post->fresh()->body)->toBe('alpha beta gamma delta');
+    waitForBody($page, 'alpha beta gamma delta');
+    $page->assertMissing('[data-autosave-conflicts]');
+    $this->assertNoBrowserErrors($page);
+});
