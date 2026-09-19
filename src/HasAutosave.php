@@ -1130,16 +1130,6 @@ trait HasAutosave
     }
 
     /**
-     * How long an Undo snapshot stays available.
-     *
-     * @api
-     */
-    protected function getUndoTtlMinutes(): int
-    {
-        return AutosavePlugin::resolve()->getUndoCacheTtl();
-    }
-
-    /**
      * Hook called after a successful Edit-page save.
      *
      * @api

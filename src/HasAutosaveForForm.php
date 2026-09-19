@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Locked;
 
 /**
@@ -517,27 +516,28 @@ trait HasAutosaveForForm
                 return;
             }
 
-            $snapshot = $this->autosaveFormUndo('values');
-            $relationshipSnapshot = $this->autosaveFormUndo('relationships');
-            $externalSnapshot = $this->autosaveFormUndo('external');
-            $expected = $this->autosaveFormUndo('expected');
-            $expectedRelationships = $this->autosaveFormUndo('expected-relationships');
-            $expectedExternal = $this->autosaveFormUndo('expected-external');
+            // Empty parts are not stored, so a missing part reads as "nothing".
+            $snapshot = $this->autosaveFormUndo(AutosaveUndo::VALUES) ?? [];
+            $relationshipSnapshot = $this->autosaveFormUndo(AutosaveUndo::RELATIONSHIPS) ?? [];
+            $externalSnapshot = $this->autosaveFormUndo(AutosaveUndo::EXTERNAL) ?? [];
+            $expected = $this->autosaveFormUndo(AutosaveUndo::EXPECTED) ?? [];
+            $expectedRelationships = $this->autosaveFormUndo(AutosaveUndo::EXPECTED_RELATIONSHIPS);
+            $expectedExternal = $this->autosaveFormUndo(AutosaveUndo::EXPECTED_EXTERNAL);
             $record = $this->getAutosaveFormRecord();
 
-            if ($record === null
-                || (($snapshot === null || $snapshot === [])
-                    && ($relationshipSnapshot === null || $relationshipSnapshot === [])
-                    && ($externalSnapshot === null || $externalSnapshot === []))
-                || $expected === null) {
+            if ($record === null || ! $this->autosaveUndo()->hasSnapshot()) {
                 $this->autosaveCanUndo = false;
                 $this->dispatchAutosaveIdle();
 
                 return;
             }
 
-            if ((method_exists($record, 'only') && AutosaveStore::normalizeScalars($record->only(array_keys($expected))) !== $expected)
-                || ($expectedRelationships !== null && $this->autosaveFormRelationshipHasConflict($expectedRelationships))) {
+            $currentColumns = method_exists($record, 'only')
+                ? AutosaveStore::normalizeScalars($record->only(array_keys($expected)))
+                : $expected;
+
+            if (! AutosaveUndo::columnsMatch($expected, $currentColumns)
+                || $this->autosaveFormRelationshipHasConflict($expectedRelationships)) {
                 $this->resetAutosaveFormUndo();
                 $this->dispatchAutosaveConflict();
 
@@ -598,42 +598,40 @@ trait HasAutosaveForForm
         }
     }
 
-    protected function getAutosaveFormUndoKey(string $part): string
+    /** The Undo target for this form's context, record and live instance. */
+    protected function autosaveUndo(): AutosaveUndo
     {
         $record = $this->getAutosaveFormRecord();
-        $recordKey = $record?->getKey() ?? 'default';
 
-        return $this->autosaveStore()->undoCacheKey(
-            static::class.':'.$this->getAutosaveFormContext(),
-            $recordKey,
-            $this->autosaveUndoInstanceId(),
-        ).':'.$part;
+        return new AutosaveUndo(
+            $this->autosaveStore()->undoCacheKey(
+                static::class.':'.$this->getAutosaveFormContext(),
+                $record?->getKey() ?? 'default',
+                $this->autosaveUndoInstanceId(),
+            ),
+            $this->getUndoTtlMinutes(),
+        );
+    }
+
+    protected function getAutosaveFormUndoKey(string $part): string
+    {
+        return $this->autosaveUndo()->key($part);
     }
 
     protected function putAutosaveFormUndo(string $part, array $value): void
     {
-        Cache::put($this->getAutosaveFormUndoKey($part), $value, now()->addMinutes(AutosavePlugin::resolve()->getUndoCacheTtl()));
+        $this->autosaveUndo()->put($part, $value);
     }
 
     /** @return array<string, mixed>|null */
     protected function autosaveFormUndo(string $part): ?array
     {
-        $value = Cache::get($this->getAutosaveFormUndoKey($part));
-
-        return is_array($value) ? $value : null;
+        return $this->autosaveUndo()->get($part);
     }
 
     protected function clearAutosaveFormUndo(): void
     {
-        foreach ($this->autosaveFormUndoParts() as $part) {
-            Cache::forget($this->getAutosaveFormUndoKey($part));
-        }
-    }
-
-    /** The six snapshot parts that make up a generic Undo target. */
-    protected function autosaveFormUndoParts(): array
-    {
-        return ['values', 'relationships', 'expected', 'expected-relationships', 'external', 'expected-external'];
+        $this->autosaveUndo()->clear();
     }
 
     /** Wipe the generic Undo target; the underlying state can no longer be restored. */
@@ -705,18 +703,13 @@ trait HasAutosaveForForm
         return $fieldsByPath;
     }
 
-    /** @param array<string, array<string, mixed>> $expected */
-    protected function autosaveFormRelationshipHasConflict(array $expected): bool
+    /** @param array<string, array<string, mixed>>|null $expected */
+    protected function autosaveFormRelationshipHasConflict(?array $expected): bool
     {
-        $current = $this->captureAutosaveRelationshipUndoFields($this->autosaveFormRelationshipFields());
-
-        foreach ($expected as $path => $state) {
-            if (($current[$path] ?? null) !== $state) {
-                return true;
-            }
-        }
-
-        return false;
+        return ! AutosaveUndo::relationshipsMatch(
+            $expected,
+            $this->captureAutosaveRelationshipUndoFields($this->autosaveFormRelationshipFields()),
+        );
     }
 
     protected function fillAutosaveFormFromRecord(Model $record, array $fallback): void

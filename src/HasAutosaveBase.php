@@ -1599,6 +1599,16 @@ trait HasAutosaveBase
         return (bool) config('filament-autosave.dirty_only', true);
     }
 
+    /**
+     * How long an Undo snapshot stays available.
+     *
+     * @api
+     */
+    protected function getUndoTtlMinutes(): int
+    {
+        return AutosavePlugin::resolve()->getUndoCacheTtl();
+    }
+
     protected function autosaveRefreshEnabled(): bool
     {
         return $this->autosaveDirtyOnly()
