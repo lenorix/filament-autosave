@@ -15,4 +15,8 @@
             <directory>tests/Browser</directory>
         </testsuite>
     </testsuites>
+    <php>
+        <!-- Peak is ~121 MB across ~500 tests, right at PHP's 128M CLI default. -->
+        <ini name="memory_limit" value="512M"/>
+    </php>
 </phpunit>
