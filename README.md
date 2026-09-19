@@ -343,7 +343,8 @@ policies that guard an Edit page apply to autosave as well.
 
 Two people editing different fields of the same record never overwrite each
 other, because only changed columns are written. Concurrent edits to the same
-column are still last-write-wins.
+column are last-write-wins, unless the field is listed for
+[merging](#merging-text-edits-from-other-editors).
 
 ### Refresh after your own save
 
@@ -402,6 +403,96 @@ like. Only when another editor did write does it dehydrate the form to refill
 fields, which costs about one query per relationship field, the same as the
 post-save refresh. `tests/Integration/AutosaveSyncQueryBudgetTest.php` pins
 those ceilings.
+
+</details>
+
+### Merging text edits from other editors
+
+For plain-text fields two people may type in at once — a title, a summary, a
+Markdown body — list them as mergeable and their concurrent edits are combined
+word by word instead of the last save winning whole:
+
+```php
+AutosavePlugin::make()->mergeFields(['title', 'body']);
+
+// or per page / component
+protected function autosaveMergeFields(): ?array
+{
+    return ['title'];
+}
+```
+
+Only top-level `TextInput`, `Textarea` and `MarkdownEditor` fields qualify;
+anything else listed is ignored with one warning in the log and stays
+last-write-wins. `RichEditor` is not merged.
+
+How it works, without WebSockets and without the server keeping any state:
+
+- The browser sends, with its autosave, a *patch* of its own change for each
+  dirty mergeable field (`diff(base, ours)` in diff-match-patch's text format,
+  or the base it started from) — `autosave(array $mergePatches)`. The server
+  plays the patch on the column's **current** value, so changes to different
+  parts of the text from both editors are kept; where both changed the same
+  words, the last save wins in that range only and the discarded text is
+  reported.
+- The merged column is written with a compare-and-swap on that column alone:
+  `UPDATE … SET col = merged WHERE id = ? AND col = <the value it was merged
+  on>`. If another editor committed in between, the column is re-read, merged
+  again and retried after a short wait (5 ms doubling to 100 ms), up to
+  `merge_retries` times (default 10, 655 ms of waiting in total). Comparing the
+  column rather than a row version means a concurrent write to *another*
+  column never causes a retry, and no row lock is held while the user types.
+- A field still contended after every retry is not written and nothing is
+  lost: the user's text stays in the form and dirty, the field is reported as
+  pending with `reason: contended`, `AutosaveConflict` fires, one warning is
+  logged, and the payload carries the merge computed against the latest value
+  for the browser to adopt. The other columns of the same cycle are saved and
+  acknowledged normally.
+- A poll (`syncAutosave(array $mergeBaseHashes)`) that finds a dirty mergeable
+  field changed remotely still reports it as `stale`, and adds the other
+  editor's current value in `patches` unless the browser already holds it
+  (it sends back the `hash` it last received).
+
+The guarantee: **no other editor's change to a mergeable field is ever
+overwritten without being reported**, either merged in or listed in
+`conflicts`. Fields not listed keep the column-level last-write-wins rule.
+A save that arrives without a patch (an older browser session, or a field not
+listed) behaves exactly as before.
+
+Undo after a merge restores the value the other editor had written (the one
+the merge was applied on), never a stale copy. A contended field is left out
+of the Undo snapshot, since it was not written.
+
+Cost: nothing on the server beyond the one conditional `UPDATE` per merged
+column (plus one column read per retry). Livewire already sends every form
+value with each request because it lives in `$data`; the patch is small and
+travels alongside it.
+
+<details>
+<summary>Payload contract (version 1)</summary>
+
+The `autosave-status` event carries `v: 1` and, on `saved`/`validation`:
+
+- `merged`: `{path: value}` for mergeable fields whose merged value differs
+  from what the browser sent (stored, or — when contended — computed against
+  the latest value so the browser can adopt it);
+- `conflicts`: `{path: [{ours, theirs, position, reason}]}` where `reason` is
+  `overlap` (resolved last-write-wins in that range; `position` is the
+  code-point offset in the merged value) or `contended` (left unwritten);
+- `patches`: `{path: {theirs, hash}}` for contended fields, the latest value
+  and its xxh128 for the browser to rebase on.
+
+On `synced`: `refreshed`, `stale`, `patches` (same shape, for stale mergeable
+fields) and an always-empty `conflicts`.
+
+Parameters: `autosave(['title' => '<patch text>'])` or
+`autosave(['title' => ['base' => '…', 'ours' => '…']])`;
+`syncAutosave(['title' => '<xxh128 of the value the browser holds>'])`.
+`AutosaveSaved` gains `merged` and `conflicts`, `AutosaveSynced` gains
+`patches`, `AutosaveConflict` gains `conflicts`. Phase 2 (a browser that
+builds patches and applies `merged` without losing the cursor) is not shipped
+yet; today's controller sends no patches, so listed fields stay
+last-write-wins until it does.
 
 </details>
 
@@ -585,12 +676,12 @@ listeners work. `record` is `null` for drafts and Create pages.
 
 | Event (`Lenorix\FilamentAutosave\Events\…`) | Payload | When |
 | --- | --- | --- |
-| `AutosaveSaved` | `page`, `record`, `data`, `pending` | A cycle wrote something |
+| `AutosaveSaved` | `page`, `record`, `data`, `pending`, `merged`, `conflicts` | A cycle wrote something |
 | `AutosaveSkipped` | `page`, `reason` (`validation` or `unchanged`), `pending`, `errors` | Nothing was written |
 | `AutosaveFailed` | `page`, `exception`, `context` (`save`, `sync`, `undo`, or `restore`) | An exception was swallowed |
 | `AutosaveUndone` | `page`, `record` | Undo restored the snapshot |
-| `AutosaveConflict` | `page`, `record` | Undo backed off because the record changed elsewhere |
-| `AutosaveSynced` | `page`, `record`, `refreshed`, `stale` | A poll pulled another editor's changes |
+| `AutosaveConflict` | `page`, `record`, `conflicts` | Undo backed off because the record changed elsewhere, or a mergeable field stayed contended |
+| `AutosaveSynced` | `page`, `record`, `refreshed`, `stale`, `patches` | A poll pulled another editor's changes |
 
 ```php
 Event::listen(AutosaveFailed::class, function (AutosaveFailed $event): void {
@@ -611,6 +702,7 @@ internal and may be renamed or reshaped in a minor release, even when it is
 | `shouldAutosave()` | Enable or disable autosave for this component |
 | `autosaveDebounce()` / `autosaveExcept()` | Per-page debounce and excluded fields |
 | `autosavePollInterval()` | Per-page poll interval for other editors' changes; `0` disables |
+| `autosaveMergeFields()` | Per-page plain-text fields merged word by word; `null` uses the plugin/config |
 | `beforeAutosave(array $data): array` | Inspect or mutate the eligible state before validation |
 | `getAutosaveValidationRules()` | Extra rules; failing fields are skipped |
 | `afterAutosave(object $record)` | Work after each successful Edit-page save |
@@ -621,11 +713,11 @@ internal and may be renamed or reshaped in a minor release, even when it is
 
 | Call (`public`) | Purpose |
 | --- | --- |
-| `autosave()` | Background save; never throws |
+| `autosave(array $mergePatches = [])` | Background save; never throws. Patches per mergeable field |
 | `flushAutosave(): bool` | Synchronous save that throws |
 | `undoAutosave()` | Restore the last autosave |
-| `syncAutosave()` | Pull other editors' changes into untouched fields (what the poll calls) |
-| `getAutosavePollInterval()` | Resolved poll interval |
+| `syncAutosave(array $mergeBaseHashes = [])` | Pull other editors' changes into untouched fields (what the poll calls) |
+| `getAutosavePollInterval()` / `getAutosaveMergeFields()` | Resolved poll interval and mergeable fields |
 | `restoreDraft()` / `discardDraft()` / `clearAutosaveDraft()` | Draft lifecycle |
 | `isAutosaveEnabled()` / `getAutosaveDebounce()` / `getAutosaveExcept()` | Resolved settings |
 
@@ -646,6 +738,8 @@ wins, while `except` entries are merged across levels.
 | `dirty_only` | Yes | No | No |
 | `refresh_unchanged_fields` | Yes | No | No |
 | `poll_interval` (milliseconds, 0 = off) | Yes | Yes | Yes |
+| `merge_fields` (plain-text field names) | Yes | Yes | Yes |
+| `merge_retries` (conditional writes per field) | Yes | No | No |
 | `require_form_context` | Yes | No | No |
 | `relationship_undo_depth` | Yes | No | No |
 | `external_undo_adapters` | Yes | No | No |

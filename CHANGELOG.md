@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Merge concurrent edits to plain-text fields instead of last-write-wins:
+  list them in `merge_fields`, `AutosavePlugin::mergeFields()` or a page's
+  `autosaveMergeFields()` (top-level `TextInput`, `Textarea`, `MarkdownEditor`;
+  others are ignored with a warning). `autosave(array $mergePatches)` accepts
+  a diff-match-patch patch (or the base) per field and plays it on the
+  column's current value; the result is written with a per-column
+  compare-and-swap retried with backoff up to `merge_retries` (default 10). A
+  field still contended is left unwritten and dirty, reported as pending with
+  `reason: contended`, and `AutosaveConflict` fires. `syncAutosave(array
+  $mergeBaseHashes)` returns the other editor's value for stale mergeable
+  fields. The `autosave-status` payload is versioned (`v: 1`) and gains
+  `merged`, `conflicts`, `patches`; `AutosaveSaved`, `AutosaveSynced` and
+  `AutosaveConflict` gain matching properties (new optional constructor
+  parameters). No browser-side patching yet: without a patch, listed fields
+  behave as before.
 - Autosave `SpatieMediaLibraryFileUpload` fields inside a JSON (non-relationship)
   `Repeater` when every row resolves its own distinct collection (a persisted
   `Hidden` uuid plus `->collection(fn (Get $get) => 'row_'.$get('uuid'))`).

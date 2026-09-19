@@ -5,9 +5,10 @@ status indicator; untouched fields pick up other editors' changes.
 
 - Edit pages persist eligible fields to the record.
 - Create/custom pages store drafts in Laravel Cache until explicit submit.
-- There is no polling, continuous remote-change sync, or merge UI during save.
-  Undo detects a concurrent change and reports a conflict instead of restoring
-  over it.
+- Other editors' changes reach untouched fields after a save and by polling;
+  listed plain-text fields are merged word by word on save. There is no
+  WebSocket/SSE transport and no merge UI. Undo detects a concurrent change
+  and reports a conflict instead of restoring over it.
 
 ## Install
 
@@ -204,6 +205,23 @@ alone. It emits `status: synced` (+ `refreshed`, `stale`) and the
 database, never touches Undo. The controller pauses polling while a save is
 pending/in flight or the tab is hidden and backs off after 3 failures (max
 60 s). Idle cost: one query (`updated_at` only on timestamped models).
+
+Merging (`merge_fields`, plugin `mergeFields()`, page `autosaveMergeFields()`;
+top-level TextInput/Textarea/MarkdownEditor only, others ignored with a
+warning) lives in `HasAutosaveMerge` + `AutosaveTextMerge` (word-level diff3
+and a diff-match-patch `apply()` port, no dependencies) + `AutosaveSync`
+(versioned payloads, `v: 1`). The server keeps no base: `autosave(array
+$mergePatches)` takes `path => patch text` (or `['base' => …, 'ours' => …]`),
+plays it on the column's current value and writes with a per-column
+compare-and-swap, retrying with backoff (5→100 ms) up to `merge_retries`
+(default 10). Exhausted: column unwritten, user's text stays dirty, reported as
+pending + `conflicts[path][].reason = 'contended'` with `merged` (merge against
+the latest value) and `patches[path].theirs`; `AutosaveConflict` fires; status
+is `validation`. Overlapping ranges: last save wins there only, `reason =
+'overlap'`. `syncAutosave(array $mergeBaseHashes)` adds `patches` for stale
+mergeable fields unless the browser's hash matches. Without a patch a field
+stays last-write-wins. The browser side (building patches, applying `merged`
+with the cursor kept) is not implemented yet.
 
 When changing this behavior, test two edit instances changing different columns
 with `dirty_only` enabled, plus upload add/remove/reorder cases, including
