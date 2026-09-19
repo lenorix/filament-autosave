@@ -1,7 +1,5 @@
 <?php
 
-use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Event;
 use Lenorix\FilamentAutosave\Events\AutosaveConflict;
 use Lenorix\FilamentAutosave\Events\AutosaveFailed;
@@ -9,30 +7,12 @@ use Lenorix\FilamentAutosave\Events\AutosaveSaved;
 use Lenorix\FilamentAutosave\Events\AutosaveSkipped;
 use Lenorix\FilamentAutosave\Events\AutosaveUndone;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EventsFailingAfterSaveEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EventsTitleOnlyRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Livewire;
-
-class EventsTitleOnlyRecordForm extends AutosaveUploadRecordForm
-{
-    public function form(Schema $schema): Schema
-    {
-        return $schema
-            ->model($this->record)
-            ->components([TextInput::make('title')])
-            ->statePath('data');
-    }
-}
-
-class EventsFailingAfterSaveEditPost extends EditPost
-{
-    protected function afterSave(): void
-    {
-        throw new RuntimeException('after save failed');
-    }
-}
 
 test('a saved edit-page autosave dispatches AutosaveSaved with the written data', function () {
     Event::fake([AutosaveSaved::class]);

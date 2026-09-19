@@ -1,75 +1,26 @@
 <?php
 
-use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
-use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Components\Group;
-use Filament\Schemas\Schema;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\ClearMediaInHookEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\DropUploadColumnEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditFailingAfterValidateUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditFailingStoragePost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditMediaItemsPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditNamedUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditNestedUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditSecretUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\FailingAfterSaveUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\HookedEditUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\LedgerSpyEditUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\MediaItemsPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\MediaItemsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\MediaPostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\UploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\ValidatedEditUploadPost;
 use Livewire\Livewire;
-use Spatie\MediaLibrary\HasMedia;
-use Spatie\MediaLibrary\InteractsWithMedia;
-
-class UploadPost extends Post implements HasMedia
-{
-    use InteractsWithMedia;
-
-    protected $table = 'posts';
-}
-
-class UploadPostResource extends PostResource
-{
-    protected static ?string $model = UploadPost::class;
-
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title')->required(),
-            FileUpload::make('settings')->multiple()->reorderable()->disk('public')->maxSize(10),
-            SpatieMediaLibraryFileUpload::make('gallery')->multiple()->reorderable()->disk('public')->maxSize(10),
-        ]);
-    }
-}
-
-class EditUploadPost extends EditPost
-{
-    protected static string $resource = UploadPostResource::class;
-}
-
-class FailingStoragePostResource extends UploadPostResource
-{
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title'),
-            FileUpload::make('settings')
-                ->disk('public')
-                ->saveUploadedFileUsing(fn (): never => throw new RuntimeException('storage unavailable')),
-        ]);
-    }
-}
-
-class EditFailingStoragePost extends EditUploadPost
-{
-    protected static string $resource = FailingStoragePostResource::class;
-}
-
-class EditFailingAfterValidateUploadPost extends EditUploadPost
-{
-    protected function afterValidate(): void
-    {
-        throw new RuntimeException('validation hook failed');
-    }
-}
 
 beforeEach(function () {
     Storage::fake('public');
@@ -166,27 +117,6 @@ test('excluded uploads never reach permanent storage', function () {
     expect(Storage::disk('public')->allFiles())->toBeEmpty();
 });
 
-class HookedEditUploadPost extends EditUploadPost
-{
-    public int $beforeCalls = 0;
-
-    protected function beforeAutosave(array $data): array
-    {
-        $this->beforeCalls++;
-        unset($data['gallery']);
-
-        return $data;
-    }
-}
-
-class ValidatedEditUploadPost extends EditUploadPost
-{
-    protected function getAutosaveValidationRules(): array
-    {
-        return ['gallery' => ['array', 'max:0']];
-    }
-}
-
 test('beforeAutosave runs once and can exclude a pending media operation', function () {
     $post = UploadPost::create(['title' => 'Original']);
     Livewire::test(HookedEditUploadPost::class, ['record' => $post->getKey()])
@@ -217,25 +147,6 @@ test('existing file ordering and clearing are saved without duplicating storage'
     expect(Storage::disk('public')->allFiles())->toHaveCount(2);
 });
 
-class NestedUploadPostResource extends UploadPostResource
-{
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title')->required(),
-            Group::make([
-                TextInput::make('caption'),
-                FileUpload::make('files')->multiple()->disk('public')->maxSize(10),
-            ])->statePath('settings'),
-        ]);
-    }
-}
-
-class EditNestedUploadPost extends EditUploadPost
-{
-    protected static string $resource = NestedUploadPostResource::class;
-}
-
 test('nested uploads preserve sibling values and store the whole JSON column', function () {
     $post = UploadPost::create(['title' => 'Original', 'settings' => ['caption' => 'Caption', 'files' => []]]);
     Livewire::test(EditNestedUploadPost::class, ['record' => $post->getKey()])
@@ -264,41 +175,6 @@ test('file name state is persisted alongside a new upload', function () {
     Storage::disk('public')->assertExists($post->slug);
 });
 
-class NamedUploadPostResource extends UploadPostResource
-{
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title'),
-            FileUpload::make('slug')->disk('public')->storeFileNamesIn('title'),
-        ]);
-    }
-}
-
-class EditNamedUploadPost extends EditUploadPost
-{
-    protected static string $resource = NamedUploadPostResource::class;
-}
-
-class SecretUploadPostResource extends UploadPostResource
-{
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title'),
-            Group::make([
-                TextInput::make('secret')->password(),
-                FileUpload::make('files')->multiple()->disk('public'),
-            ])->statePath('settings'),
-        ]);
-    }
-}
-
-class EditSecretUploadPost extends EditUploadPost
-{
-    protected static string $resource = SecretUploadPostResource::class;
-}
-
 test('an upload in a skipped secret container is not stored as an orphan', function () {
     $post = UploadPost::create(['title' => 'Original', 'settings' => ['secret' => 'kept', 'files' => []]]);
     Livewire::test(EditSecretUploadPost::class, ['record' => $post->getKey()])
@@ -308,16 +184,6 @@ test('an upload in a skipped secret container is not stored as an orphan', funct
     expect(Storage::disk('public')->allFiles())->toBeEmpty();
 });
 
-class DropUploadColumnEditPost extends EditUploadPost
-{
-    protected function mutateFormDataBeforeSave(array $data): array
-    {
-        unset($data['settings']);
-
-        return $data;
-    }
-}
-
 test('a column dropped by the save mutation is not acknowledged as persisted', function () {
     $post = UploadPost::create(['title' => 'Original']);
     Livewire::test(DropUploadColumnEditPost::class, ['record' => $post->getKey()])
@@ -326,18 +192,6 @@ test('a column dropped by the save mutation is not acknowledged as persisted', f
     expect($post->refresh()->settings)->toBeNull();
 });
 
-class ClearMediaInHookEditPost extends EditUploadPost
-{
-    protected function beforeAutosave(array $data): array
-    {
-        if (array_key_exists('gallery', $data)) {
-            $data['gallery'] = [];
-        }
-
-        return $data;
-    }
-}
-
 test('media callbacks receive the state accepted by the before hook', function () {
     $post = UploadPost::create(['title' => 'Original']);
     Livewire::test(ClearMediaInHookEditPost::class, ['record' => $post->getKey()])
@@ -345,47 +199,6 @@ test('media callbacks receive the state accepted by the before hook', function (
         ->call('autosave');
     expect($post->fresh()->getMedia())->toHaveCount(0);
 });
-
-class MediaPostItem extends PostItem implements HasMedia
-{
-    use InteractsWithMedia;
-
-    protected $table = 'post_items';
-
-    protected $fillable = ['post_id', 'label', 'position', 'attachment'];
-}
-
-class MediaItemsPost extends UploadPost
-{
-    public function items(): HasMany
-    {
-        return $this->hasMany(MediaPostItem::class, 'post_id');
-    }
-}
-
-class MediaItemsPostResource extends UploadPostResource
-{
-    protected static ?string $model = MediaItemsPost::class;
-
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title')->required(),
-            Repeater::make('items')
-                ->relationship('items')
-                ->schema([
-                    TextInput::make('label')->required(),
-                    FileUpload::make('attachment')->disk('public')->maxSize(10),
-                    SpatieMediaLibraryFileUpload::make('images')->multiple()->reorderable()->disk('public')->maxSize(10),
-                ]),
-        ]);
-    }
-}
-
-class EditMediaItemsPost extends EditUploadPost
-{
-    protected static string $resource = MediaItemsPostResource::class;
-}
 
 test('media nested in a relationship repeater row persists for an existing row', function () {
     $post = MediaItemsPost::create(['title' => 'Original']);
@@ -480,26 +293,6 @@ test('a column upload nested in a relationship repeater row is stored', function
         ->and(Storage::disk('public')->exists($stored))->toBeTrue();
 });
 
-class MediaItemsRecordForm extends AutosaveUploadRecordForm
-{
-    public function form(Schema $schema): Schema
-    {
-        return $schema
-            ->model($this->record)
-            ->components([
-                TextInput::make('title')->required(),
-                Repeater::make('items')
-                    ->relationship('items')
-                    ->schema([
-                        TextInput::make('label')->required(),
-                        FileUpload::make('attachment')->disk('public')->maxSize(10),
-                        SpatieMediaLibraryFileUpload::make('images')->multiple()->disk('public')->maxSize(10),
-                    ]),
-            ])
-            ->statePath('data');
-    }
-}
-
 test('a generic record form persists media nested in an existing relationship row', function () {
     $post = MediaItemsPost::create(['title' => 'Original']);
     $item = MediaPostItem::create(['post_id' => $post->getKey(), 'label' => 'Row', 'position' => 1]);
@@ -566,16 +359,6 @@ test('an invalid upload is reported as pending while other fields save', functio
     expect($post->fresh()->title)->toBe('Changed');
 });
 
-class LedgerSpyEditUploadPost extends EditUploadPost
-{
-    public ?array $ledgerDuringSave = null;
-
-    protected function afterSave(): void
-    {
-        $this->ledgerDuringSave = Cache::get('filament-autosave:upload-ledger');
-    }
-}
-
 test('spatie media files are registered in the upload ledger until the database commit completes', function () {
     $post = UploadPost::create(['title' => 'Original']);
     $page = Livewire::test(LedgerSpyEditUploadPost::class, ['record' => $post->getKey()]);
@@ -587,14 +370,6 @@ test('spatie media files are registered in the upload ledger until the database 
     expect(Storage::disk('public')->allFiles())->not->toBeEmpty();
     expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
 });
-
-class FailingAfterSaveUploadPost extends EditUploadPost
-{
-    protected function afterSave(): void
-    {
-        throw new RuntimeException('after save failed');
-    }
-}
 
 test('a failure after spatie media is written removes the file and forgets its ledger token', function () {
     $post = UploadPost::create(['title' => 'Original']);

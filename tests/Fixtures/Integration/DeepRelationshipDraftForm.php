@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration;
 
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
@@ -9,47 +10,40 @@ use Filament\Schemas\Schema;
 use Lenorix\FilamentAutosave\HasAutosaveForForm;
 use Livewire\Component;
 
-/** Two plain columns, no relationships or uploads: the minimal refresh subject. */
-class AutosaveTitleSlugRecordForm extends Component implements HasSchemas
+class DeepRelationshipDraftForm extends Component implements HasSchemas
 {
     use HasAutosaveForForm;
     use InteractsWithSchemas;
 
-    public Post $record;
-
     public ?array $data = [];
 
-    public function mount(Post $record): void
+    public function mount(): void
     {
-        $this->record = $record;
-        $this->form->fill($record->attributesToArray());
+        $this->form->fill();
         $this->mountHasAutosaveForForm();
     }
 
     public function form(Schema $schema): Schema
     {
         return $schema
-            ->model($this->record)
             ->components([
                 TextInput::make('title'),
-                TextInput::make('slug'),
+                Repeater::make('items')->schema([
+                    TextInput::make('label'),
+                    Repeater::make('subitems')->schema([
+                        TextInput::make('label'),
+                        Repeater::make('subsubitems')->schema([
+                            TextInput::make('label'),
+                        ]),
+                    ]),
+                ]),
             ])
             ->statePath('data');
     }
 
-    protected function getFormModel(): Post
-    {
-        return $this->record;
-    }
-
-    public function getRecord(): Post
-    {
-        return $this->record;
-    }
-
     protected function getAutosaveFormContext(): string
     {
-        return 'title-slug:'.$this->record->getKey();
+        return 'deep-draft';
     }
 
     public function render(): string

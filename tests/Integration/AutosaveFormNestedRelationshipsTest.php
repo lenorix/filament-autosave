@@ -1,70 +1,13 @@
 <?php
 
 use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Concerns\InteractsWithSchemas;
-use Filament\Schemas\Contracts\HasSchemas;
-use Filament\Schemas\Schema;
-use Lenorix\FilamentAutosave\HasAutosaveForForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\DeepRelationshipDraftForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\DeepRelationshipRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubSubItem;
-use Livewire\Component;
 use Livewire\Livewire;
-
-class DeepRelationshipRecordForm extends Component implements HasSchemas
-{
-    use HasAutosaveForForm;
-    use InteractsWithSchemas;
-
-    public Post $record;
-
-    public ?array $data = [];
-
-    public function mount(Post $record): void
-    {
-        $this->record = $record;
-        $this->form->fill($record->attributesToArray());
-        $this->form->loadStateFromRelationships();
-        $this->mountHasAutosaveForForm();
-    }
-
-    public function form(Schema $schema): Schema
-    {
-        return $schema
-            ->model($this->record)
-            ->components([
-                TextInput::make('title'),
-                Repeater::make('items')->relationship('items')->schema([
-                    TextInput::make('label'),
-                    TextInput::make('position')->numeric(),
-                    Repeater::make('subitems')->relationship('subitems')->schema([
-                        TextInput::make('label'),
-                        Repeater::make('subsubitems')->relationship('subsubitems')->schema([
-                            TextInput::make('label'),
-                        ]),
-                    ]),
-                ]),
-            ])
-            ->statePath('data');
-    }
-
-    public function getRecord(): Post
-    {
-        return $this->record;
-    }
-
-    protected function getAutosaveFormContext(): string
-    {
-        return 'deep:'.$this->record->getKey();
-    }
-
-    public function render(): string
-    {
-        return '<div></div>';
-    }
-}
 
 function seedDeepGraph(): array
 {
@@ -119,48 +62,6 @@ test('a generic record form creates a new parent row with nested children once',
     expect($sub)->toHaveCount(1)
         ->and(PostSubSubItem::query()->where('post_sub_item_id', $sub->first()->getKey())->count())->toBe(1);
 });
-
-class DeepRelationshipDraftForm extends Component implements HasSchemas
-{
-    use HasAutosaveForForm;
-    use InteractsWithSchemas;
-
-    public ?array $data = [];
-
-    public function mount(): void
-    {
-        $this->form->fill();
-        $this->mountHasAutosaveForForm();
-    }
-
-    public function form(Schema $schema): Schema
-    {
-        return $schema
-            ->components([
-                TextInput::make('title'),
-                Repeater::make('items')->schema([
-                    TextInput::make('label'),
-                    Repeater::make('subitems')->schema([
-                        TextInput::make('label'),
-                        Repeater::make('subsubitems')->schema([
-                            TextInput::make('label'),
-                        ]),
-                    ]),
-                ]),
-            ])
-            ->statePath('data');
-    }
-
-    protected function getAutosaveFormContext(): string
-    {
-        return 'deep-draft';
-    }
-
-    public function render(): string
-    {
-        return '<div></div>';
-    }
-}
 
 test('a recordless draft keeps a three-level nested repeater state intact across store and restore', function () {
     $nested = [

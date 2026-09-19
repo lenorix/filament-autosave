@@ -1,29 +1,10 @@
 <?php
 
-use Illuminate\Database\Eloquent\Model;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\DeepRelationshipEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RehydratingHookEditPost;
 use Livewire\Livewire;
-
-/**
- * Mirrors lara-zeus/spatie-translatable 1.x: the concern refills the form
- * from getState(false) -- which does NOT save relationships -- and then
- * validates. The refill re-hydrates every relationship Repeater from the
- * database, discarding the user's pending rows and edits before the
- * package's own relationship pass has written them.
- */
-class RehydratingHookEditPost extends DeepRelationshipEditPost
-{
-    protected function handleRecordUpdate(Model $record, array $data): Model
-    {
-        $this->form->fill($this->form->getState(false));
-        $this->form->validate();
-
-        return parent::handleRecordUpdate($record, $data);
-    }
-}
 
 test('a new nested row survives a handleRecordUpdate() that refills the form without saving relationships', function () {
     $post = Post::create(['title' => 'Post']);

@@ -1,58 +1,10 @@
 <?php
 
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\FormsComponent;
-use Filament\Schemas\Schema;
-use Lenorix\FilamentAutosave\HasAutosaveForForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\HookOrderRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\OwnFormActionsComponent;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Livewire;
-
-class HookOrderRecordForm extends AutosaveUploadRecordForm
-{
-    public array $calls = [];
-
-    protected function beforeSave(): void
-    {
-        $this->calls[] = 'beforeSave:'.($this->data['title'] ?? '');
-    }
-
-    protected function mutateFormDataBeforeSave(array $data): array
-    {
-        $this->calls[] = 'mutate';
-
-        return $data;
-    }
-}
-
-class OwnFormActionsComponent extends FormsComponent
-{
-    use HasAutosaveForForm;
-
-    public ?array $data = [];
-
-    public function mount(): void
-    {
-        $this->form->fill();
-        $this->mountHasAutosaveForForm();
-    }
-
-    public function form(Schema $schema): Schema
-    {
-        return $schema->components([TextInput::make('title')])->statePath('data');
-    }
-
-    protected function getAutosaveFormContext(): string
-    {
-        return 'own-form';
-    }
-
-    public function render(): string
-    {
-        return '<div></div>';
-    }
-}
 
 test('generic forms run beforeSave before the mutator, like Filament', function () {
     $post = Post::create(['title' => 'Post']);

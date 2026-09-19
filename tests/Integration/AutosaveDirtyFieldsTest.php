@@ -1,27 +1,13 @@
 <?php
 
 use Filament\Facades\Filament;
-use Filament\Support\Exceptions\Halt;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AfterChangedEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\HaltedSaveEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\ServerChangedEditPost;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
-
-class ServerChangedEditPost extends EditPost
-{
-    public function changeSlugOnServer(): void
-    {
-        $this->data['slug'] = 'server-change';
-    }
-}
-
-class HaltedSaveEditPost extends EditPost
-{
-    protected function beforeSave(): void
-    {
-        throw new Halt;
-    }
-}
 
 test('dirty hashes survive requests and preserve another editors untouched columns', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
@@ -167,16 +153,6 @@ test('server actions update the observed hash without an updated hook', function
     $page->call('autosave')->call('$refresh');
     expect($page->get('autosaveObservedHash'))->toBe($after);
 });
-
-class AfterChangedEditPost extends EditPost
-{
-    protected function afterAutosave(object $record): void
-    {
-        if ($this->data['title'] === 'First') {
-            $this->data['title'] = 'Second';
-        }
-    }
-}
 
 test('changes made after the write are not acknowledged as saved', function () {
     $post = Post::create(['title' => 'Original']);

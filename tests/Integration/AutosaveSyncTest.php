@@ -7,17 +7,10 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Category;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PollingEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
-
-class PollingEditPost extends EditPost
-{
-    protected function autosavePollInterval(): ?int
-    {
-        return 1234;
-    }
-}
 
 /** @return array<string, mixed>|null The payload of the last `synced` status event, if any. */
 function lastSyncedPayload(Testable $page): ?array

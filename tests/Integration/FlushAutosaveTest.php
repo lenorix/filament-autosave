@@ -6,28 +6,10 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\GuardedFlushEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\ReentrantFlushEditPost;
 use Livewire\Livewire;
-
-class ReentrantFlushEditPost extends EditPost
-{
-    protected function afterAutosave(object $record): void
-    {
-        $this->flushAutosave();
-    }
-}
-
-class GuardedFlushEditPost extends EditPost
-{
-    protected function beforeAutosave(array $data): array
-    {
-        if (($data['title'] ?? null) === 'forbidden') {
-            throw new DomainException('title is reserved');
-        }
-
-        return $data;
-    }
-}
 
 test('flushAutosave writes dirty fields synchronously and reports whether it wrote', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
