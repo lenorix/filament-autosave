@@ -80,3 +80,38 @@ test('a poll reply landing during an in-flight save neither demotes the badge no
 
     $this->assertNoBrowserErrors($page);
 });
+
+test('switching the tab away inside the debounce window saves right away', function () {
+    // A long debounce: only a flush explains a write within the next 2 s.
+    config(['filament-autosave.debounce' => 6000]);
+    $post = Post::create(['title' => 'Original', 'slug' => 'original']);
+
+    $page = visit("/admin/posts/{$post->getKey()}/edit")
+        ->assertValue(BrowserTestCase::field('form.title'), 'Original');
+    $page->fill(BrowserTestCase::field('form.title'), 'Typed before switching tabs');
+    $this->waitForStatus($page, 'unsaved');
+
+    // Playwright cannot background a tab; the document reports hidden and
+    // fires the event exactly as the browser would.
+    $page->script(<<<'JS'
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+        document.dispatchEvent(new Event('visibilitychange'))
+    JS);
+
+    $this->waitForDatabase($page, fn (): bool => $post->fresh()->title === 'Typed before switching tabs', 'the flushed title', timeoutMs: 2_000);
+    $this->assertNoBrowserErrors($page);
+});
+
+test('leaving the page inside the debounce window still lands the last edit', function () {
+    config(['filament-autosave.debounce' => 6000]);
+    $post = Post::create(['title' => 'Original', 'slug' => 'original']);
+
+    $page = visit("/admin/posts/{$post->getKey()}/edit")
+        ->assertValue(BrowserTestCase::field('form.title'), 'Original');
+    $page->fill(BrowserTestCase::field('form.title'), 'Typed before leaving');
+    $this->waitForStatus($page, 'unsaved');
+
+    $page->navigate('/admin/posts');
+
+    $this->waitForDatabase($page, fn (): bool => $post->fresh()->title === 'Typed before leaving', 'the title flushed on beforeunload', timeoutMs: 3_000);
+});

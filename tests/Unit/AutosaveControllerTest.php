@@ -170,7 +170,22 @@ test('destroying the controller cancels timers and unregisters browser listeners
         ->toContain("'livewire-upload-finish'")
         ->toContain("'livewire-upload-error'")
         ->toContain("'livewire-upload-cancel'")
+        ->toContain("window.removeEventListener('beforeunload', this._unloadHandler)")
         ->toContain('this._offStatus?.()');
+});
+
+test('an edit still inside the debounce is flushed when the tab is hidden or the page is left', function () {
+    $markup = controllerMarkup();
+
+    // beforeunload on purpose: Livewire sends a call a few milliseconds
+    // after it is queued, and by pagehide no timer runs any more.
+    expect($markup)
+        ->toContain("window.addEventListener('beforeunload', this._unloadHandler)")
+        ->not->toContain("'pagehide'")
+        ->toContain('this.flush()')
+        ->toContain('this.flush(true)')
+        ->toContain('options.keepalive = true')
+        ->toContain("window.Livewire.hook('request'");
 });
 
 test('every status key the views read from the Alpine scope exists in the status metadata', function () {
