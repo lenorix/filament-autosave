@@ -17,14 +17,15 @@
     role="status"
     aria-live="polite"
     x-cloak
+    x-bind:data-autosave-status="status"
 >
     <template x-if="status === statuses.draftAvailable">
         <x-filament::badge color="info" icon="heroicon-m-document-text">
             {{ __('filament-autosave::autosave.draft_available') }}
-            <x-filament::link tag="button" type="button" size="sm" color="success" x-on:click="restore()">
+            <x-filament::link tag="button" type="button" size="sm" color="success" x-on:click="restore()" data-autosave-action="restore">
                 {{ __('filament-autosave::autosave.restore') }}
             </x-filament::link>
-            <x-filament::link tag="button" type="button" size="sm" color="danger" x-on:click="discard()">
+            <x-filament::link tag="button" type="button" size="sm" color="danger" x-on:click="discard()" data-autosave-action="discard">
                 {{ __('filament-autosave::autosave.discard') }}
             </x-filament::link>
         </x-filament::badge>
@@ -54,7 +55,7 @@
                     {{ __('filament-autosave::autosave.saved') }}
                 @endif
                 @if ($mode === 'edit')
-                    <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo">
+                    <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo" data-autosave-action="undo">
                         {{ __('filament-autosave::autosave.undo') }}
                     </x-filament::link>
                 @endif

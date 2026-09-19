@@ -1,62 +1,65 @@
 <?php
 
+use Lenorix\FilamentAutosave\Tests\BrowserTestCase;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 
 /**
- * Poll the page until a JavaScript expression is truthy.
- *
- * The plugin's assertions check immediately, so anything that appears after
- * the autosave debounce needs an explicit bounded poll rather than a sleep
- * sized to the debounce. `visit()` hands back an awaitable proxy rather than
- * the Webpage itself, so the page is duck-typed on `script()`.
+ * The Edit-page flow a user actually performs: type across two fields
+ * inside one debounce window, watch the indicator settle, survive a reload,
+ * undo, and end with a hidden indicator and a clean console.
  */
-function waitUntilPage(object $page, string $expression, int $timeoutMs = 10_000): object
-{
-    $deadline = hrtime(true) + $timeoutMs * 1_000_000;
-
-    do {
-        if ($page->script($expression)) {
-            return $page;
-        }
-
-        usleep(100_000);
-    } while (hrtime(true) < $deadline);
-
-    throw new RuntimeException("Timed out after {$timeoutMs}ms waiting for: {$expression}");
-}
-
-function pageShowsText(string $text): string
-{
-    return sprintf('document.body.innerText.includes(%s)', json_encode($text));
-}
-
-function inputHasValue(string $id, string $value): string
-{
-    return sprintf(
-        'document.getElementById(%s)?.value === %s',
-        json_encode($id),
-        json_encode($value),
-    );
-}
-
-test('typing autosaves after the debounce, shows the saved badge, and undo restores the input', function () {
-    $post = Post::create(['title' => 'Original']);
+test('editing two fields within one debounce produces a single save that survives reload and can be undone', function () {
+    $post = Post::create(['title' => 'Original', 'slug' => 'original']);
+    $writes = 0;
+    Post::updated(function () use (&$writes): void {
+        $writes++;
+    });
 
     $page = visit("/admin/posts/{$post->getKey()}/edit")
-        ->assertValue('[id="form.title"]', 'Original')
-        ->type('[id="form.title"]', 'Changed in the browser');
+        ->assertValue(BrowserTestCase::field('form.title'), 'Original');
 
-    waitUntilPage($page, pageShowsText(__('filament-autosave::autosave.saved_at')));
-    waitUntilPage($page, pageShowsText(__('filament-autosave::autosave.undo')));
+    // Two edits closer together than the debounce must collapse into one write.
+    $page->fill(BrowserTestCase::field('form.title'), 'Changed in the browser');
+    $page->fill(BrowserTestCase::field('form.slug'), 'changed-in-the-browser');
+    $this->waitForStatus($page, 'saved');
 
-    expect($post->fresh()->title)->toBe('Changed in the browser');
+    expect($writes)->toBe(1)
+        ->and($post->fresh()->only(['title', 'slug']))
+        ->toBe(['title' => 'Changed in the browser', 'slug' => 'changed-in-the-browser']);
 
-    $page->press(__('filament-autosave::autosave.undo'));
+    // A fresh page load shows the persisted values, with no draft or badge.
+    $reloaded = visit("/admin/posts/{$post->getKey()}/edit")
+        ->assertValue(BrowserTestCase::field('form.title'), 'Changed in the browser')
+        ->assertValue(BrowserTestCase::field('form.slug'), 'changed-in-the-browser');
+    expect($this->currentStatus($reloaded))->toBe('idle');
 
-    waitUntilPage($page, pageShowsText(__('filament-autosave::autosave.undone')));
-    waitUntilPage($page, inputHasValue('form.title', 'Original'));
+    // Undo on the original page restores both the inputs and the database.
+    $page->click(BrowserTestCase::action('undo'));
+    $this->waitForStatus($page, 'undone');
+    $this->waitForInputValue($page, BrowserTestCase::field('form.title'), 'Original');
+    $this->waitForInputValue($page, BrowserTestCase::field('form.slug'), 'original');
 
-    $page->assertValue('[id="form.title"]', 'Original');
+    expect($post->fresh()->only(['title', 'slug']))->toBe(['title' => 'Original', 'slug' => 'original']);
 
-    expect($post->fresh()->title)->toBe('Original');
+    // The undone badge fades back to idle and the indicator hides itself.
+    $this->waitForStatus($page, 'idle');
+    $page->assertMissing(BrowserTestCase::indicator('undone'));
+
+    $this->assertNoBrowserErrors($page);
+});
+
+test('the indicator reports each phase through a stable data attribute', function () {
+    $post = Post::create(['title' => 'Original']);
+
+    $page = visit("/admin/posts/{$post->getKey()}/edit");
+    expect($this->currentStatus($page))->toBe('idle');
+
+    $page->fill(BrowserTestCase::field('form.title'), 'Typing');
+    $this->waitForStatus($page, 'unsaved');
+    $this->waitForStatus($page, 'saved');
+
+    $page->assertPresent(BrowserTestCase::indicator('saved'))
+        ->assertPresent(BrowserTestCase::action('undo'));
+
+    $this->assertNoBrowserErrors($page);
 });
