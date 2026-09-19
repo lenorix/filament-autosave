@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- The browser flushes an edit still waiting on its debounce when the tab is
+  hidden or the page is being left (`beforeunload`, request sent with
+  `keepalive`), so closing the tab a second after typing no longer drops the
+  last change. Best effort on unload: a page torn down instantly or a form
+  over 64 KB may still lose it.
+- A save asked for while a poll is in flight waits for the poll and is
+  replayed by it. Before, the poll's reply was half applied — its `synced`
+  status dropped, its refill read as a user edit — and the badge fell back
+  to "unsaved" in the middle of the save.
+- A save request that resolves without a status no longer leaves the badge
+  on "saving" for good (which also swallowed every later save); the
+  controller warns in the console and marks the form unsaved.
 - A failed or skipped cycle rolls back only the Spatie media it created. The
   baseline was captured at page load and carried across requests, so any
   no-write cycle (validation skip, Halt, a failing hook) deleted every media

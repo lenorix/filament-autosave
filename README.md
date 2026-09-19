@@ -397,7 +397,16 @@ the whole payload anyway (last-write-wins at record level).
 
 The browser pauses polling while a save is pending or in flight and while the
 tab is hidden (it syncs as soon as the tab comes back). After three failed
-polls in a row it backs off exponentially, up to one minute.
+polls in a row it backs off exponentially, up to one minute. A save asked for
+while a poll is still running waits for that poll and goes out right after
+it, so a reply never lands in the middle of the other.
+
+An edit still waiting on its debounce is sent at once when the tab goes to
+the background or the page is being left; the unload request is marked
+`keepalive` so the browser lets it finish. That last part is best effort:
+Livewire sends a few milliseconds after the call, and keepalive bodies are
+capped at 64 KB, so a page torn down instantly or a very large form can
+still lose the final edit.
 
 An idle poll costs one query that reads the record's own columns, or just
 `updated_at` when the model has timestamps, no matter how big the form is.
