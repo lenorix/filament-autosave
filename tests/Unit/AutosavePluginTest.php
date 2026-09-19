@@ -199,6 +199,14 @@ test('the indicator ships the merge runtime only for a component that lists merg
         ->and($assets)->toContain('createSync', 'makePatch', 'mapOffset', 'toInput')
         ->and($controller)->toContain('mergeFields: JSON.parse(', 'body', 'summary');
 
+    // The rich editor half rides along, also once: it borrows ProseMirror
+    // from Filament's own editor bundle and is inert without one. Livewire
+    // halves escaped backslashes on the way, so the file carries none.
+    expect(substr_count($assets, '<script data-autosave-rich-merge>'))->toBe(1)
+        ->and($assets)->toContain('window.FilamentAutosaveRichMerge = window.FilamentAutosaveRichMerge ||')
+        ->and($assets)->toContain('window.FilamentRichEditor?.tiptap', 'richEditorFormComponent(', 'toEditor', 'mergeBlocks', 'recover')
+        ->and(file_get_contents(__DIR__.'/../../resources/js/autosave-rich-merge.js'))->not->toContain('\\\\');
+
     $plain = view('filament-autosave::autosave-indicator', ['mode' => 'edit', '__livewire' => new class
     {
         /** @return list<string> */
