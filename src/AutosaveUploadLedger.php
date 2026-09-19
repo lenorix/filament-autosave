@@ -29,13 +29,12 @@ final class AutosaveUploadLedger
     public function register(array $files, ?int $ttlMinutes = null): string
     {
         $token = (string) Str::uuid();
-        $expiresAt = now()->addMinutes($ttlMinutes ?? (int) config('filament-autosave.upload_ledger_ttl', 180))->timestamp;
-        $cacheTtl = max(1, (int) config('filament-autosave.upload_ledger_ttl', 180));
+        $expiresAt = now()->addMinutes($ttlMinutes ?? $this->entryTtl())->timestamp;
 
-        $this->withLock(function () use ($token, $files, $expiresAt, $cacheTtl): void {
+        $this->withLock(function () use ($token, $files, $expiresAt): void {
             $entries = $this->entries();
             $entries[$token] = ['files' => $files, 'expires_at' => $expiresAt];
-            Cache::put(self::INDEX_KEY, $entries, now()->addMinutes($cacheTtl));
+            $this->store($entries);
         });
 
         return $token;
@@ -54,17 +53,15 @@ final class AutosaveUploadLedger
             return;
         }
 
-        $cacheTtl = max(1, (int) config('filament-autosave.upload_ledger_ttl', 180));
-
-        $this->withLock(function () use ($token, $files, $cacheTtl): void {
+        $this->withLock(function () use ($token, $files): void {
             $entries = $this->entries();
             $entry = $entries[$token] ?? [
                 'files' => [],
-                'expires_at' => now()->addMinutes($cacheTtl)->timestamp,
+                'expires_at' => now()->addMinutes($this->entryTtl())->timestamp,
             ];
             $entry['files'] = array_values(array_unique([...$entry['files'], ...$files], SORT_REGULAR));
             $entries[$token] = $entry;
-            Cache::put(self::INDEX_KEY, $entries, now()->addMinutes($cacheTtl));
+            $this->store($entries);
         });
     }
 
@@ -106,9 +103,7 @@ final class AutosaveUploadLedger
                 return;
             }
 
-            Cache::put(self::INDEX_KEY, $entries, now()->addMinutes(
-                max(1, (int) config('filament-autosave.upload_ledger_ttl', 180)),
-            ));
+            $this->store($entries);
         });
     }
 
@@ -127,6 +122,26 @@ final class AutosaveUploadLedger
         }
 
         return $removed;
+    }
+
+    private function entryTtl(): int
+    {
+        return max(1, (int) config('filament-autosave.upload_ledger_ttl', 180));
+    }
+
+    /**
+     * The index must outlive its entries: an entry becomes prunable when its
+     * TTL elapses, and pruning can only see it while the index is still
+     * cached. Twice the longest entry lifetime leaves a whole pruning window.
+     *
+     * @param  array<string, array{files:array<int, array{disk:string,path:string}>,expires_at:int}>  $entries
+     */
+    private function store(array $entries): void
+    {
+        $latest = max([now()->timestamp, ...array_column($entries, 'expires_at')]);
+        $minutes = max($this->entryTtl(), (int) ceil(($latest - now()->timestamp) / 60));
+
+        Cache::put(self::INDEX_KEY, $entries, now()->addMinutes(2 * $minutes));
     }
 
     /** @return array<string, array{files:array<int, array{disk:string,path:string}>,expires_at:int}> */

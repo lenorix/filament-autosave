@@ -22,8 +22,8 @@ class AutosaveState
     /**
      * Remove temporary uploads from a payload before it is stored.
      *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
+     * @param  array<array-key, mixed>  $data
+     * @return array<array-key, mixed>
      */
     public static function stripUploads(array $data): array
     {
