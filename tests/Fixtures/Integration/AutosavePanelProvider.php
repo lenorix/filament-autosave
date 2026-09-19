@@ -4,6 +4,7 @@ namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration;
 
 use Filament\Panel;
 use Filament\PanelProvider;
+use LaraZeus\SpatieTranslatable\SpatieTranslatablePlugin;
 use Lenorix\FilamentAutosave\AutosavePlugin;
 
 class AutosavePanelProvider extends PanelProvider
@@ -14,7 +15,10 @@ class AutosavePanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->resources([PostResource::class, RelationshipPostResource::class, NestedRelationshipPostResource::class, DeepRelationshipPostResource::class, MorphToPostResource::class, PolymorphicPostResource::class, RichUploadPostResource::class, BuilderPostResource::class])
-            ->plugins([AutosavePlugin::make()]);
+            ->resources([PostResource::class, RelationshipPostResource::class, NestedRelationshipPostResource::class, DeepRelationshipPostResource::class, MorphToPostResource::class, PolymorphicPostResource::class, RichUploadPostResource::class, BuilderPostResource::class, TranslatablePostResource::class])
+            ->plugins([
+                AutosavePlugin::make(),
+                SpatieTranslatablePlugin::make()->defaultLocales(['en', 'es']),
+            ]);
     }
 }
