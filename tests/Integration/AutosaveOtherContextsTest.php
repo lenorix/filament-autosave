@@ -176,3 +176,17 @@ test('a generic form persists and undoes a relationship callback', function () {
 
     expect($post->fresh()->authors->modelKeys())->toBe([$first->getKey()]);
 });
+
+test('an untouched FileUpload does not disable undo for a column-only generic form autosave', function () {
+    Storage::fake('public');
+    $post = Post::create(['title' => 'Post']);
+
+    Livewire::test(AutosaveUploadRecordForm::class, ['record' => $post])
+        ->set('data.title', 'Changed')
+        ->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', true)
+        ->call('undoAutosave');
+
+    expect($post->fresh()->title)->toBe('Post');
+});

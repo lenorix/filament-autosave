@@ -241,16 +241,27 @@ trait HasAutosaveUploads
         return app(AutosaveExternalUndoManager::class);
     }
 
-    /** @return array<string, object> */
-    protected function autosaveExternalUndoFields(array $uploads = [], array $relationships = []): array
+    /**
+     * External-undo candidates among the given upload and relationship
+     * components. Pass `null` for both to consider every field in the form
+     * (the baseline and Undo-time callers need that); a write cycle passes
+     * the components it actually touched, and an empty array there means
+     * "none" -- an untouched FileUpload must not disable Undo for a
+     * column-only save.
+     *
+     * @return array<string, object>
+     */
+    protected function autosaveExternalUndoFields(?array $uploads = null, ?array $relationships = null): array
     {
-        if ($uploads === [] && $relationships === []) {
+        if ($uploads === null && $relationships === null) {
             $uploads = $this->autosaveUploadFields();
-
-            if (method_exists($this, 'autosaveRelationshipFields')) {
-                $relationships = $this->autosaveRelationshipFields();
-            }
+            $relationships = method_exists($this, 'autosaveRelationshipFields')
+                ? $this->autosaveRelationshipFields()
+                : [];
         }
+
+        $uploads ??= [];
+        $relationships ??= [];
 
         $fields = [];
 
