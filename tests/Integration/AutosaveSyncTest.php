@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Event;
 use Lenorix\FilamentAutosave\Events\AutosaveSynced;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Category;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
@@ -165,4 +166,23 @@ test('a blank required field the user is still editing is reported stale, never 
     expect($page->get('data.title'))->toBe('')
         ->and($page->get('data.slug'))->toBe('also-changed')
         ->and(lastSyncedPayload($page))->toMatchArray(['refreshed' => ['slug' => 'also-changed'], 'stale' => ['title']]);
+});
+
+test('a poll only refreshes declared form fields, not every record column', function () {
+    $category = Category::create(['name' => 'News']);
+    $other = Category::create(['name' => 'Guides']);
+    $post = Post::create(['title' => 'Original', 'slug' => 'original', 'category_id' => $category->getKey()]);
+    $page = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
+    $before = $page->get('data');
+
+    Post::query()->whereKey($post->getKey())->update(['slug' => 'slug-by-b', 'category_id' => $other->getKey()]);
+
+    $page->call('syncAutosave');
+
+    $after = $page->get('data');
+    unset($before['slug'], $after['slug']);
+
+    expect($page->get('data.slug'))->toBe('slug-by-b')
+        ->and(lastSyncedPayload($page))->toMatchArray(['refreshed' => ['slug' => 'slug-by-b'], 'stale' => []])
+        ->and($after)->toBe($before);
 });

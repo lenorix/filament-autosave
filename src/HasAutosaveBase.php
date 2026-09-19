@@ -1664,13 +1664,23 @@ trait HasAutosaveBase
             }
         }
 
+        // A generic form filled with attributesToArray() carries every model
+        // column in its state, not just the schema's fields. Only declared
+        // fields may be refilled or reported as refreshed.
+        $declared = [];
+
+        foreach (array_keys($this->getAutosaveFields()) as $path) {
+            $declared[AutosaveFieldTree::topLevelKey((string) $path)] = true;
+        }
+
         $attributes = $record->attributesToArray();
         $paths = [];
 
         foreach (array_keys($current) as $path) {
             $top = AutosaveFieldTree::topLevelKey((string) $path);
 
-            if (! isset($skip[$top]) && ! $this->autosavePathExcluded($top) && array_key_exists($top, $attributes)) {
+            if (isset($declared[$top]) && ! isset($skip[$top])
+                && ! $this->autosavePathExcluded($top) && array_key_exists($top, $attributes)) {
                 $paths[$top] = true;
             }
         }

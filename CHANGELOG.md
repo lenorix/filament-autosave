@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The `refreshed` payload (post-save refresh and `syncAutosave()`) now lists
+  only declared form fields: a generic form filled with `attributesToArray()`
+  previously reported and refilled every model column (`id`, `category_id`, …).
 - Fix `HasAutosaveForForm` components nested in a page never receiving their
   own `autosave-status` event: a plain Livewire dispatch from a nested
   component only reached global listeners, so the indicator stuck at "saving"
