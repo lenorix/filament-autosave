@@ -40,7 +40,11 @@ test('undo cache key is scoped per owner and record', function () {
     expect($store->undoCacheKey('Some\Page', 3))
         ->toBe('filament-autosave:undo:web:9:Some\Page:3')
         ->and($store->undoCacheKey('Some\Page', null))
-        ->toBe('filament-autosave:undo:web:9:Some\Page:default');
+        ->toBe('filament-autosave:undo:web:9:Some\Page:default')
+        ->and($store->undoCacheKey('Some\Page', 3, 'lw-abc'))
+        ->toBe('filament-autosave:undo:web:9:Some\Page:3:lw-abc')
+        ->and($store->undoCacheKey('Some\Page', 3, ''))
+        ->toBe('filament-autosave:undo:web:9:Some\Page:3');
 });
 
 test('draft round trip stores, restores and clears the cache entry', function () {

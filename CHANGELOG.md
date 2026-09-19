@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix Undo snapshots being shared between live instances of the same page or
+  form for one user on one record (two tabs): the second tab's autosave
+  overwrote the first tab's snapshot, so its Undo restored the other tab's
+  column. Undo cache keys now carry the Livewire component id.
 - Add package events (`AutosaveSaved`, `AutosaveSkipped`, `AutosaveFailed`,
   `AutosaveUndone`, `AutosaveConflict`) dispatched as objects from every trait,
   so hosts can monitor autosave outcomes; failures previously only reached a

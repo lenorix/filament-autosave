@@ -1101,7 +1101,8 @@ trait HasAutosave
 
     protected function getUndoCacheKey(string $suffix = ''): string
     {
-        return $this->autosaveStore()->undoCacheKey(static::class, $this->getRecord()?->getKey()).($suffix ? ":{$suffix}" : '');
+        return $this->autosaveStore()->undoCacheKey(static::class, $this->getRecord()?->getKey(), $this->autosaveUndoInstanceId())
+            .($suffix ? ":{$suffix}" : '');
     }
 
     /** Every key in this page's Undo snapshot cluster. */

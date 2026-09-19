@@ -511,7 +511,11 @@ trait HasAutosaveForForm
         $record = $this->getAutosaveFormRecord();
         $recordKey = $record?->getKey() ?? 'default';
 
-        return $this->autosaveStore()->undoCacheKey(static::class.':'.$this->getAutosaveFormContext(), $recordKey).':'.$part;
+        return $this->autosaveStore()->undoCacheKey(
+            static::class.':'.$this->getAutosaveFormContext(),
+            $recordKey,
+            $this->autosaveUndoInstanceId(),
+        ).':'.$part;
     }
 
     protected function putAutosaveFormUndo(string $part, array $value): void

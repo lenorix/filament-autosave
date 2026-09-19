@@ -76,6 +76,22 @@ trait HasAutosaveBase
         return $this->autosaveStore ??= app(AutosaveStore::class);
     }
 
+    /**
+     * Livewire's component id survives every request of one tab and differs
+     * per tab, which is exactly the granularity an Undo target needs. Doubles
+     * without Livewire fall back to no instance segment.
+     */
+    protected function autosaveUndoInstanceId(): ?string
+    {
+        if (! method_exists($this, 'getId')) {
+            return null;
+        }
+
+        $id = $this->getId();
+
+        return is_string($id) && $id !== '' ? $id : null;
+    }
+
     protected function authorizeAutosaveAccess(): void
     {
         if (method_exists($this, 'authorizeAccess')) {

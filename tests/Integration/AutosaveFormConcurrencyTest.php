@@ -5,6 +5,7 @@ use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
 use Filament\Schemas\Schema;
 use Lenorix\FilamentAutosave\HasAutosaveForForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Component;
 use Livewire\Livewire;
@@ -78,12 +79,8 @@ test('two generic form instances editing different columns with dirty_only both 
     expect($post->fresh()->only(['title', 'slug']))->toBe(['title' => 'Title from A again', 'slug' => 'slug-from-b']);
 });
 
-// Red on purpose: generic-form Undo snapshots are keyed by scope + class +
-// context + record (HasAutosaveForForm::getAutosaveFormUndoKey()), not by
-// Livewire instance. Two tabs of the same user on the same record share one
-// slot, so B's autosave overwrites A's snapshot and A's undo then restores
-// B's column (slug) instead of its own (title). Fixing it needs a per-instance
-// component of the key, which lives in src/ and is owned by another stream.
+// Two tabs of the same user on the same record must each own their Undo
+// slot: the key carries the Livewire instance id (see AutosaveStore::undoCacheKey()).
 test('a generic form undo only restores the column it wrote and keeps the other instance\'s column', function () {
     config(['filament-autosave.dirty_only' => true]);
     $post = Post::create(['title' => 'Original title', 'slug' => 'original-slug']);
@@ -97,4 +94,19 @@ test('a generic form undo only restores the column it wrote and keeps the other 
     $first->call('undoAutosave')->assertDispatched('autosave-status', status: 'undone');
 
     expect($post->fresh()->only(['title', 'slug']))->toBe(['title' => 'Original title', 'slug' => 'slug-from-b']);
-})->todo('generic-form Undo slot is shared between instances of the same user on the same record');
+});
+
+test('an edit page undo only restores the column it wrote when another tab saved a different column', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = Post::create(['title' => 'Original title', 'slug' => 'original-slug']);
+
+    $first = Livewire::test(EditPost::class, ['record' => $post->getKey()]);
+    $second = Livewire::test(EditPost::class, ['record' => $post->getKey()]);
+
+    $first->set('data.title', 'Title from A')->call('autosave')->assertSet('autosaveCanUndo', true);
+    $second->set('data.slug', 'slug-from-b')->call('autosave');
+
+    $first->call('undoAutosave')->assertDispatched('autosave-status', status: 'undone');
+
+    expect($post->fresh()->only(['title', 'slug']))->toBe(['title' => 'Original title', 'slug' => 'slug-from-b']);
+});
