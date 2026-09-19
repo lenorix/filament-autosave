@@ -409,7 +409,55 @@ trait HasAutosaveForForm
 
     protected function autosaveFieldIsClean(string $path, mixed $value): bool
     {
-        return ($this->autosaveFieldHashes[$path] ?? null) === $this->hashAutosaveValue($value);
+        return $this->autosaveFieldHashMatches($path, $value);
+    }
+
+    /**
+     * Compare a field against its acknowledged hash, tolerating the sha256
+     * hashes (64 hex chars) generic forms stored before hashing was unified
+     * on xxh128 (32). A tab opened before that deploy carries them in its
+     * Livewire state; treating them as "dirty" would write every field with
+     * the tab's stale values on the first autosave and overwrite whatever
+     * another editor changed since. The baseline is rebuilt from the record
+     * instead, so only fields that really differ from the database are written.
+     */
+    protected function autosaveFieldHashMatches(string $path, mixed $value): bool
+    {
+        $stored = $this->autosaveFieldHashes[$path] ?? null;
+        $current = $this->hashAutosaveValue($value);
+
+        if (is_string($stored) && strlen($stored) === 64 && ctype_xdigit($stored)) {
+            $this->autosaveFieldHashes[$path] = $this->autosaveLegacyBaselineHash($path, $current);
+        }
+
+        return ($this->autosaveFieldHashes[$path] ?? null) === $current;
+    }
+
+    /**
+     * Baseline for a field whose stored hash predates xxh128. The legacy hash
+     * says nothing about the value the tab loaded, but the per-attribute
+     * fingerprint the poll keeps from mount does: if the record's attribute is
+     * unchanged since then, any difference with the form is the user's own
+     * edit and the record value is the baseline (so that edit is written);
+     * if someone else changed it meanwhile, the form value becomes the
+     * baseline (so the tab's stale value never overwrites theirs).
+     */
+    protected function autosaveLegacyBaselineHash(string $path, string $currentHash): string
+    {
+        $record = $this->getAutosaveFormRecord();
+
+        if (! $record instanceof Model || ! $record->exists || ! array_key_exists($path, $record->getAttributes())) {
+            return $currentHash;
+        }
+
+        $seenAtMount = $this->autosaveSyncedAttributeHashes[$path] ?? null;
+        $now = $this->autosaveStore()->snapshotHash(['v' => $record->getAttributes()[$path]]);
+
+        if ($seenAtMount === null || $seenAtMount !== $now) {
+            return $currentHash;
+        }
+
+        return $this->hashAutosaveValue(AutosaveStore::normalizeScalars([$path => $record->getAttribute($path)])[$path]);
     }
 
     protected function acknowledgeAutosaveRefreshedField(string $path, mixed $value): void
@@ -830,8 +878,7 @@ trait HasAutosaveForForm
 
         return array_filter(
             $data,
-            fn (mixed $value, string|int $key): bool => ($this->autosaveFieldHashes[(string) $key] ?? null)
-                !== $this->hashAutosaveValue($value),
+            fn (mixed $value, string|int $key): bool => ! $this->autosaveFieldHashMatches((string) $key, $value),
             ARRAY_FILTER_USE_BOTH,
         );
     }
