@@ -1,8 +1,8 @@
 <?php
 
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\TwoColumnRecordForm;
 use Livewire\Component;
 use Livewire\Livewire;
 
@@ -12,8 +12,8 @@ test('two generic form instances editing different columns with dirty_only both 
     config(['filament-autosave.dirty_only' => true]);
     $post = Post::create(['title' => 'Original title', 'slug' => 'original-slug']);
 
-    $first = Livewire::test(TwoColumnRecordForm::class, ['record' => $post]);
-    $second = Livewire::test(TwoColumnRecordForm::class, ['record' => $post]);
+    $first = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
+    $second = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
 
     $first->set('data.title', 'Title from A')->call('autosave')
         ->assertDispatched('autosave-status', status: 'saved');
@@ -38,8 +38,8 @@ test('a generic form undo only restores the column it wrote and keeps the other 
     config(['filament-autosave.dirty_only' => true]);
     $post = Post::create(['title' => 'Original title', 'slug' => 'original-slug']);
 
-    $first = Livewire::test(TwoColumnRecordForm::class, ['record' => $post]);
-    $second = Livewire::test(TwoColumnRecordForm::class, ['record' => $post]);
+    $first = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
+    $second = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
 
     $first->set('data.title', 'Title from A')->call('autosave')->assertSet('autosaveCanUndo', true);
     $second->set('data.slug', 'slug-from-b')->call('autosave');

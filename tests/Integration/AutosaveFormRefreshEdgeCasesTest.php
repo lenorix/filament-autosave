@@ -6,7 +6,6 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveMixedRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveTitleSlugRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Category;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Features\SupportTesting\Testable;
@@ -50,7 +49,7 @@ function refreshedPaths(Testable $page): array
 test('the fixtures mount and autosave a plain column', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
 
-    Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post])
+    Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post])
         ->set('data.title', 'Changed')
         ->call('autosave')
         ->assertDispatched('autosave-status', status: 'saved');
@@ -61,10 +60,10 @@ test('the fixtures mount and autosave a plain column', function () {
 test('a dirty field is never overwritten while a clean sibling is refreshed', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
 
-    $a = Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post])
+    $a = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post])
         ->set('data.title', 'A title');
 
-    Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post])
+    Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post])
         ->set('data.title', 'B title')
         ->set('data.slug', 'b-slug')
         ->call('autosave');
@@ -128,7 +127,7 @@ test('an excluded field is not refreshed', function () {
     config(['filament-autosave.except' => ['slug']]);
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
 
-    $a = Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post]);
+    $a = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
 
     $post->update(['slug' => 'changed-elsewhere']);
 
@@ -152,9 +151,9 @@ test('a recordless draft saves without a refresh payload', function () {
 test('a refreshed field is acknowledged as clean and not written again', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
 
-    $a = Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post]);
+    $a = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
 
-    Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post])
+    Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post])
         ->set('data.slug', 'b-slug')
         ->call('autosave');
 
@@ -177,9 +176,9 @@ test('nothing is refreshed when refresh_unchanged_fields is disabled', function 
     config(['filament-autosave.refresh_unchanged_fields' => false]);
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
 
-    $a = Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post]);
+    $a = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
 
-    Livewire::test(AutosaveTitleSlugRecordForm::class, ['record' => $post])
+    Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post])
         ->set('data.slug', 'b-slug')
         ->call('autosave');
 
