@@ -83,7 +83,9 @@ test('the controller waits for uploads belonging to this component', function ()
         ->toContain("'livewire-upload-error'")
         ->toContain("'livewire-upload-cancel'")
         ->toContain("e.target?.closest?.('[wire\\\\:id]') === mine")
-        ->toContain('this.uploadsPending || this.savePending');
+        // Uploads block the request outright; an in-flight save queues it instead.
+        ->toContain('if (this.uploadsPending || this.destroyed)')
+        ->toContain('if (this.savePending || this.status === statuses.saving)');
 });
 
 test('the controller resumes change detection after submit', function () {
@@ -103,6 +105,25 @@ test('the controller prevents overlapping saves and preserves changes made durin
         ->toContain('this.sentJson')
         ->toContain('changedDuringSave')
         ->toContain('this.onDataChanged()');
+});
+
+test('the controller queues a save requested mid-flight and replays it at most once', function () {
+    $markup = controllerMarkup();
+
+    expect($markup)
+        ->toContain('this.saveQueued = true')
+        ->toContain('const queued = this.saveQueued')
+        ->toContain('JSON.stringify(this.stateValue()) === this.baselineJson');
+});
+
+test('an unchanged reply never demotes a settled badge still inside its fade window', function () {
+    $markup = controllerMarkup();
+
+    expect($markup)
+        ->toContain('holdsFreshResult()')
+        ->toContain('restoreHeldResult()')
+        ->toContain('this.heldResult = { status: newStatus, until: Date.now() + fadeMs }')
+        ->toContain('newStatus === statuses.idle && this.holdsFreshResult()');
 });
 
 test('restore, undo, and discard call their Livewire actions and handle failures', function () {

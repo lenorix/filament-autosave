@@ -12,6 +12,13 @@
         baselineJson: null,
         sentJson: null,
         savePending: false,
+        // A save() asked for while another is in flight. It is replayed once
+        // when that request finishes, and only if the state still differs.
+        saveQueued: false,
+        // Last settled result still inside its fade window, e.g. { status,
+        // until }. An "unchanged" reply to a redundant save must not replace
+        // a badge the user is still reading.
+        heldResult: null,
         uploadsPending: 0,
         refreshedState: {},
         staleFields: [],
@@ -156,7 +163,22 @@
         },
 
         async save() {
-            if (this.uploadsPending || this.savePending || this.destroyed || this.status === statuses.saving) {
+            if (this.uploadsPending || this.destroyed) {
+                return
+            }
+
+            // Coalesce: one request at a time, replayed once afterwards if
+            // the state moved meanwhile (see the finally block).
+            if (this.savePending || this.status === statuses.saving) {
+                this.saveQueued = true
+                return
+            }
+
+            // Nothing to send: the state already matches the last settled
+            // baseline (typically the server's own refill after an upload or
+            // a save). Skip the round trip and keep the badge that is showing.
+            if (JSON.stringify(this.stateValue()) === this.baselineJson) {
+                this.restoreHeldResult()
                 return
             }
 
@@ -172,15 +194,51 @@
                 this.setStatus(statuses.error)
             } finally {
                 const changedDuringSave = JSON.stringify(this.stateValue()) !== (this.serverBaselineJson || this.sentJson)
+                const queued = this.saveQueued
+                this.saveQueued = false
                 this.savePending = false
                 this.sentJson = null
                 this.serverBaselineJson = null
                 this.refreshedState = {}
 
-                if (!this.destroyed && !this.cancelled && changedDuringSave && this.status !== statuses.error) {
+                if (this.destroyed || this.cancelled || this.status === statuses.error) {
+                    return
+                }
+
+                // A queued or concurrent edit is replayed exactly once, and
+                // only when there is genuinely new state to send. A queued
+                // save whose state was already covered is dropped: replaying
+                // it would come back "unchanged" and demote the badge.
+                if (changedDuringSave) {
                     this.onDataChanged()
+                } else if (queued) {
+                    this.restoreHeldResult()
                 }
             }
+        },
+
+        // Whether a settled result (saved, synced, undone...) is still inside
+        // its fade window, i.e. the user is presumably still reading it.
+        holdsFreshResult() {
+            return this.heldResult !== null && Date.now() < this.heldResult.until
+        },
+
+        // Put a still-fresh settled badge back, re-arming its remaining fade.
+        restoreHeldResult() {
+            if (!this.holdsFreshResult()) {
+                if (this.status === statuses.unsaved || this.status === statuses.saving) {
+                    this.status = statuses.idle
+                }
+
+                return
+            }
+
+            clearTimeout(this.fadeTimer)
+            this.status = this.heldResult.status
+            this.fadeTimer = setTimeout(() => {
+                this.status = statuses.idle
+                this.heldResult = null
+            }, Math.max(0, this.heldResult.until - Date.now()))
         },
 
         // Delay until the next poll: the configured interval, doubled per
@@ -294,6 +352,20 @@
                 return
             }
 
+            // "Unchanged" (idle) only ever replaces a transient state. While a
+            // fresh settled badge is still showing -- or a redundant save is
+            // in flight on top of one -- keep that badge instead: the second
+            // save after an upload, or a hash-watcher replay, must not blank
+            // out "saved" milliseconds after it appeared. An explicit action
+            // (undo/restore) sets saving without savePending, so its idle
+            // reply still lands.
+            if (newStatus === statuses.idle && this.holdsFreshResult()
+                && (this.status === this.heldResult.status || this.savePending)) {
+                this.restoreHeldResult()
+
+                return
+            }
+
             clearTimeout(this.fadeTimer)
 
             this.status = newStatus
@@ -304,10 +376,13 @@
             this.staleFields = newStaleFields || []
 
             const fadeMs = this.fadeMsByStatus[newStatus]
+            this.heldResult = null
 
             if (!this.cancelled && fadeMs) {
+                this.heldResult = { status: newStatus, until: Date.now() + fadeMs }
                 this.fadeTimer = setTimeout(() => {
                     this.status = statuses.idle
+                    this.heldResult = null
                 }, fadeMs)
             }
 
