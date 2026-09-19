@@ -6,6 +6,8 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use LaraZeus\SpatieTranslatable\SpatieTranslatablePlugin;
 use Lenorix\FilamentAutosave\AutosavePlugin;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserContendedPostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserMergePostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserReorderPostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser\BrowserUploadPostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Builder\BuilderPostResource;
@@ -26,7 +28,7 @@ class AutosavePanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->resources([PostResource::class, RelationshipPostResource::class, NestedRelationshipPostResource::class, DeepRelationshipPostResource::class, MorphToPostResource::class, PolymorphicPostResource::class, RichUploadPostResource::class, BuilderPostResource::class, TranslatablePostResource::class, BrowserUploadPostResource::class, BrowserReorderPostResource::class])
+            ->resources([PostResource::class, RelationshipPostResource::class, NestedRelationshipPostResource::class, DeepRelationshipPostResource::class, MorphToPostResource::class, PolymorphicPostResource::class, RichUploadPostResource::class, BuilderPostResource::class, TranslatablePostResource::class, BrowserUploadPostResource::class, BrowserReorderPostResource::class, BrowserMergePostResource::class, BrowserContendedPostResource::class])
             ->pages([BrowserGenericFormPage::class])
             ->plugins([
                 AutosavePlugin::make(),

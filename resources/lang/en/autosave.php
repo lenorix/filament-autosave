@@ -17,4 +17,8 @@ return [
     'restored' => 'Draft loaded back',
     'synced' => 'Updated with another editor\'s changes',
     'stale' => 'Another editor also changed:',
+    'conflicts' => 'Your words replaced another editor\'s in:',
+    'contended' => 'Someone else keeps writing this field; your text is kept and retried',
+    'recover' => 'Recover the other version',
+    'dismiss' => 'Dismiss',
 ];

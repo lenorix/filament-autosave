@@ -17,4 +17,8 @@ return [
     'restored' => 'Borrador cargado',
     'synced' => 'Actualizado con los cambios de otro editor',
     'stale' => 'Otro editor también cambió:',
+    'conflicts' => 'Tus palabras sustituyeron las de otro editor en:',
+    'contended' => 'Otra persona sigue escribiendo este campo; tu texto se conserva y se reintenta',
+    'recover' => 'Recuperar la otra versión',
+    'dismiss' => 'Descartar',
 ];

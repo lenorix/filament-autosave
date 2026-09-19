@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Post extends Model
 {
-    protected $fillable = ['title', 'slug', 'settings', 'category_id', 'featured_type', 'featured_id'];
+    protected $fillable = ['title', 'slug', 'body', 'settings', 'category_id', 'featured_type', 'featured_id'];
 
     protected $casts = ['settings' => 'array'];
 

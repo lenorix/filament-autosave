@@ -55,7 +55,8 @@ test('the controller polls for other editors\' changes only while idle and visib
 
     expect($markup)
         ->toContain('this.pollMs = Number(this.$wire.autosavePollMs) || 0')
-        ->toContain('await this.$wire.syncAutosave()')
+        ->toContain('this.$wire.syncAutosave(this.mergeSync.baseHashes())')
+        ->toContain('this.$wire.syncAutosave()')
         // Never race a pending or in-flight save.
         ->toContain('|| this.savePending')
         ->toContain('|| this.status === statuses.unsaved')
@@ -141,7 +142,8 @@ test('status events update the indicator and reset settled states after a delay'
 
     expect($markup)
         ->toContain('this.$wire.$on(statuses.event')
-        ->toContain('this.setStatus(data.status, data.timestamp || null, data.errors || {}, data.refreshed || {}, data.pending || [], data.stale || [])')
+        ->toContain('this.setStatus(data.status, data.timestamp || null, data.errors || {}, refreshed, data.pending || [], data.stale || [])')
+        ->toContain('this.receiveMerge(data)')
         ->toContain('this.serverBaselineJson')
         ->toContain('this.setStatePath(baseline, path, value)')
         ->toContain('this.isSettled(newStatus)')
