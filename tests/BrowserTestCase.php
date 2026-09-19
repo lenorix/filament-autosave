@@ -3,7 +3,9 @@
 namespace Lenorix\FilamentAutosave\Tests;
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BrowserUser;
 use RuntimeException;
 
 /**
@@ -20,6 +22,11 @@ use RuntimeException;
  * Tests select the indicator through the `data-autosave-status` and
  * `data-autosave-action` attributes the view exposes, never through
  * translated text, so a copy change cannot break them.
+ *
+ * Every test runs as an authenticated editor, as a real panel does. Drafts
+ * and Undo snapshots are scoped by owner; a guest's scope falls back to the
+ * session id, and the in-process server does not carry a session cookie
+ * between requests, so a guest would get a fresh scope on every request.
  */
 abstract class BrowserTestCase extends IntegrationTestCase
 {
@@ -34,6 +41,22 @@ abstract class BrowserTestCase extends IntegrationTestCase
 
         // Drafts and Undo snapshots live in the cache; every test starts clean.
         Cache::flush();
+
+        if (! Schema::hasTable('users')) {
+            Schema::create('users', function ($table): void {
+                $table->id();
+                $table->string('name');
+                $table->string('email')->unique();
+                $table->string('password');
+                $table->rememberToken();
+            });
+        }
+
+        $this->actingAs(BrowserUser::create([
+            'name' => 'Editor',
+            'email' => 'editor@example.test',
+            'password' => bcrypt('secret'),
+        ]));
 
         if (! is_file(public_path('js/filament/filament/app.js'))) {
             $this->artisan('filament:assets');
