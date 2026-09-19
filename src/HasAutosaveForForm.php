@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 
 /**
@@ -38,6 +37,7 @@ trait HasAutosaveForForm
         HasAutosaveUploads::discardAutosaveStoredUploads insteadof HasAutosaveBase;
         HasAutosaveUploads::commitAutosaveStoredUploads insteadof HasAutosaveBase;
         HasAutosaveBase::getAutosaveData as autosaveBaseData;
+        HasAutosaveBase::autosaveWithoutDatabaseTransaction as autosaveBaseWithoutDatabaseTransaction;
     }
 
     #[Locked]
@@ -400,12 +400,14 @@ trait HasAutosaveForForm
         return $this->autosaveWithinDatabaseTransaction($write);
     }
 
-    /** Records still want a real transaction even without Filament lifecycle methods. */
+    /** A recordless draft only touches the cache, so it needs no transaction. */
     protected function autosaveWithoutDatabaseTransaction(callable $write): mixed
     {
-        $record = $this->getAutosaveFormRecord();
+        if (! $this->getAutosaveFormRecord()?->exists) {
+            return $write();
+        }
 
-        return $record?->exists ? DB::transaction($write) : $write();
+        return $this->autosaveBaseWithoutDatabaseTransaction($write);
     }
 
     public function undoAutosave(): void

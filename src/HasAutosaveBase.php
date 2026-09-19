@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -422,12 +423,20 @@ trait HasAutosaveBase
         return $cycle();
     }
 
-    /** Wrap the autosave write in the database transaction Filament owns. */
+    /**
+     * Wrap the autosave write in one database transaction.
+     *
+     * Filament's `beginDatabaseTransaction()` and friends are no-ops unless
+     * the host opted in with `Panel::databaseTransactions()`, which is off by
+     * default. An autosave writes columns, then relationship rows, then runs
+     * hooks; without a transaction a failure part-way through leaves the
+     * columns written and the rows not. When the panel owns transactions
+     * its methods are used so a page's own nesting stays intact; otherwise
+     * the package opens its own.
+     */
     protected function autosaveWithinDatabaseTransaction(callable $write): mixed
     {
-        if (! method_exists($this, 'beginDatabaseTransaction')
-            || ! method_exists($this, 'commitDatabaseTransaction')
-            || ! method_exists($this, 'rollBackDatabaseTransaction')) {
+        if (! $this->autosavePanelOwnsDatabaseTransactions()) {
             return $this->autosaveWithoutDatabaseTransaction($write);
         }
 
@@ -450,9 +459,33 @@ trait HasAutosaveBase
         }
     }
 
+    protected function autosavePanelOwnsDatabaseTransactions(): bool
+    {
+        return method_exists($this, 'beginDatabaseTransaction')
+            && method_exists($this, 'commitDatabaseTransaction')
+            && method_exists($this, 'rollBackDatabaseTransaction')
+            && (! method_exists($this, 'hasDatabaseTransactions') || $this->hasDatabaseTransactions());
+    }
+
+    /** The package's own transaction, honouring Halt's rollback flag like Filament does. */
     protected function autosaveWithoutDatabaseTransaction(callable $write): mixed
     {
-        return $write();
+        DB::beginTransaction();
+
+        try {
+            $result = $write();
+            DB::commit();
+
+            return $result;
+        } catch (Halt $exception) {
+            $exception->shouldRollbackDatabaseTransaction() ? DB::rollBack() : DB::commit();
+
+            throw $exception;
+        } catch (\Throwable $exception) {
+            DB::rollBack();
+
+            throw $exception;
+        }
     }
 
     protected function queueAutosaveSavedNotification(): void
