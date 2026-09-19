@@ -49,6 +49,11 @@ trait HasAutosave
     /** Undo has been prepared but the surrounding transaction has not committed. */
     protected bool $autosaveUndoPrepared = false;
 
+    /**
+     * Livewire lifecycle; not an extension point.
+     *
+     * @internal
+     */
     public function dehydrateHasAutosave(): void
     {
         if (! $this->isAutosaveEnabled()) {
@@ -66,6 +71,11 @@ trait HasAutosave
         $this->autosaveObservedHash = $hash;
     }
 
+    /**
+     * Livewire lifecycle; not an extension point.
+     *
+     * @internal
+     */
     public function mountHasAutosave(): void
     {
         if (! $this->initializeAutosaveState()) {
@@ -502,6 +512,11 @@ trait HasAutosave
         );
     }
 
+    /**
+     * Background entry point: never throws, reports through the indicator.
+     *
+     * @api
+     */
     public function autosave(): void
     {
         $this->performAutosave(function (array $data): array|false {
@@ -839,6 +854,11 @@ trait HasAutosave
         }
     }
 
+    /**
+     * Restore the previous autosave if its target is unchanged; conflicts are reported, not overwritten.
+     *
+     * @api
+     */
     public function undoAutosave(): void
     {
         try {
@@ -1149,6 +1169,11 @@ trait HasAutosave
         return $this->autosaveCanUndo ? Cache::get($key) : null;
     }
 
+    /**
+     * How long an Undo snapshot stays available.
+     *
+     * @api
+     */
     protected function getUndoTtlMinutes(): int
     {
         return AutosavePlugin::resolve()->getUndoCacheTtl();
@@ -1159,7 +1184,11 @@ trait HasAutosave
         Cache::put($key, $value, now()->addMinutes($this->getUndoTtlMinutes()));
     }
 
-    /** Hook called after a successful Edit-page save. */
+    /**
+     * Hook called after a successful Edit-page save.
+     *
+     * @api
+     */
     protected function afterAutosave(object $record): void {}
 
     protected function runAutosaveCycle(callable $cycle): mixed

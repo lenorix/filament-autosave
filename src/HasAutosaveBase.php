@@ -141,18 +141,31 @@ trait HasAutosaveBase
         Event::dispatch(RecordSaved::class, ['record' => $record, 'data' => $data, 'page' => $this]);
     }
 
+    /**
+     * Whether autosave runs at all for this component (server-side only).
+     *
+     * @api
+     */
     protected function shouldAutosave(): bool
     {
         return true;
     }
 
-    /** Return milliseconds; null uses plugin or config. */
+    /**
+     * Return milliseconds; null uses plugin or config.
+     *
+     * @api
+     */
     protected function autosaveDebounce(): ?int
     {
         return null;
     }
 
-    /** @return array<string> */
+    /**
+     * @return array<string>
+     *
+     * @api
+     */
     protected function autosaveExcept(): array
     {
         return [];
@@ -175,11 +188,21 @@ trait HasAutosaveBase
         return $this->currentAutosaveSnapshotHash();
     }
 
+    /**
+     * Resolved enable flag exposed to the indicator.
+     *
+     * @api
+     */
     public function isAutosaveEnabled(): bool
     {
         return $this->autosaveEnabled && $this->shouldAutosave();
     }
 
+    /**
+     * Resolved debounce in milliseconds (page, then plugin, then config).
+     *
+     * @api
+     */
     public function getAutosaveDebounce(): int
     {
         $pageDebounce = $this->autosaveDebounce();
@@ -191,7 +214,11 @@ trait HasAutosaveBase
         return AutosavePlugin::resolve()->getDebounce();
     }
 
-    /** @return array<string> */
+    /**
+     * @return array<string>
+     *
+     * @api
+     */
     public function getAutosaveExcept(): array
     {
         return array_values(array_unique([
@@ -214,7 +241,11 @@ trait HasAutosaveBase
         return $this->autosaveEnabled;
     }
 
-    /** Override when a page keeps its form state outside the default `data` path. */
+    /**
+     * Override when a page keeps its form state outside the default `data` path.
+     *
+     * @api
+     */
     protected function getAutosaveStatePath(): string
     {
         $form = $this->resolveAutosaveForm();
@@ -238,6 +269,8 @@ trait HasAutosaveBase
      *
      * @throws ValidationException
      * @throws \LogicException when called from inside a running autosave cycle
+     *
+     * @api
      */
     public function flushAutosave(): bool
     {
@@ -603,6 +636,8 @@ trait HasAutosaveBase
      *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
+     *
+     * @api
      */
     protected function beforeAutosave(array $data): array
     {
@@ -613,6 +648,8 @@ trait HasAutosaveBase
      * Laravel rules for autosave; fields that fail are dropped without stalling the save.
      *
      * @return array<string, mixed>
+     *
+     * @api
      */
     protected function getAutosaveValidationRules(): array
     {
@@ -1036,6 +1073,11 @@ trait HasAutosaveBase
         ]));
     }
 
+    /**
+     * The schema autosave reads and writes; override for mounted-action or custom schemas.
+     *
+     * @api
+     */
     protected function resolveAutosaveForm(): ?object
     {
         $form = $this->form ?? null;

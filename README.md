@@ -225,6 +225,37 @@ Event::listen(AutosaveFailed::class, function (AutosaveFailed $event): void {
 });
 ```
 
+## Extension points and stability
+
+Only the members tagged `@api` in the traits are stable extension points; a
+test (`tests/Unit/ExtensionContractTest.php`) pins that list, so it changes
+only with a deliberate, documented decision. Everything else in the traits is
+internal and may be renamed or reshaped in a minor release, even when it is
+`protected`. Overriding an internal method works today but is not supported.
+
+| Override (`protected`) | Purpose |
+| --- | --- |
+| `shouldAutosave()` | Enable or disable autosave for this component |
+| `autosaveDebounce()` / `autosaveExcept()` | Per-page debounce and excluded fields |
+| `beforeAutosave(array $data): array` | Inspect or mutate the eligible state before validation |
+| `getAutosaveValidationRules()` | Extra rules; failing fields are skipped |
+| `afterAutosave(object $record)` | Work after each successful Edit-page save |
+| `getUndoTtlMinutes()` | Undo snapshot lifetime |
+| `resolveAutosaveForm()` / `getAutosaveStatePath()` | Which schema and state path autosave uses |
+| `persistAutosaveForm(array $data)` | Custom persistence for generic forms |
+| `getAutosaveFormContext()` | Draft/Undo scope for generic forms |
+
+| Call (`public`) | Purpose |
+| --- | --- |
+| `autosave()` | Background save; never throws |
+| `flushAutosave(): bool` | Synchronous save that throws |
+| `undoAutosave()` | Restore the last autosave |
+| `restoreDraft()` / `discardDraft()` / `clearAutosaveDraft()` | Draft lifecycle |
+| `isAutosaveEnabled()` / `getAutosaveDebounce()` / `getAutosaveExcept()` | Resolved settings |
+
+The package's own events (`Lenorix\FilamentAutosave\Events\*`) are the
+supported way to observe the lifecycle without overriding anything.
+
 ## Undo
 
 Undo is available for five seconds after a successful Edit save. The snapshot

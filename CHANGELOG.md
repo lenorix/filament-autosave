@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Declare the stable extension surface: the trait members consumers may
+  override or call are tagged `@api` and pinned by a test; every other member
+  is internal and may change in a minor release. No behaviour change.
 - Fix Undo snapshots being shared between live instances of the same page or
   form for one user on one record (two tabs): the second tab's autosave
   overwrote the first tab's snapshot, so its Undo restored the other tab's

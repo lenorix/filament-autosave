@@ -9,6 +9,11 @@ trait HasAutosaveForCreate
 
     protected bool $autosaveRecordWasCreated = false;
 
+    /**
+     * Livewire lifecycle; not an extension point.
+     *
+     * @internal
+     */
     public function mountHasAutosaveForCreate(): void
     {
         if (! $this->initializeAutosaveState()) {
@@ -22,6 +27,11 @@ trait HasAutosaveForCreate
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
     }
 
+    /**
+     * Background entry point: never throws, reports through the indicator.
+     *
+     * @api
+     */
     public function autosave(): void
     {
         $this->performAutosave(function (array $data): bool {

@@ -50,6 +50,11 @@ trait HasAutosaveForForm
     #[Locked]
     public array $autosaveFieldHashes = [];
 
+    /**
+     * Call from mount(); Livewire lifecycle, not an extension point.
+     *
+     * @internal
+     */
     public function mountHasAutosaveForForm(): void
     {
         if (! $this->initializeAutosaveState()) {
@@ -64,7 +69,11 @@ trait HasAutosaveForForm
         $this->resetAutosaveUploadHashes();
     }
 
-    /** Keep the indicator on the active action/modal schema after mounting it. */
+    /**
+     * Keep the indicator on the active action/modal schema after mounting it.
+     *
+     * @internal
+     */
     public function dehydrateHasAutosaveForForm(): void
     {
         if (! $this->isAutosaveEnabled()) {
@@ -75,6 +84,11 @@ trait HasAutosaveForForm
         $this->autosaveObservedHash = $this->currentAutosaveSnapshotHash();
     }
 
+    /**
+     * Background entry point: never throws, reports through the indicator.
+     *
+     * @api
+     */
     public function autosave(): void
     {
         $this->assertAutosaveFormContext();
@@ -199,6 +213,8 @@ trait HasAutosaveForForm
      * when the component owns a custom action lifecycle or side effects.
      *
      * @param  array<string, mixed>  $data
+     *
+     * @api
      */
     protected function persistAutosaveForm(array $data): bool|array
     {
@@ -410,6 +426,11 @@ trait HasAutosaveForForm
         return $this->autosaveBaseWithoutDatabaseTransaction($write);
     }
 
+    /**
+     * Restore the previous autosave if its target is unchanged; conflicts are reported, not overwritten.
+     *
+     * @api
+     */
     public function undoAutosave(): void
     {
         try {
@@ -659,6 +680,8 @@ trait HasAutosaveForForm
      *
      * Relation managers should include the owner and action/table forms should
      * include their record or action name to avoid sharing drafts.
+     *
+     * @api
      */
     protected function getAutosaveFormContext(): string
     {

@@ -91,6 +91,20 @@ AutosaveSkipped, AutosaveFailed, AutosaveUndone, AutosaveConflict}` as objects
 (`record` is `null` for drafts); hook monitoring to these, not to the Livewire
 `autosave-status` event.
 
+## Extension contract
+
+Only trait members tagged `@api` are stable (list pinned by
+`tests/Unit/ExtensionContractTest.php`): `shouldAutosave`, `autosaveDebounce`,
+`autosaveExcept`, `beforeAutosave`, `getAutosaveValidationRules`,
+`afterAutosave`, `getUndoTtlMinutes`, `resolveAutosaveForm`,
+`getAutosaveStatePath`, `persistAutosaveForm`, `getAutosaveFormContext`, plus
+the public `autosave`, `flushAutosave`, `undoAutosave`, `restoreDraft`,
+`discardDraft`, `clearAutosaveDraft`, `isAutosaveEnabled`,
+`getAutosaveDebounce`, `getAutosaveExcept`. Every other `protected` method is
+internal: never tell a consumer to override it, and prefer the package events
+for observation. Adding an `@api` tag is an API decision that must update the
+test, README and CHANGELOG together.
+
 ## Explicit saves
 
 `autosave()` is the background entry point: it never throws and reports

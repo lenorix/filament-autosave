@@ -21,6 +21,11 @@ trait HasAutosaveDraft
         return $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey()) !== null;
     }
 
+    /**
+     * Fill the form from the stored draft.
+     *
+     * @api
+     */
     public function restoreDraft(): void
     {
         try {
@@ -45,6 +50,11 @@ trait HasAutosaveDraft
         }
     }
 
+    /**
+     * Delete the stored draft.
+     *
+     * @api
+     */
     public function discardDraft(): void
     {
         $this->authorizeAutosaveAccess();
@@ -53,6 +63,11 @@ trait HasAutosaveDraft
         $this->dispatchAutosaveIdle();
     }
 
+    /**
+     * Delete the stored draft after an explicit persist.
+     *
+     * @api
+     */
     public function clearAutosaveDraft(): void
     {
         $this->autosaveStore()->clearDraft($this->getAutosaveCacheKey());
