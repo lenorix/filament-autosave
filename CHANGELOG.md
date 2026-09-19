@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- A failed or skipped cycle rolls back only the Spatie media it created. The
+  baseline was captured at page load and carried across requests, so any
+  no-write cycle (validation skip, Halt, a failing hook) deleted every media
+  row and file added to the record since — another editor's upload included.
+- A `Halt` raised after the record write with the transaction kept (Filament's
+  default) now keeps the files just stored and acknowledges the write, on Edit
+  pages and generic forms; the column no longer names a deleted file and the
+  next cycle does not rewrite it.
+- Record-backed generic forms save only the relationships the cycle touched
+  instead of the whole schema, so an untouched repeater is never rewritten
+  from the tab's stale copy over another editor's change.
+- Dirtiness is judged on the value the form shows, never on what
+  `mutateFormDataBeforeSave()` turned it into: a slugifying mutator left the
+  field dirty forever (rewritten every cycle, never refreshed from others).
+- Polling is off whenever `refresh_unchanged_fields` or `dirty_only` is
+  off, and a remote change is no longer forgotten when refilling it fails.
+- The merge retry re-reads a contended column with a locking read, so under
+  MySQL `REPEATABLE READ` it sees the committed value instead of the
+  transaction's first snapshot and no longer always ends contended.
+- Text merge: invalid UTF-8 in a value or patch is rejected (it used to read
+  as "deleted everything" and overwrite the column) and the field falls back to
+  last-write-wins with a warning; the engine can no longer take the cycle down.
+  A fuzzy-matched replacement inserts where the deletion was, not into the
+  synthetic padding.
+- The error status is scoped to the component like every other status, so a
+  nested component's indicator no longer sticks at "saving"; a page whose
+  `shouldAutosave()` is false answers with `idle` instead of silence.
+- Stripping a pending file from a multi-file upload keeps the list a list
+  (a JSON column received `{"1": …}`).
+- The upload-ledger index outlives its entries, so a lone interrupted upload
+  is pruned; Spatie ledger tokens are rolled back, not forgotten, on failure.
+- `AutosavePlugin` falls back to the shipped config defaults (750 / 72 / 90)
+  instead of its own 1500 / 24 / 30 when a key is missing.
 - Merge concurrent edits to `RichEditor` content structurally: list a
   top-level `RichEditor` in `merge_fields` (or `mergeFields()` /
   `autosaveMergeFields()`) and `AutosaveRichMerge` combines both editors'
