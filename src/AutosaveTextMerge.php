@@ -59,9 +59,15 @@ final class AutosaveTextMerge
 
     /**
      * Combine two edits of `$base`. Overlapping ranges keep `$ours`.
+     *
+     * @throws InvalidArgumentException When a value is not valid UTF-8.
      */
     public function merge(string $base, string $ours, string $theirs): AutosaveMergeResult
     {
+        $this->assertUtf8($base);
+        $this->assertUtf8($ours);
+        $this->assertUtf8($theirs);
+
         if ($ours === $theirs) {
             return new AutosaveMergeResult($ours, [], [], []);
         }
@@ -199,7 +205,7 @@ final class AutosaveTextMerge
     /**
      * Play `$patch` (diff-match-patch text) on `$theirs`.
      *
-     * @throws InvalidArgumentException When the patch text is malformed.
+     * @throws InvalidArgumentException When the patch text is malformed or a value is not valid UTF-8.
      */
     public function apply(string $theirs, string $patch): AutosaveApplyResult
     {
@@ -305,7 +311,9 @@ final class AutosaveTextMerge
                     $text = $this->splice($text, $start + $index2, $this->xIndex($diffs, $index1 + count($chars)) - $index2, []);
                 }
 
-                if ($op !== self::INSERT) {
+                // As in diff-match-patch: a deletion shrinks the text in
+                // place, so the following insertion lands on the same index.
+                if ($op !== self::DELETE) {
                     $index1 += count($chars);
                 }
             }
@@ -807,9 +815,24 @@ final class AutosaveTextMerge
     // Diff primitives
     // ---------------------------------------------------------------------
 
+    /**
+     * Every tokenizer here is `/u`: on invalid UTF-8 it would yield nothing
+     * and read a whole side as "deleted everything". Reject instead.
+     *
+     * @throws InvalidArgumentException
+     */
+    private function assertUtf8(string $text): void
+    {
+        if (! mb_check_encoding($text, 'UTF-8')) {
+            throw new InvalidArgumentException('Text to merge is not valid UTF-8.');
+        }
+    }
+
     /** @return list<string> */
     private function chars(string $text): array
     {
+        $this->assertUtf8($text);
+
         return $text === '' ? [] : preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
     }
 
@@ -820,6 +843,8 @@ final class AutosaveTextMerge
      */
     private function tokenize(string $text): array
     {
+        $this->assertUtf8($text);
+
         if ($text === '') {
             return [];
         }

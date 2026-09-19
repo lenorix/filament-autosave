@@ -9,8 +9,8 @@ use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
-use InvalidArgumentException;
 use Lenorix\FilamentAutosave\Events\AutosaveConflict;
+use Throwable;
 
 /**
  * Merging of fields two editors change at once: plain text word by word,
@@ -416,8 +416,12 @@ trait HasAutosaveMerge
             $result = is_array($patch)
                 ? (new AutosaveTextMerge)->merge(is_string($patch['base']) ? $patch['base'] : '', $ours, $theirs)
                 : (new AutosaveTextMerge)->apply($theirs, $patch);
-        } catch (InvalidArgumentException) {
-            // A patch the engine cannot read is no patch: last write wins.
+        } catch (Throwable $e) {
+            // A patch or value the engine cannot read is no patch: last
+            // write wins, as for a field that sent none. Never let the
+            // engine take the whole cycle down.
+            Log::warning("Autosave could not merge {$path}; last write wins.", ['component' => static::class, 'exception' => $e::class, 'message' => $e->getMessage()]);
+
             return [$ours, $ours, []];
         }
 

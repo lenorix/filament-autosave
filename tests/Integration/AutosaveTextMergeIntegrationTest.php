@@ -167,6 +167,35 @@ test('a mergeable field saved without a patch stays last-write-wins', function (
         ->and(lastMergeStatus($b, 'saved'))->toMatchArray(['merged' => [], 'conflicts' => []]);
 });
 
+test('a patch the engine cannot read never takes the cycle down: the field is saved last-write-wins', function () {
+    Log::spy();
+    $post = Post::create(['title' => 'The quick brown fox', 'slug' => 'fox']);
+    $b = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()]);
+
+    Post::query()->whereKey($post->getKey())->update(['title' => 'A quick brown fox']);
+
+    // A truncated escape decodes to invalid UTF-8.
+    $b->set('data.title', 'The quick brown fox jumps')
+        ->call('autosave', ['title' => "@@ -1,19 +1,25 @@\n-%E0%A4%A\n+The quick brown fox jumps\n"])
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->title)->toBe('The quick brown fox jumps');
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message): bool => str_contains($message, 'could not merge title'))->once();
+});
+
+test('a stored value that is not valid UTF-8 is never read as empty by the merge', function () {
+    $post = Post::create(['title' => 'cafe au lait', 'slug' => 'fox']);
+    $b = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()]);
+
+    DB::table($post->getTable())->where('id', $post->getKey())->update(['title' => "caf\xe9 au lait"]);
+
+    $b->set('data.title', 'cafe au lait!')
+        ->call('autosave', ['title' => mergePatch('cafe au lait', 'cafe au lait!')])
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->title)->toBe('cafe au lait!');
+});
+
 test('a field not listed as mergeable ignores its patch and stays last-write-wins', function () {
     $post = Post::create(['title' => 'Title', 'slug' => 'the quick fox']);
     $b = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()]);
