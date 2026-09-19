@@ -437,6 +437,8 @@ test('a spatie media file is in the upload ledger the moment its row is created,
 
     expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull()
         ->and($post->fresh()->getMedia())->toHaveCount(1);
+});
+
 // --- Spatie media inside a JSON (non-relationship) repeater, one collection per row ---
 
 function rowMediaPost(array $rows): UploadPost
