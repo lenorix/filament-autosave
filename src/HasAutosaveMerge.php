@@ -3,6 +3,7 @@
 namespace Lenorix\FilamentAutosave;
 
 use Filament\Forms\Components\MarkdownEditor;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Eloquent\Model;
@@ -12,36 +13,53 @@ use InvalidArgumentException;
 use Lenorix\FilamentAutosave\Events\AutosaveConflict;
 
 /**
- * Word-level merging of plain-text fields two editors change at once.
+ * Merging of fields two editors change at once: plain text word by word,
+ * RichEditor content block by block.
  *
  * The server keeps no base. The browser sends, per dirty mergeable field, a
- * diff-match-patch patch of its own change (or the base it started from);
- * the server plays it on the column's current value and writes the result
- * with a compare-and-swap on that column alone, re-reading and re-merging
- * when someone else committed in between. Fields without a patch keep the
- * last-write-wins behaviour every other field has.
+ * diff-match-patch patch of its own change (plain text) or the value it
+ * started from (rich content, `['base' => …]`); the server merges it with
+ * the column's current value and writes the result with a compare-and-swap
+ * on that column alone, re-reading and re-merging when someone else
+ * committed in between. Fields without a patch keep the last-write-wins
+ * behaviour every other field has.
+ *
+ * A rich field is merged before the form dehydrates, so the RichEditor's
+ * own attachment cleanup — which deletes every file the submitted document
+ * no longer references — sees the merged document and keeps the images the
+ * other editor still uses. The conditional write then merges again against
+ * whatever the column holds at that moment.
  *
  * @internal
  */
 trait HasAutosaveMerge
 {
-    /** @var array<string, string|array{base: string, ours: string}> Patches the browser sent with this cycle, by path. */
+    /** @var array<string, string|array{base: string|array<string, mixed>, ours: string|array<string, mixed>|null}> Patches the browser sent with this cycle, by path. */
     protected array $autosaveCycleMergePatches = [];
 
-    /** @var array<string, string> Fields whose merged value differs from what the browser sent (stored, or computed against the latest value when contended). */
+    /** @var array<string, mixed> Fields whose merged value differs from what the browser sent (stored, or computed against the latest value when contended). */
     protected array $autosaveMergedValues = [];
 
-    /** @var array<string, list<array{ours: string, theirs: string, position: int, reason: string}>> */
+    /** @var array<string, list<array<string, mixed>>> */
     protected array $autosaveMergeConflicts = [];
 
-    /** @var array<string, array{theirs: string, hash: string}> Current value of every column left unwritten. */
+    /** @var array<string, array{theirs: mixed, hash: string}> Current value of every column left unwritten. */
     protected array $autosaveContendedValues = [];
+
+    /** @var array<string, mixed> Raw column value each rich field was pre-merged on, by path. */
+    protected array $autosaveRichMergeTheirs = [];
+
+    /** @var array<string, mixed> What the browser sent for each pre-merged rich field, by path. */
+    protected array $autosaveRichMergeBrowserValues = [];
+
+    /** @var array<string, list<array<string, mixed>>> Overlaps the pre-merge resolved, by path. */
+    protected array $autosaveRichMergePremergeConflicts = [];
 
     protected bool $autosaveMergeWarned = false;
 
     /**
-     * Top-level plain-text fields this page merges word by word; null uses
-     * the plugin, then the config.
+     * Top-level text fields this page merges (plain text word by word,
+     * RichEditor block by block); null uses the plugin, then the config.
      *
      * @return array<int, string>|null
      *
@@ -67,33 +85,23 @@ trait HasAutosaveMerge
     }
 
     /**
-     * Mergeable fields that really are plain text in this form. Anything
-     * else listed is ignored, once per request, with a warning.
+     * Mergeable fields that really are plain text or rich content in this
+     * form. Anything else listed is ignored, once per request, with a warning.
      *
      * @return array<string, true>
      */
     protected function autosaveMergeablePaths(): array
     {
-        $fields = $this->getAutosaveFields();
         $paths = [];
         $ignored = [];
 
         foreach ($this->getAutosaveMergeFields() as $path) {
-            $components = $fields[$path] ?? [];
-            $text = $components !== [] && ! str_contains($path, '.') && ! str_contains($path, '*');
-
-            foreach ($components as $component) {
-                if (! $component instanceof TextInput && ! $component instanceof Textarea && ! $component instanceof MarkdownEditor) {
-                    $text = false;
-                }
-            }
-
-            $text ? $paths[$path] = true : $ignored[] = $path;
+            $this->autosaveMergeComponent($path) !== null ? $paths[$path] = true : $ignored[] = $path;
         }
 
         if ($ignored !== [] && ! $this->autosaveMergeWarned) {
             $this->autosaveMergeWarned = true;
-            Log::warning('Autosave merge ignores '.implode(', ', $ignored).': not top-level plain text fields (TextInput, Textarea, MarkdownEditor); they stay last-write-wins.', [
+            Log::warning('Autosave merge ignores '.implode(', ', $ignored).': not top-level text fields (TextInput, Textarea, MarkdownEditor, RichEditor); they stay last-write-wins.', [
                 'component' => static::class,
             ]);
         }
@@ -102,19 +110,73 @@ trait HasAutosaveMerge
     }
 
     /**
-     * Keep the patches a request sent along with its autosave call.
+     * The mergeable component at a top-level path, or null when the path is
+     * nested, unknown, or holds a component that cannot be merged.
+     */
+    protected function autosaveMergeComponent(string $path): TextInput|Textarea|MarkdownEditor|RichEditor|null
+    {
+        if (str_contains($path, '.') || str_contains($path, '*')) {
+            return null;
+        }
+
+        $components = $this->getAutosaveFields()[$path] ?? [];
+        $found = null;
+
+        foreach ($components as $component) {
+            if (! $component instanceof TextInput && ! $component instanceof Textarea
+                && ! $component instanceof MarkdownEditor && ! $component instanceof RichEditor) {
+                return null;
+            }
+
+            $found ??= $component;
+        }
+
+        return $found;
+    }
+
+    /**
+     * Mergeable RichEditor paths this cycle has a base for, by path.
+     *
+     * @return array<string, RichEditor>
+     */
+    protected function autosaveRichMergeComponents(): array
+    {
+        $rich = [];
+
+        foreach ($this->autosaveMergeablePaths() as $path => $_) {
+            $component = $this->autosaveMergeComponent($path);
+
+            if ($component instanceof RichEditor && is_array($this->autosaveCycleMergePatches[$path] ?? null)) {
+                $rich[$path] = $component;
+            }
+        }
+
+        return $rich;
+    }
+
+    /**
+     * Keep the patches a request sent along with its autosave call: a patch
+     * string, or the base (and optionally the browser's value) as either a
+     * string or a rich document.
      *
      * @param  array<mixed>  $patches
      */
     protected function acceptAutosaveMergePatches(array $patches): void
     {
         $this->autosaveCycleMergePatches = [];
+        $this->autosaveRichMergeTheirs = [];
+        $this->autosaveRichMergeBrowserValues = [];
+        $this->autosaveRichMergePremergeConflicts = [];
 
         foreach ($patches as $path => $patch) {
             if (is_string($patch)) {
                 $this->autosaveCycleMergePatches[(string) $path] = $patch;
-            } elseif (is_array($patch) && is_string($patch['base'] ?? null) && is_string($patch['ours'] ?? null)) {
-                $this->autosaveCycleMergePatches[(string) $path] = ['base' => $patch['base'], 'ours' => $patch['ours']];
+            } elseif (is_array($patch) && (is_string($patch['base'] ?? null) || is_array($patch['base'] ?? null))) {
+                $ours = $patch['ours'] ?? null;
+                $this->autosaveCycleMergePatches[(string) $path] = [
+                    'base' => $patch['base'],
+                    'ours' => is_string($ours) || is_array($ours) ? $ours : null,
+                ];
             }
         }
     }
@@ -124,6 +186,91 @@ trait HasAutosaveMerge
         $this->autosaveMergedValues = [];
         $this->autosaveMergeConflicts = [];
         $this->autosaveContendedValues = [];
+    }
+
+    /**
+     * Merge every rich field the browser sent a base for with the column's
+     * current value, into the form state, before the form dehydrates. Reads
+     * those columns in one query so an image the other editor added since
+     * this tab loaded is in the document the attachment cleanup keeps.
+     */
+    protected function premergeAutosaveRichFields(): void
+    {
+        $components = $this->autosaveRichMergeComponents();
+        $record = $this->autosaveSyncRecord();
+
+        if ($components === [] || ! $record instanceof Model || ! $record->exists) {
+            return;
+        }
+
+        $row = $record->newQueryWithoutScopes()->whereKey($record->getKey())->toBase()->first(array_keys($components));
+        $raw = $row === null ? [] : (array) $row;
+
+        foreach ($components as $path => $component) {
+            $theirs = $raw[$path] ?? null;
+            $ours = $component->getRawState();
+            $result = $this->autosaveRichMergeEngine($component)->merge(
+                $this->autosaveCycleMergePatches[$path]['base'],
+                $this->autosaveRichMergeValue($ours),
+                $this->autosaveMergeCastValue($record, $path, $theirs),
+            );
+
+            $this->autosaveRichMergeTheirs[$path] = $theirs;
+            $this->autosaveRichMergeBrowserValues[$path] = $ours;
+            $this->autosaveRichMergePremergeConflicts[$path] = $this->autosaveRichConflictNodes($component, $result->conflicts);
+            // The form holds the document; the column format only matters
+            // when the form dehydrates.
+            $component->rawState($this->autosaveRichDocument($component, $result->value));
+        }
+    }
+
+    protected function autosaveRichMergeEngine(RichEditor $component): AutosaveRichMerge
+    {
+        return new AutosaveRichMerge($component->getTipTapEditor(), $component->isJson());
+    }
+
+    /**
+     * The document the form (and the browser) holds for a column value,
+     * whichever format the column stores.
+     *
+     * @param  string|array<string, mixed>|null  $value
+     * @return array<string, mixed>
+     */
+    protected function autosaveRichDocument(RichEditor $component, string|array|null $value): array
+    {
+        $document = $component->getTipTapEditor()->setContent($value ?? ['type' => 'doc', 'content' => []])->getDocument();
+
+        return json_decode((string) json_encode($document), true) ?: ['type' => 'doc', 'content' => []];
+    }
+
+    /**
+     * Conflict fragments as lists of document nodes, the shape the browser
+     * can insert, whichever format the column stores.
+     *
+     * @param  list<array<string, mixed>>  $conflicts
+     * @return list<array<string, mixed>>
+     */
+    protected function autosaveRichConflictNodes(RichEditor $component, array $conflicts): array
+    {
+        foreach ($conflicts as &$conflict) {
+            foreach (['ours', 'theirs'] as $side) {
+                $fragment = $conflict[$side] ?? null;
+
+                if (is_string($fragment)) {
+                    $conflict[$side] = $fragment === '' ? [] : ($this->autosaveRichDocument($component, $fragment)['content'] ?? []);
+                }
+            }
+        }
+
+        return $conflicts;
+    }
+
+    /**
+     * @return string|array<string, mixed>|null
+     */
+    protected function autosaveRichMergeValue(mixed $value): string|array|null
+    {
+        return is_array($value) || is_string($value) ? $value : null;
     }
 
     /**
@@ -142,10 +289,17 @@ trait HasAutosaveMerge
         $columns = [];
 
         foreach (array_keys($this->autosaveMergeablePaths()) as $path) {
-            if (array_key_exists($path, $data) && array_key_exists($path, $this->autosaveCycleMergePatches)) {
-                $columns[$path] = $data[$path];
-                unset($data[$path]);
+            if (! array_key_exists($path, $data) || ! array_key_exists($path, $this->autosaveCycleMergePatches)) {
+                continue;
             }
+
+            // A rich field merges from a base, never from a text patch.
+            if (is_string($this->autosaveCycleMergePatches[$path]) && $this->autosaveMergeComponent($path) instanceof RichEditor) {
+                continue;
+            }
+
+            $columns[$path] = $data[$path];
+            unset($data[$path]);
         }
 
         return $columns;
@@ -159,51 +313,71 @@ trait HasAutosaveMerge
      * cycle.
      *
      * @param  array<string, mixed>  $columns  path => the browser's value
-     * @return array{written: array<string, string>, previous: array<string, mixed>}
+     * @return array{written: array<string, mixed>, previous: array<string, mixed>}
      */
     protected function writeAutosaveMergeColumns(Model $record, array $columns): array
     {
-        $engine = new AutosaveTextMerge;
         $retries = max(0, (int) config('filament-autosave.merge_retries', 10));
         $written = [];
         $previous = [];
 
         foreach ($columns as $path => $ours) {
-            $ours = is_scalar($ours) ? (string) $ours : '';
+            $rich = $this->autosaveMergeComponent($path);
+            $rich = $rich instanceof RichEditor && is_array($this->autosaveCycleMergePatches[$path]) ? $rich : null;
+            $ours = $rich === null ? (is_scalar($ours) ? (string) $ours : '') : $this->autosaveRichMergeValue($ours);
+            $sent = $rich === null ? $ours : ($this->autosaveRichMergeBrowserValues[$path] ?? $ours);
             $patch = $this->autosaveCycleMergePatches[$path];
-            $theirs = $record->getAttributes()[$path] ?? null;
+            $premerged = $rich !== null && array_key_exists($path, $this->autosaveRichMergeTheirs);
+            $theirs = $premerged ? $this->autosaveRichMergeTheirs[$path] : ($record->getAttributes()[$path] ?? null);
             $attempts = 0;
+
+            // A pre-merged rich document already holds the other editor's
+            // changes up to the value it was merged on; from here on that
+            // value is the base, and only what landed after it is merged in.
+            if ($premerged) {
+                $patch = ['base' => $this->autosaveRichMergeValue($this->autosaveMergeCastValue($record, $path, $theirs)), 'ours' => null];
+                $stored = $this->autosaveMergeRawValue($record, $path, $ours);
+            }
+
+            if ($rich !== null) {
+                $sent = $this->autosaveRichMergeEngine($rich)->canonical($this->autosaveRichMergeValue($sent));
+            }
 
             while (true) {
                 $attempts++;
-                $theirsText = is_scalar($theirs) ? (string) $theirs : '';
-                [$merged, $conflicts] = $this->mergeAutosaveColumn($engine, $patch, $ours, $theirsText);
+                [$merged, $raw, $conflicts] = $premerged && $attempts === 1
+                    ? [$this->autosaveMergeCastValue($record, $path, $stored), $stored, []]
+                    : $this->mergeAutosaveColumn($record, $path, $rich, $patch, $ours, $theirs);
 
-                if ($merged === $theirsText || $this->autosaveCompareAndSwap($record, $path, $theirs, $merged)) {
+                if ($raw === $theirs || $this->autosaveCompareAndSwap($record, $path, $theirs, $raw)) {
                     $written[$path] = $merged;
-                    $previous[$path] = $theirs;
+                    $previous[$path] = $rich === null ? $theirs : $this->autosaveMergeCastValue($record, $path, $theirs);
 
-                    if ($merged !== $ours) {
-                        $this->autosaveMergedValues[$path] = $merged;
+                    if ($merged !== $sent) {
+                        $this->autosaveMergedValues[$path] = $rich === null ? $merged : $this->autosaveRichDocument($rich, $merged);
                     }
 
-                    foreach ($conflicts as $conflict) {
+                    foreach ([...($this->autosaveRichMergePremergeConflicts[$path] ?? []), ...$conflicts] as $conflict) {
                         $this->autosaveMergeConflicts[$path][] = [...$conflict, 'reason' => AutosaveSync::OVERLAP];
                     }
 
                     break;
                 }
 
-                $theirs = $record->newQueryWithoutScopes()->whereKey($record->getKey())->value($path);
+                // Raw, as the column holds it: the model's casts would decode it.
+                $theirs = $record->newQueryWithoutScopes()->whereKey($record->getKey())->toBase()->value($path);
 
                 if ($attempts > $retries) {
                     // Hand the browser the merge against the latest value so
                     // it can adopt it and rebase; its next patch then starts
                     // from a current state with a fresh set of attempts.
-                    $theirsText = is_scalar($theirs) ? (string) $theirs : '';
-                    [$this->autosaveMergedValues[$path]] = $this->mergeAutosaveColumn($engine, $patch, $ours, $theirsText);
-                    $this->autosaveMergeConflicts[$path][] = ['ours' => $ours, 'theirs' => $theirsText, 'position' => 0, 'reason' => AutosaveSync::CONTENDED];
-                    $this->autosaveContendedValues[$path] = ['theirs' => $theirsText, 'hash' => AutosaveSync::hash($theirsText)];
+                    [$adopt] = $this->mergeAutosaveColumn($record, $path, $rich, $patch, $ours, $theirs);
+                    $this->autosaveMergedValues[$path] = $rich === null ? $adopt : $this->autosaveRichDocument($rich, $adopt);
+                    $latest = $rich === null
+                        ? (is_scalar($theirs) ? (string) $theirs : '')
+                        : $this->autosaveRichDocument($rich, $this->autosaveRichMergeValue($this->autosaveMergeCastValue($record, $path, $theirs)));
+                    $this->autosaveMergeConflicts[$path][] = ['ours' => $sent, 'theirs' => $latest, 'position' => 0, 'reason' => AutosaveSync::CONTENDED];
+                    $this->autosaveContendedValues[$path] = ['theirs' => $latest, 'hash' => AutosaveSync::hash(is_scalar($theirs) ? (string) $theirs : '')];
                     Log::warning("Autosave left {$path} unwritten: still contended after {$attempts} attempts.", ['component' => static::class]);
 
                     break;
@@ -217,21 +391,63 @@ trait HasAutosaveMerge
     }
 
     /**
-     * @param  string|array{base: string, ours: string}  $patch
-     * @return array{0: string, 1: list<array{ours: string, theirs: string, position: int}>}
+     * Merge one column's browser value with the raw value the column holds.
+     *
+     * @param  string|array{base: string|array<string, mixed>, ours: string|array<string, mixed>|null}  $patch
+     * @param  string|array<string, mixed>|null  $ours
+     * @return array{0: mixed, 1: string, 2: list<array<string, mixed>>} the merged value, its raw column form, and the conflicts
      */
-    protected function mergeAutosaveColumn(AutosaveTextMerge $engine, string|array $patch, string $ours, string $theirs): array
+    protected function mergeAutosaveColumn(Model $record, string $path, ?RichEditor $rich, string|array $patch, string|array|null $ours, mixed $theirs): array
     {
-        try {
-            $result = is_array($patch)
-                ? $engine->merge($patch['base'], $ours, $theirs)
-                : $engine->apply($theirs, $patch);
-        } catch (InvalidArgumentException) {
-            // A patch the engine cannot read is no patch: last write wins.
-            return [$ours, []];
+        if ($rich !== null) {
+            $result = $this->autosaveRichMergeEngine($rich)->merge(
+                is_array($patch) ? $patch['base'] : null,
+                $ours,
+                $this->autosaveMergeCastValue($record, $path, $theirs),
+            );
+
+            return [$result->value, $this->autosaveMergeRawValue($record, $path, $result->value), $this->autosaveRichConflictNodes($rich, $result->conflicts)];
         }
 
-        return [$result->value, $result->conflicts];
+        $ours = is_string($ours) ? $ours : '';
+        $theirs = is_scalar($theirs) ? (string) $theirs : '';
+
+        try {
+            $result = is_array($patch)
+                ? (new AutosaveTextMerge)->merge(is_string($patch['base']) ? $patch['base'] : '', $ours, $theirs)
+                : (new AutosaveTextMerge)->apply($theirs, $patch);
+        } catch (InvalidArgumentException) {
+            // A patch the engine cannot read is no patch: last write wins.
+            return [$ours, $ours, []];
+        }
+
+        return [$result->value, $result->value, $result->conflicts];
+    }
+
+    /**
+     * The value a raw column holds once the model's casts have run — a
+     * decoded document for a JSON column, the string itself otherwise.
+     */
+    protected function autosaveMergeCastValue(Model $record, string $path, mixed $raw): mixed
+    {
+        if ($raw === null) {
+            return null;
+        }
+
+        return $record->newInstance()->setRawAttributes([$path => $raw])->getAttribute($path);
+    }
+
+    /**
+     * The raw form a value takes in its column, through the model's own
+     * casts, so the conditional write stores exactly what Eloquent would.
+     */
+    protected function autosaveMergeRawValue(Model $record, string $path, mixed $value): string
+    {
+        $model = $record->newInstance();
+        $model->setAttribute($path, $value);
+        $raw = $model->getAttributes()[$path] ?? $value;
+
+        return is_string($raw) ? $raw : (string) json_encode($raw);
     }
 
     /**
@@ -283,6 +499,19 @@ trait HasAutosaveMerge
         }
 
         $this->refillAutosavePaths($record, $paths, false);
+    }
+
+    /**
+     * The value a poll hands the browser for a stale mergeable column: the
+     * cast value for rich content, the string for plain text.
+     */
+    protected function autosaveMergeRemoteValue(object $record, string $path, mixed $raw): mixed
+    {
+        if ($record instanceof Model && ($component = $this->autosaveMergeComponent($path)) instanceof RichEditor) {
+            return $this->autosaveRichDocument($component, $this->autosaveRichMergeValue($this->autosaveMergeCastValue($record, $path, $raw)));
+        }
+
+        return is_scalar($raw) ? (string) $raw : '';
     }
 
     /** @return array<string, mixed> The extra keys a saved status carries. */

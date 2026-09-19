@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave;
 
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
@@ -475,6 +476,7 @@ trait HasAutosaveBase
         // normalize or populate values that the rest of the cycle sees.
         $this->callAutosaveHook('beforeValidate');
 
+        $this->premergeAutosaveRichFields();
         $this->prepareAutosavePersistence();
 
         $data = $this->autosavePersistenceData();
@@ -1660,6 +1662,7 @@ trait HasAutosaveBase
                 $record->getAttributes(),
                 $this->autosaveFieldIsClean(...),
                 $this->autosavePathExcluded(...),
+                fn (string $path, mixed $raw): mixed => $this->autosaveMergeRemoteValue($record, $path, $raw),
             );
 
             $refreshed = $this->refillAutosavePaths($record, $plan['refill']);
@@ -1708,6 +1711,41 @@ trait HasAutosaveBase
      * @param  array<int, string>  $paths
      */
     protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void {}
+
+    /**
+     * Fill top-level paths of a schema from an attribute array, then run the
+     * hydration hooks and state casts for just those paths. Unlike
+     * `Schema::fillPartially()`, which flattens the state with dot notation
+     * and so never matches an array attribute (a JSON column, a RichEditor
+     * document), this keeps each value whole.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @param  array<int, string>  $paths
+     */
+    protected function fillAutosavePathsPartially(object $form, array $attributes, array $paths): void
+    {
+        if (! method_exists($form, 'partialRawState') || ! method_exists($form, 'hydrateStatePartially')) {
+            return;
+        }
+
+        $state = array_intersect_key($attributes, array_flip($paths));
+
+        if ($state === []) {
+            return;
+        }
+
+        $form->partialRawState($state);
+
+        $prefix = method_exists($form, 'getStatePath') ? (string) $form->getStatePath() : '';
+        $form->hydrateStatePartially(array_map(
+            static fn (string $path): string => $prefix === '' ? $path : "{$prefix}.{$path}",
+            array_keys($state),
+        ), true);
+
+        if (method_exists($form, 'fillStateWithNull')) {
+            $form->fillStateWithNull();
+        }
+    }
 
     /**
      * Per-field hashes, the same for Edit pages and generic forms so a snapshot
@@ -1820,9 +1858,17 @@ trait HasAutosaveBase
             }
         }
 
+        // A RichEditor is a column with an attachment callback; listed as
+        // mergeable, it refills like any other column.
+        $mergeable = $this->autosaveMergeablePaths();
+
         if (method_exists($this, 'autosaveRelationshipFields')) {
             foreach (array_keys($this->autosaveRelationshipFields()) as $path) {
-                $skip[AutosaveFieldTree::topLevelKey((string) $path)] = true;
+                $top = AutosaveFieldTree::topLevelKey((string) $path);
+
+                if (! isset($mergeable[$top]) || ! $this->autosaveMergeComponent($top) instanceof RichEditor) {
+                    $skip[$top] = true;
+                }
             }
         }
 

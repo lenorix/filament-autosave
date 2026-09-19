@@ -81,3 +81,13 @@ test('a generic record form autosaves plain rich editor content', function () {
 
     expect($post->fresh()->body)->toContain('new text');
 });
+
+test('a generic record form stores the column format, not the document the form holds', function () {
+    $post = PlainRichPost::create(['title' => 'Post', 'body' => '<p>old</p>']);
+
+    Livewire::test(PlainRichEditorRecordForm::class, ['record' => $post])
+        ->set('data.body', ['type' => 'doc', 'content' => [['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'new text']]]]])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->body)->toBe('<p>new text</p>');
+});

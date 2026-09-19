@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Merge concurrent edits to `RichEditor` content structurally: list a
+  top-level `RichEditor` in `merge_fields` (or `mergeFields()` /
+  `autosaveMergeFields()`) and `AutosaveRichMerge` combines both editors'
+  documents as trees over `ueberdosis/tiptap-php` (a `filament/forms`
+  dependency): blocks matched by id or content, words and marks merged
+  inside a shared paragraph, images / custom blocks / mentions / merge tags
+  atomic, the same per-column compare-and-swap and `merge_retries` as plain
+  text, HTML and JSON columns alike (the written value is always the
+  editor's canonical form). The browser sends `autosave(['body' => ['base'
+  => <document>]])`; `merged`, `patches.theirs` and conflict fragments are
+  documents / node lists, and conflicts carry `kind`, `block` and `position`.
+  A rich field is merged before the form dehydrates, so the editor's
+  attachment cleanup keeps every image the merged document still references.
+  A rich merge adds exactly one query (the read of the rich columns).
+- Generic forms (`HasAutosaveForForm`) store a `RichEditor`'s column format
+  (HTML or JSON, through its state cast) instead of the raw Tiptap document
+  the form holds.
+- Refills (post-save refresh, polling, merged fields) carry array attributes
+  whole: `Schema::fillPartially()` flattens the state with dot notation and
+  never matched a JSON column or a `RichEditor` document, so those fields were
+  silently left as they were.
 - Merge concurrent edits to plain-text fields instead of last-write-wins:
   list them in `merge_fields`, `AutosavePlugin::mergeFields()` or a page's
   `autosaveMergeFields()` (top-level `TextInput`, `Textarea`, `MarkdownEditor`;
