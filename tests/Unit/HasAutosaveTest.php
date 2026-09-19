@@ -710,4 +710,4 @@ test('dispatching record events does not require a real Eloquent model', functio
     expect($page->autosaveCanUndo)->toBeTrue();
     Event::assertDispatched(RecordUpdated::class);
     Event::assertDispatched(RecordSaved::class);
-});
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
