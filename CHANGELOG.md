@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fix `HasAutosaveForForm` components nested in a page never receiving their
+  own `autosave-status` event: a plain Livewire dispatch from a nested
+  component only reached global listeners, so the indicator stuck at "saving"
+  and its guard dropped every later save. The event is now dispatched to the
+  component itself.
+- Fix the Undo link being rendered only in `edit` mode: record-backed generic
+  forms had `autosaveCanUndo` and `undoAutosave()` but no button. It is now
+  rendered in every mode and hidden while Undo is unavailable (drafts).
 - Add polling for other editors' changes. With `poll_interval` (default 5000
   ms, `0` disables; plugin `pollInterval()`, page `autosavePollInterval()`) the
   browser calls the new public `syncAutosave()` on a timer: clean, model-backed

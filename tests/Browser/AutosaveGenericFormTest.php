@@ -41,4 +41,4 @@ test('a generic record form autosaves, survives reload, and undoes from the brow
 
     expect($post->fresh()->title)->toBe('Original');
     $this->assertNoBrowserErrors($page);
-})->todo('nested HasAutosaveForForm components never receive the autosave-status event through $wire.$on(), so the indicator sticks at "saving" and later saves are dropped');
+});

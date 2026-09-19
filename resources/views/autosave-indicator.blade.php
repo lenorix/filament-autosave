@@ -54,11 +54,10 @@
                 @else
                     {{ __('filament-autosave::autosave.saved') }}
                 @endif
-                @if ($mode === 'edit')
-                    <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo" data-autosave-action="undo">
-                        {{ __('filament-autosave::autosave.undo') }}
-                    </x-filament::link>
-                @endif
+                {{-- Not gated on $mode: record-backed generic forms offer Undo too; drafts keep autosaveCanUndo false. --}}
+                <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo" data-autosave-action="undo">
+                    {{ __('filament-autosave::autosave.undo') }}
+                </x-filament::link>
             </x-filament::badge>
             <template x-if="pendingFields.length">
                 <p class="text-xs text-gray-600 dark:text-gray-400">

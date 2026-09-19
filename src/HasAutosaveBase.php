@@ -124,7 +124,15 @@ trait HasAutosaveBase
     /** Push one of the small autosave status events to the frontend. */
     protected function dispatchAutosaveStatus(AutosaveStatus $status, array $extra = []): void
     {
-        $this->dispatch(AutosaveStatus::EVENT, ...['status' => $status->value, ...$extra]);
+        // ->self(): the indicator listens with $wire.$on() inside this
+        // component. A plain dispatch from a component nested in a page is
+        // only delivered to global Livewire.on() listeners, so the indicator
+        // stuck at "saving" and its guard then dropped every later save.
+        $event = $this->dispatch(AutosaveStatus::EVENT, ...['status' => $status->value, ...$extra]);
+
+        if (is_object($event) && method_exists($event, 'self')) {
+            $event->self();
+        }
     }
 
     /** Fire the record events Filament pages emit after a save. */

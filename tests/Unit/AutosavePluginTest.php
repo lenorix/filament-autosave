@@ -151,5 +151,8 @@ test('the indicator ships its controller inline', function (string $mode) {
         ->and($html)->toContain('fi-badge', 'fi-link')
         ->not->toContain('x-load', '<script', '<link');
 
-    expect($xpath->query('//button[@type="button"]')->length)->toBe($mode === 'edit' ? 3 : 2);
+    // Undo is rendered in every mode and hidden client-side while
+    // $wire.autosaveCanUndo is false, so record-backed generic forms get it too.
+    expect($xpath->query('//button[@type="button"]')->length)->toBe(3)
+        ->and($xpath->query('//button[@data-autosave-action="undo"]')->length)->toBe(1);
 })->with(['edit', 'create', 'form']);
