@@ -5,14 +5,30 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/lenorix/filament-autosave/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/lenorix/filament-autosave/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg?style=flat-square)](LICENSE.md)
 
-Filament Autosave gives your forms a safety net: it saves changes after a short
-pause, keeps unfinished forms as drafts, and lets users undo their latest edit.
+A closed tab, an expired session, a colleague saving over your work: on a
+long Filament form, the Save button is where changes go to die. Filament
+Autosave writes each field to the database as soon as the user pauses, so
+nothing is lost, and it does so column by column, so two people can edit
+different parts of the same record without overwriting each other. Every
+autosave can be undone in one step, and Undo refuses to clobber a change
+someone else made in the meantime.
 
-- **Edit pages:** eligible changes are saved to the database automatically.
-- **Create pages:** unfinished values are kept in Laravel Cache until the form
-  is submitted.
-- **Any form:** relation managers, actions, modals, table forms, and standalone
-  Livewire components can opt in with `HasAutosaveForForm`.
+- **Dirty-only writes per column.** Only fields that actually changed are
+  written; untouched fields pick up other editors' changes after your own save
+  and on a configurable poll, while the field you are typing in is never
+  touched.
+- **One-step Undo with conflict detection** for columns, pivots, and nested
+  relationship rows — cancelled, never forced, when the record changed
+  elsewhere.
+- **Drafts on Create pages**, kept in Laravel Cache until the form is
+  submitted, with restore and discard controls.
+- **Relationship repeaters at any depth, uploads and Spatie Media Library**,
+  with cleanup on failure, a recovery ledger for interrupted requests, and a
+  database transaction even when the panel has none.
+- **Works everywhere a Filament form lives**: Edit and Create pages, relation
+  managers, actions, modals, table forms, and standalone Livewire components.
+- **Built to be depended on**: a stable `@api` extension surface pinned by a
+  test, lifecycle events, and 490+ tests including real-browser flows.
 
 ## Requirements
 
