@@ -193,7 +193,7 @@ component view:
 ])
 ```
 
-Without an existing record the trait stores drafts. When the resolved schema is
+Without an existing record, the trait stores drafts. When the resolved schema is
 bound to an Eloquent record — an Edit action or modal, for example — it persists
 columns, invokes relationship callbacks, runs the standard save lifecycle, and
 offers one-step Undo for changed columns and supported relationships with
@@ -272,7 +272,7 @@ being saved, while unrelated fields can continue to autosave.
 ### Dirty-only writes
 
 With `dirty_only` enabled, Edit autosave tracks a hash for each top-level field
-and writes only fields that changed since the last successful save. Hashes
+and writes only fields that’ve changed since the last successful save. Hashes
 survive Livewire requests, while the original values do not need to be kept in
 memory. Manual saves and Undo reset the baseline.
 
@@ -290,7 +290,7 @@ package's additional safety checks and any rules returned by
 - blank required values are skipped, so `NOT NULL` columns are not overwritten;
 - `Select`, `CheckboxList`, and `ToggleButtons` values must be allowed values,
   including tenant- or team-specific options;
-- invalid fields are skipped so valid, unrelated fields can still be saved;
+- invalid fields are skipped, so valid unrelated fields can still be saved;
 - nested rules such as `items.*.qty` discard the affected top-level container.
 
 ```php
