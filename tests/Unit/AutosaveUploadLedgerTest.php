@@ -154,3 +154,20 @@ test('the ledger still works when the cache store does not support locking', fun
 
     expect(Cache::get('filament-autosave:upload-ledger'))->toHaveKey($token);
 });
+
+test('append extends an existing entry without duplicating files and re-creates a forgotten one', function () {
+    $ledger = app(AutosaveUploadLedger::class);
+    $token = $ledger->register([['disk' => 'public', 'path' => 'first.txt']]);
+
+    $ledger->append($token, [['disk' => 'public', 'path' => 'first.txt'], ['disk' => 'public', 'path' => 'second.txt']]);
+
+    expect(Cache::get('filament-autosave:upload-ledger')[$token]['files'])->toBe([
+        ['disk' => 'public', 'path' => 'first.txt'],
+        ['disk' => 'public', 'path' => 'second.txt'],
+    ]);
+
+    $ledger->forget($token);
+    $ledger->append($token, [['disk' => 'public', 'path' => 'late.txt']]);
+
+    expect(Cache::get('filament-autosave:upload-ledger')[$token]['files'])->toBe([['disk' => 'public', 'path' => 'late.txt']]);
+});

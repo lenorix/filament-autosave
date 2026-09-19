@@ -15,6 +15,15 @@ class AutosaveServiceProvider extends PackageServiceProvider
         $this->app->singleton(AutosaveStore::class);
         $this->app->singleton(AutosaveExternalUndoManager::class);
         $this->app->singleton(AutosaveUploadLedger::class);
+        $this->app->singleton(AutosaveMediaJournal::class);
+    }
+
+    public function packageBooted(): void
+    {
+        // Boot-time so it precedes any listener the host adds afterwards.
+        if (AutosaveMediaJournal::mediaModel() !== null) {
+            $this->app->make(AutosaveMediaJournal::class)->listen();
+        }
     }
 
     public function configurePackage(Package $package): void

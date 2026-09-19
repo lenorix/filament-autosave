@@ -165,7 +165,10 @@ media in an existing row attaches to the row's record, media in a new row is
 attached by the repeater once it creates the row, and a row failing validation
 skips the whole relationship without storing any file. Media inside a JSON
 (non-relationship) repeater is not autosaved because rows would share one
-collection. Create drafts never store uploads/media.
+collection. Create drafts never store uploads/media. Spatie files enter the
+upload ledger from a boot-time `created` listener on the media model
+(`AutosaveMediaJournal`), before the file reaches disk; do not re-add a
+post-save diff for this.
 
 Password fields, `except` fields, temporary uploads, and undeclared client keys
 are excluded. Nested groups/repeaters are one top-level value; an incomplete

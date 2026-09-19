@@ -512,11 +512,12 @@ the cycle.
 
 The ledger is a recovery net for storage providers; database and filesystem
 transactions still cannot commit as one distributed transaction. A Spatie
-Media Library file is journaled right after its relationship callback
-returns, because the package cannot know the filename Spatie generates
-before that call runs; a process killed between that write and the journal
-entry (not a normal exception, which the request-local cleanup above still
-catches) can still leave a file with no ledger entry.
+Media Library file is journaled the moment its `media` row is created,
+through a `created` listener the package registers at boot: Spatie saves the
+row before copying the file, so the ledger entry exists before the file
+reaches disk and a process killed at any later point still leaves a trail for
+pruning. The only remaining gap is the row insert itself, which the
+surrounding transaction covers.
 
 </details>
 
