@@ -176,3 +176,7 @@ composer test
 ~~~
 
 Tests are Pest Unit/Integration tests; do not add a Node test runner.
+`tests/Browser` uses Pest's browser plugin (`composer test:browser`, excluded
+from `composer test`); Playwright needs Node only as a browser driver, it is
+not a test runner. Its assertions do not poll, so anything that appears after
+the debounce is awaited with a bounded `script()` poll, never a fixed sleep.

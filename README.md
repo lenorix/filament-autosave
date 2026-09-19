@@ -519,6 +519,14 @@ vendor/bin/pest --testsuite=Unit
 vendor/bin/pest --testsuite=Integration
 ```
 
+`tests/Browser` drives the real panel in Chromium through Pest's browser
+plugin and is excluded from `composer test`. It needs Node only for the
+Playwright browser driver (`npm ci && npx playwright install chromium`), then:
+
+```bash
+composer test:browser
+```
+
 ## License
 
 [The Unlicense](LICENSE.md)
