@@ -510,10 +510,10 @@ the rich columns before the form dehydrates.
 #### In the browser
 
 Nothing to install or build. When a page lists merge fields, the indicator
-loads a small dependency-free runtime once per page (about 24 KB, through
-Livewire's `@assets`, so it never travels inside a Livewire response). It
-speaks the same word-level diff and patch format as the server, and the
-controller takes it from there.
+loads one small script of the package's own (about 24 KB, no dependencies,
+through Livewire's `@assets`, so it loads once per page and never travels
+inside a Livewire response). It speaks the same word-level diff and patch
+format as the server, and the controller takes it from there.
 
 - For each mergeable field it remembers the last value the server
   acknowledged (on load, after each save, after each refill or merge) and
@@ -540,9 +540,9 @@ The caret handling applies to `TextInput`, `Textarea` and `RichEditor`. A
 merged `MarkdownEditor` value is set on the state and the editor re-renders
 it (the merge is kept, the caret is not).
 
-A `RichEditor` gets the same treatment on its document. The runtime borrows
-ProseMirror from the editor Filament already put on the page (nothing else is
-loaded), keeps the editor's own JSON as the base, sends that document with
+A `RichEditor` gets the same treatment on its document, through a second
+small script of ours (about 13 KB). It borrows ProseMirror from the editor
+Filament already put on the page (nothing else is loaded), keeps the editor's own JSON as the base, sends that document with
 the save, and applies whatever comes back as one editor transaction that
 touches only the blocks that changed: the caret and selection are mapped
 through it, and text typed while the save was in flight is merged back in,

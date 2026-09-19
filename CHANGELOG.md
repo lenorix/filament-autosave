@@ -17,8 +17,8 @@
   attachment cleanup keeps every image the merged document still references.
   A rich merge adds exactly one query (the read of the rich columns).
 - The browser applies a merged `RichEditor` document inside the live TipTap
-  editor (`resources/js/autosave-rich-merge.js`, loaded with the merge
-  runtime and borrowing ProseMirror from Filament's own editor bundle): only
+  editor (`resources/js/autosave-rich-merge.js`, loaded with the text merge
+  script and borrowing ProseMirror from Filament's own editor bundle): only
   the blocks that differ are replaced, in one transaction, so the caret,
   the selection and text typed while the save was in flight are kept; a
   clean field refilled by a poll goes the same way instead of a reset.
@@ -48,7 +48,7 @@
   parameters).
 - The browser does its part of the merge, with no build step and no
   dependency: when a component lists merge fields, the indicator loads a
-  runtime once per page through Livewire's `@assets`
+  script of its own once per page through Livewire's `@assets`
   (`resources/js/autosave-merge.js`, ~24 KB, the same word-level diff, diff3
   and patch format as the server; never part of a Livewire response) and the controller keeps the
   last acknowledged value of each field as its base, sends a patch per dirty
