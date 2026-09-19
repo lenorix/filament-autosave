@@ -356,9 +356,9 @@ trait HasAutosaveForForm
         $externalUndo = $this->autosaveExternalUndoSnapshots($externalFields);
 
         $this->resetAutosaveFormUndo();
-        $this->putAutosaveFormUndo('values', AutosaveStore::normalizeScalars($previous));
-        $this->putAutosaveFormUndo('relationships', $relationshipUndo);
-        $this->putAutosaveFormUndo('external', $externalUndo);
+        $this->putAutosaveFormUndo(AutosaveUndo::VALUES, AutosaveStore::normalizeScalars($previous));
+        $this->putAutosaveFormUndo(AutosaveUndo::RELATIONSHIPS, $relationshipUndo);
+        $this->putAutosaveFormUndo(AutosaveUndo::EXTERNAL, $externalUndo);
 
         $merge = $this->extractAutosaveMergeColumns($columns);
         $this->autosaveWrittenPaths = array_keys($data + $uploads);
@@ -388,11 +388,11 @@ trait HasAutosaveForForm
         $this->dispatchAutosaveRecordEvents($record, $columns);
 
         $record->refresh();
-        $this->putAutosaveFormUndo('expected', AutosaveStore::normalizeScalars($record->only(array_keys($columns))));
-        $this->putAutosaveFormUndo('expected-relationships', $this->captureAutosaveRelationshipUndoFields(
+        $this->putAutosaveFormUndo(AutosaveUndo::EXPECTED, AutosaveStore::normalizeScalars($record->only(array_keys($columns))));
+        $this->putAutosaveFormUndo(AutosaveUndo::EXPECTED_RELATIONSHIPS, $this->captureAutosaveRelationshipUndoFields(
             $this->autosaveFormDirtyRelationshipFields($data),
         ));
-        $this->putAutosaveFormUndo('expected-external', $this->autosaveExternalUndoManager()->snapshot($externalFields));
+        $this->putAutosaveFormUndo(AutosaveUndo::EXPECTED_EXTERNAL, $this->autosaveExternalUndoManager()->snapshot($externalFields));
         $this->acknowledgeAutosaveUploads($uploads, $data);
         $this->autosaveCanUndo = ! $this->autosaveExternalUndoHasUnsupported($externalFields)
             && array_diff_key($externalFields, $externalUndo) === []
@@ -563,39 +563,31 @@ trait HasAutosaveForForm
 
     protected function runAutosaveCycle(callable $cycle): mixed
     {
-        $fieldHashes = $this->autosaveFieldHashes;
-        $snapshotHash = $this->autosaveSnapshotHash;
-        $this->clearQueuedAutosaveNotification();
-
-        try {
-            $result = $this->autosaveFormWithinTransaction($cycle);
-            $this->flushAutosaveSavedNotification();
-
-            return $result;
-        } catch (\Throwable $e) {
-            $this->clearQueuedAutosaveNotification();
-
-            // A Halt that kept the transaction committed the write: acknowledge
-            // the written fields (the hook interrupted that step) and keep Undo.
-            if ($this->autosaveHaltCommittedWrite()) {
-                $this->acknowledgeAutosaveFormFields($this->autosaveWrittenPaths);
-
-                throw $e;
-            }
-
-            $this->autosaveFieldHashes = $fieldHashes;
-            $this->autosaveSnapshotHash = $snapshotHash;
-            // A failed write or commit invalidates the snapshot prepared for
-            // this request. Do not leave a stale generic Undo target behind.
-            $this->resetAutosaveFormUndo();
-
-            throw $e;
-        }
+        return $this->runAutosaveCycleInTransaction($cycle);
     }
 
-    protected function autosaveFormWithinTransaction(callable $write): mixed
+    /** The hook interrupted the acknowledgement step; the written fields still count. */
+    protected function afterAutosaveCycleHaltCommitted(): void
     {
-        return $this->autosaveWithinDatabaseTransaction($write);
+        $this->acknowledgeAutosaveFormFields($this->autosaveWrittenPaths);
+    }
+
+    protected function discardAutosaveCycleUndo(): void
+    {
+        $this->resetAutosaveFormUndo();
+    }
+
+    /** @return array<string, mixed> */
+    protected function captureAutosaveBaseline(): array
+    {
+        return ['snapshotHash' => $this->autosaveSnapshotHash, 'fieldHashes' => $this->autosaveFieldHashes];
+    }
+
+    /** @param  array<string, mixed>  $baseline */
+    protected function restoreAutosaveBaseline(array $baseline): void
+    {
+        $this->autosaveSnapshotHash = $baseline['snapshotHash'];
+        $this->autosaveFieldHashes = $baseline['fieldHashes'];
     }
 
     /** A recordless draft only touches the cache, so it needs no transaction. */
@@ -669,26 +661,13 @@ trait HasAutosaveForForm
                 return;
             }
 
-            $this->autosaveFormWithinTransaction(function () use ($record, $snapshot, $relationshipSnapshot, $externalSnapshot, $externalFields): void {
-                $this->callAutosaveHook('beforeValidate');
-                $this->callAutosaveHook('afterValidate');
-                $this->callAutosaveHook('beforeSave');
-
-                if ($snapshot !== []) {
-                    $record->update($snapshot);
-                }
-
-                if ($relationshipSnapshot !== []) {
-                    $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
-                }
-
-                if ($externalSnapshot !== []) {
-                    $this->restoreAutosaveExternalUndo($externalSnapshot, $externalFields);
-                }
-
-                $this->callAutosaveHook('afterSave');
-                $this->dispatchAutosaveRecordEvents($record, $snapshot);
-            });
+            $this->autosaveWithinDatabaseTransaction(fn () => $this->restoreAutosaveUndoParts(
+                $record,
+                $snapshot,
+                $relationshipSnapshot,
+                $externalSnapshot,
+                $externalFields,
+            ));
 
             $record->refresh();
             $this->fillAutosaveFormFromRecord($record, $snapshot);

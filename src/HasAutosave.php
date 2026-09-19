@@ -950,32 +950,13 @@ trait HasAutosave
                 return;
             }
 
-            $this->autosaveWithinTransaction(function () use ($snapshot, $relationshipSnapshot, $externalSnapshot): void {
-                // Keep Undo observable through the same page lifecycle as an
-                // explicit Filament edit. Hooks may halt or fail, in which
-                // case autosaveWithinTransaction rolls the restoration back.
-                $this->callAutosaveHook('beforeValidate');
-                $this->callAutosaveHook('afterValidate');
-                $this->callAutosaveHook('beforeSave');
-
-                if (is_array($snapshot) && $snapshot !== []) {
-                    $this->handleRecordUpdate($this->getRecord(), $snapshot);
-                }
-
-                if (is_array($relationshipSnapshot) && $relationshipSnapshot !== []) {
-                    $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
-                }
-
-                if (is_array($externalSnapshot) && $externalSnapshot !== []) {
-                    $this->restoreAutosaveExternalUndo(
-                        $externalSnapshot,
-                        $this->autosaveExternalUndoFields(),
-                    );
-                }
-
-                $this->callAutosaveHook('afterSave');
-                $this->dispatchAutosaveRecordEvents($this->getRecord(), is_array($snapshot) ? $snapshot : []);
-            });
+            $this->autosaveWithinDatabaseTransaction(fn () => $this->restoreAutosaveUndoParts(
+                $this->getRecord(),
+                $snapshot ?? [],
+                $relationshipSnapshot ?? [],
+                $externalSnapshot ?? [],
+                $this->autosaveExternalUndoFields(),
+            ));
 
             $this->getRecord()->refresh();
 
@@ -1213,42 +1194,45 @@ trait HasAutosave
 
     protected function runAutosaveCycle(callable $cycle): mixed
     {
-        $fieldHashes = $this->autosaveFieldHashes;
-        $snapshotHash = $this->autosaveSnapshotHash;
         $this->autosaveUndoPrepared = false;
-        $this->clearQueuedAutosaveNotification();
 
-        try {
-            $result = $this->autosaveWithinTransaction($cycle);
-            $this->autosaveUndoPrepared = false;
-            $this->flushAutosaveSavedNotification();
+        return $this->runAutosaveCycleInTransaction($cycle);
+    }
 
-            return $result;
-        } catch (\Throwable $e) {
-            // A failed commit must never leave a notification queued for a
-            // later request.
-            $this->clearQueuedAutosaveNotification();
+    protected function afterAutosaveCycleCommitted(): void
+    {
+        $this->autosaveUndoPrepared = false;
+        $this->flushAutosaveSavedNotification();
+    }
 
-            // A Halt that kept the transaction committed the write: its
-            // hashes and Undo snapshot are valid, only the report is quiet.
-            if ($this->autosaveHaltCommittedWrite()) {
-                throw $e;
-            }
-
-            $this->autosaveFieldHashes = $fieldHashes;
-            $this->autosaveSnapshotHash = $snapshotHash;
-
-            if ($this->autosaveUndoPrepared) {
-                $this->resetAutosaveUndo();
-            }
-
-            throw $e;
+    protected function discardAutosaveCycleUndo(): void
+    {
+        if ($this->autosaveUndoPrepared) {
+            $this->resetAutosaveUndo();
         }
     }
 
-    protected function autosaveWithinTransaction(callable $write): mixed
+    /** @return array<string, mixed> */
+    protected function captureAutosaveBaseline(): array
     {
-        return $this->autosaveWithinDatabaseTransaction($write);
+        return ['snapshotHash' => $this->autosaveSnapshotHash, 'fieldHashes' => $this->autosaveFieldHashes];
+    }
+
+    /** @param  array<string, mixed>  $baseline */
+    protected function restoreAutosaveBaseline(array $baseline): void
+    {
+        $this->autosaveSnapshotHash = $baseline['snapshotHash'];
+        $this->autosaveFieldHashes = $baseline['fieldHashes'];
+    }
+
+    /**
+     * Edit pages restore through Filament's own update path, translatable concerns included.
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    protected function restoreAutosaveColumns(object $record, array $snapshot): void
+    {
+        $this->handleRecordUpdate($record, $snapshot);
     }
 
     protected function autosaveEventRecord(): ?object

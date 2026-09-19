@@ -736,6 +736,115 @@ trait HasAutosaveBase
     }
 
     /**
+     * Run a record-backed cycle in one transaction, keeping the field hashes
+     * and snapshot hash consistent with what actually reached the database.
+     *
+     * A failed or rolled-back cycle restores the hashes taken before it and
+     * drops the Undo it prepared; a Halt that kept the transaction has
+     * committed the write, so its hashes stand and only the report is quiet.
+     */
+    protected function runAutosaveCycleInTransaction(callable $cycle): mixed
+    {
+        $baseline = $this->captureAutosaveBaseline();
+        $this->clearQueuedAutosaveNotification();
+
+        try {
+            $result = $this->autosaveWithinDatabaseTransaction($cycle);
+            $this->afterAutosaveCycleCommitted();
+
+            return $result;
+        } catch (\Throwable $e) {
+            // A failed commit must never leave a notification queued for a
+            // later request.
+            $this->clearQueuedAutosaveNotification();
+
+            if ($this->autosaveHaltCommittedWrite()) {
+                $this->afterAutosaveCycleHaltCommitted();
+
+                throw $e;
+            }
+
+            $this->restoreAutosaveBaseline($baseline);
+            $this->discardAutosaveCycleUndo();
+
+            throw $e;
+        }
+    }
+
+    /**
+     * What a rolled-back cycle must put back: the acknowledged state the
+     * dirty checks compare against. Traits with per-field hashes add them.
+     *
+     * @return array<string, mixed>
+     */
+    protected function captureAutosaveBaseline(): array
+    {
+        return ['snapshotHash' => $this->autosaveSnapshotHash];
+    }
+
+    /** @param  array<string, mixed>  $baseline */
+    protected function restoreAutosaveBaseline(array $baseline): void
+    {
+        $this->autosaveSnapshotHash = $baseline['snapshotHash'];
+    }
+
+    /** The cycle's transaction committed normally. */
+    protected function afterAutosaveCycleCommitted(): void
+    {
+        $this->flushAutosaveSavedNotification();
+    }
+
+    /** A Halt raised after the write kept the transaction: the write stands. */
+    protected function afterAutosaveCycleHaltCommitted(): void {}
+
+    /** The cycle rolled back: whatever Undo it prepared targets nothing. */
+    protected function discardAutosaveCycleUndo(): void {}
+
+    /**
+     * Hooks, restores and events of one Undo, inside the caller's transaction.
+     * Mirrors an explicit Filament save so hooks may halt or fail and roll
+     * the restoration back.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, array<string, mixed>>  $relationshipSnapshot
+     * @param  array<string, array<string, mixed>>  $externalSnapshot
+     * @param  array<string, object>  $externalFields
+     */
+    protected function restoreAutosaveUndoParts(object $record, array $snapshot, array $relationshipSnapshot, array $externalSnapshot, array $externalFields): void
+    {
+        $this->callAutosaveHook('beforeValidate');
+        $this->callAutosaveHook('afterValidate');
+        $this->callAutosaveHook('beforeSave');
+
+        if ($snapshot !== []) {
+            $this->restoreAutosaveColumns($record, $snapshot);
+        }
+
+        if ($relationshipSnapshot !== []) {
+            $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
+        }
+
+        // External (file/media) restores come from the uploads trait, which
+        // draft-only hosts do not carry.
+        if ($externalSnapshot !== [] && method_exists($this, 'restoreAutosaveExternalUndo')) {
+            $this->restoreAutosaveExternalUndo($externalSnapshot, $externalFields);
+        }
+
+        $this->callAutosaveHook('afterSave');
+        $this->dispatchAutosaveRecordEvents($record, $snapshot);
+    }
+
+    /**
+     * Write the column values of an Undo snapshot back to the record.
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    protected function restoreAutosaveColumns(object $record, array $snapshot): void
+    {
+        $record->update($snapshot);
+    }
+
+    /**
      * Wrap the autosave write in one database transaction.
      *
      * Filament's `beginDatabaseTransaction()` and friends are no-ops unless
