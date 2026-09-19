@@ -90,11 +90,6 @@ trait HasAutosave
         }
     }
 
-    protected function autosaveDirtyOnly(): bool
-    {
-        return (bool) config('filament-autosave.dirty_only', true);
-    }
-
     /** @param array<string, mixed> $data */
     protected function filterAutosavePayload(array $data): array
     {

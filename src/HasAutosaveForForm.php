@@ -269,7 +269,7 @@ trait HasAutosaveForForm
             // A dirty-only request can be a no-op after an earlier draft was
             // written. Keep that draft available for restore instead of
             // deleting it merely because this request has no new fields.
-            if (! (bool) config('filament-autosave.dirty_only', false)
+            if (! $this->autosaveDirtyOnly()
                 || $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey()) === null) {
                 $this->clearAutosaveDraft();
             }
@@ -283,7 +283,7 @@ trait HasAutosaveForForm
 
         $draft = $payload;
 
-        if ((bool) config('filament-autosave.dirty_only', false)) {
+        if ($this->autosaveDirtyOnly()) {
             $draft = array_replace(
                 $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey()) ?? [],
                 $payload,
@@ -831,7 +831,7 @@ trait HasAutosaveForForm
     /** @param array<string, mixed> $data */
     protected function filterAutosaveFormPayload(array $data): array
     {
-        if (! (bool) config('filament-autosave.dirty_only', false) || $this->autosaveFieldHashes === []) {
+        if (! $this->autosaveDirtyOnly() || $this->autosaveFieldHashes === []) {
             return $data;
         }
 
@@ -886,7 +886,7 @@ trait HasAutosaveForForm
     /** @param array<string, mixed> $data */
     protected function shouldSaveAutosaveFormRelationships(array $data): bool
     {
-        if (! (bool) config('filament-autosave.dirty_only', false)) {
+        if (! $this->autosaveDirtyOnly()) {
             return true;
         }
 

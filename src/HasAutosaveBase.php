@@ -1590,9 +1590,18 @@ trait HasAutosaveBase
      */
     protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void {}
 
+    /**
+     * Single source of truth for `dirty_only`; every trait reads it here so the
+     * fallback cannot drift between Edit pages and generic forms.
+     */
+    protected function autosaveDirtyOnly(): bool
+    {
+        return (bool) config('filament-autosave.dirty_only', true);
+    }
+
     protected function autosaveRefreshEnabled(): bool
     {
-        return (bool) config('filament-autosave.dirty_only', true)
+        return $this->autosaveDirtyOnly()
             && (bool) config('filament-autosave.refresh_unchanged_fields', true);
     }
 
