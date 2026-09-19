@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The indicator is now built only from Filament components: skipped and stale
+  fields render as badges and validation messages inside a `callout`, so the
+  panel's light and dark themes apply everywhere. The package stylesheet and
+  its Filament asset registration are gone (nothing to publish).
 - Fix pending relationship rows and edits being lost when a page's
   `handleRecordUpdate()` refills the form without saving relationships
   (`$this->form->fill($this->form->getState(false))`, as lara-zeus/spatie-translatable

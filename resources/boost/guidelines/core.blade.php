@@ -55,10 +55,11 @@ class CreateArticle extends CreateRecord
 
 Do not use `HasAutosaveUploads` directly; `HasAutosave` composes it for edits.
 The indicator reads the form schema state path from the locked
-`autosaveDataPath` property. Its CSS (`resources/css/autosave.css`) is a
-FilamentAsset published by `filament:assets`; the indicator uses only
-`fi-*`/`fi-autosave-*` classes, never raw Tailwind utilities, because
-Filament 4/5 ships none in its compiled theme.
+`autosaveDataPath` property. The indicator is built only from Filament
+components (`x-filament::badge`, `x-filament::link`, `x-filament::callout`)
+and ships no CSS: Filament 4/5 compiles no generic Tailwind utilities, so
+never add `text-*`/`flex`/`dark:` classes or a stylesheet to it; extra
+content goes in a callout's heading/description/footer/controls slots.
 
 ## Configuration
 

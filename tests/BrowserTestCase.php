@@ -58,8 +58,7 @@ abstract class BrowserTestCase extends IntegrationTestCase
             'password' => bcrypt('secret'),
         ]));
 
-        if (! is_file(public_path('js/filament/filament/app.js'))
-            || ! is_file(public_path('css/lenorix/filament-autosave/filament-autosave.css'))) {
+        if (! is_file(public_path('js/filament/filament/app.js'))) {
             $this->artisan('filament:assets');
         }
     }
