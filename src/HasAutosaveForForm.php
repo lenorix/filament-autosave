@@ -253,6 +253,8 @@ trait HasAutosaveForForm
             $this->callAutosaveHook('beforeSave');
         }
 
+        $formValues = $this->prepareAutosavePayload($data);
+
         // Filament applies this mutator immediately before persistence. Keep
         // null, empty strings and empty arrays: they represent deliberate
         // deletions and must reach the model.
@@ -261,7 +263,7 @@ trait HasAutosaveForForm
         }
 
         $prepared = $this->prepareAutosavePayload($data);
-        $payload = $this->filterAutosaveFormPayload($prepared);
+        $payload = $this->filterAutosaveFormPayload($prepared, $formValues);
 
         if ($record instanceof Model && $record->exists) {
             $payload = $this->keepAutosaveUploadRelationshipOwners($payload, $prepared);
@@ -301,10 +303,30 @@ trait HasAutosaveForForm
         );
 
         $this->autosaveHasDraft = true;
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($payload));
+        $this->acknowledgeAutosaveFormFields(array_keys($payload));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
 
         return true;
+    }
+
+    /**
+     * Acknowledge the given top-level fields as saved, hashed from the form
+     * as the user sees it — never from the persisted payload. A mutator that
+     * stores a transformed value (a slug from a title) would otherwise leave
+     * the field "dirty" forever: rewritten on every cycle, last-write-wins,
+     * and never refreshed from another editor's change.
+     *
+     * @param  array<int, string>  $paths
+     */
+    protected function acknowledgeAutosaveFormFields(array $paths): void
+    {
+        $this->autosaveFieldsCache = null;
+        $live = $this->prepareAutosavePayload($this->getAutosaveData());
+
+        $this->autosaveFieldHashes = array_replace(
+            $this->autosaveFieldHashes,
+            $this->hashAutosaveFields(array_intersect_key($live, array_flip($paths))),
+        );
     }
 
     /**
@@ -331,6 +353,7 @@ trait HasAutosaveForForm
         $this->putAutosaveFormUndo('external', $externalUndo);
 
         $merge = $this->extractAutosaveMergeColumns($columns);
+        $this->autosaveWrittenPaths = array_keys($data + $uploads);
 
         if (method_exists($this, 'handleRecordUpdate')) {
             $this->handleRecordUpdate($record, $columns);
@@ -351,11 +374,7 @@ trait HasAutosaveForForm
             $this->markAutosavePendingFields($this->autosaveContendedPaths());
         }
 
-        if (($form = $this->resolveAutosaveForm()) !== null
-            && method_exists($form, 'saveRelationships')
-            && ($this->shouldSaveAutosaveFormRelationships($data) || $uploads !== [])) {
-            $form->saveRelationships();
-        }
+        $this->saveAutosaveFormRelationships($data, $uploads);
 
         $this->callAutosaveHook('afterSave');
         $this->dispatchAutosaveRecordEvents($record, $columns);
@@ -381,7 +400,7 @@ trait HasAutosaveForForm
         // A relationship callback may have persisted state that is not a
         // model column. Acknowledge every top-level value supplied to the
         // form, otherwise the same relation is considered dirty forever.
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($data));
+        $this->acknowledgeAutosaveFormFields(array_keys($data));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->queueAutosaveSavedNotification();
 
@@ -540,12 +559,21 @@ trait HasAutosaveForForm
 
             return $result;
         } catch (\Throwable $e) {
+            $this->clearQueuedAutosaveNotification();
+
+            // A Halt that kept the transaction committed the write: acknowledge
+            // the written fields (the hook interrupted that step) and keep Undo.
+            if ($this->autosaveHaltCommittedWrite()) {
+                $this->acknowledgeAutosaveFormFields($this->autosaveWrittenPaths);
+
+                throw $e;
+            }
+
             $this->autosaveFieldHashes = $fieldHashes;
             $this->autosaveSnapshotHash = $snapshotHash;
             // A failed write or commit invalidates the snapshot prepared for
             // this request. Do not leave a stale generic Undo target behind.
             $this->resetAutosaveFormUndo();
-            $this->clearQueuedAutosaveNotification();
 
             throw $e;
         }
@@ -891,8 +919,17 @@ trait HasAutosaveForForm
         }
     }
 
-    /** @param array<string, mixed> $data */
-    protected function filterAutosaveFormPayload(array $data): array
+    /**
+     * Dirty fields of a payload. Dirtiness is judged on the value the form
+     * holds (`$formValues`), not on what a mutator turned it into: the hashes
+     * acknowledge form values, so comparing a transformed value against them
+     * would report the field dirty on every cycle. A key the mutator added
+     * has no form value and is always written.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $formValues
+     */
+    protected function filterAutosaveFormPayload(array $data, array $formValues = []): array
     {
         if (! $this->autosaveDirtyOnly() || $this->autosaveFieldHashes === []) {
             return $data;
@@ -900,7 +937,10 @@ trait HasAutosaveForForm
 
         return array_filter(
             $data,
-            fn (mixed $value, string|int $key): bool => ! $this->autosaveFieldHashMatches((string) $key, $value),
+            fn (mixed $value, string|int $key): bool => ! $this->autosaveFieldHashMatches(
+                (string) $key,
+                array_key_exists($key, $formValues) ? $formValues[$key] : $value,
+            ),
             ARRAY_FILTER_USE_BOTH,
         );
     }
@@ -928,32 +968,84 @@ trait HasAutosaveForForm
         return $payload;
     }
 
-    /** @param array<string, mixed> $data */
-    protected function shouldSaveAutosaveFormRelationships(array $data): bool
+    /**
+     * Persist the relationship components this cycle touched — those whose
+     * top-level field is in the dirty payload, plus the owners of pending
+     * uploads — each the way `Schema::saveRelationships()` would (before
+     * children, its child schemas, then itself). Never the whole schema: an
+     * untouched repeater would be rewritten from this tab's stale copy over
+     * what another editor saved since, and Undo, which snapshots only
+     * touched relationships, could not bring it back.
+     *
+     * Without dirty-only every field is in the payload, so the whole schema
+     * is saved as before.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, object>  $uploads
+     */
+    protected function saveAutosaveFormRelationships(array $data, array $uploads): void
     {
+        $form = $this->resolveAutosaveForm();
+
+        if ($form === null || ! method_exists($form, 'saveRelationships')) {
+            return;
+        }
+
         if (! $this->autosaveDirtyOnly()) {
-            return true;
+            $form->saveRelationships();
+
+            return;
         }
 
-        $fields = $this->getAutosaveFields();
+        $touched = array_flip(array_map(AutosaveFieldTree::topLevelKey(...), [...array_keys($data), ...array_keys($uploads)]));
 
-        if ($fields === []) {
-            return true;
+        if ($touched !== []) {
+            $this->saveAutosaveTouchedRelationships($form, $touched);
+        }
+    }
+
+    /**
+     * Walk a schema like `Schema::saveRelationships()`, descending through
+     * layout components and saving only the fields whose top-level state key
+     * was touched — with their whole subtree, so a row's nested upload or
+     * repeater is persisted with its parent.
+     *
+     * @param  array<string, true>  $touched
+     */
+    protected function saveAutosaveTouchedRelationships(object $schema, array $touched): void
+    {
+        if (! method_exists($schema, 'getComponents')) {
+            return;
         }
 
-        foreach ($fields as $path => $fieldSet) {
-            foreach ($fieldSet as $field) {
-                $relationship = method_exists($field, 'getRelationship')
-                    ? $field->getRelationship()
-                    : null;
+        foreach ($schema->getComponents(withActions: false, withHidden: true) as $component) {
+            $path = $this->autosaveRelativeFieldPath($component);
 
-                if ($relationship !== null && array_key_exists(AutosaveFieldTree::topLevelKey($path), $data)) {
-                    return true;
+            if ($path === null || $path === '') {
+                foreach ($component->getChildSchemas(withHidden: true) as $child) {
+                    $this->saveAutosaveTouchedRelationships($child, $touched);
                 }
-            }
-        }
 
-        return false;
+                continue;
+            }
+
+            if (! isset($touched[AutosaveFieldTree::topLevelKey($path)])) {
+                continue;
+            }
+
+            $component->saveRelationshipsBeforeChildren();
+            $whenDisabled = $component->shouldSaveRelationshipsWhenDisabled();
+
+            foreach ($component->getChildSchemas(withHidden: $component->shouldSaveRelationshipsWhenHidden()) as $child) {
+                if (! $whenDisabled && $child->isDisabled()) {
+                    continue;
+                }
+
+                $child->saveRelationships();
+            }
+
+            $component->saveRelationships();
+        }
     }
 
     protected function getAutosaveCacheKey(): string

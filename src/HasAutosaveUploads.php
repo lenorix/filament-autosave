@@ -57,8 +57,13 @@ trait HasAutosaveUploads
     #[Locked]
     public array $autosaveExternalMediaBaseline = [];
 
-    #[Locked]
-    public bool $autosaveExternalMediaBaselineCaptured = false;
+    /**
+     * Request-local on purpose: the baseline is what THIS cycle found before
+     * it dehydrated the form, so a failed cycle rolls back only the media it
+     * created. Carried across requests it would date from page load, and a
+     * no-write cycle would delete everything another editor added since.
+     */
+    protected bool $autosaveExternalMediaBaselineCaptured = false;
 
     /** @var array<string, array<int, mixed>> */
     #[Locked]
@@ -1062,10 +1067,12 @@ trait HasAutosaveUploads
 
         // Spatie tokens registered by persistAutosaveUploadRelationships()
         // have no matching autosaveStoredUploadPaths entry to route them
-        // through the loop above; their files are removed by
-        // rollbackAutosaveExternalMedia() below, so just drop the entry.
+        // through the loop above. Roll them back rather than forget them:
+        // rollbackAutosaveExternalMedia() below removes the same files, but
+        // only if the after-write snapshot was taken — when that capture is
+        // what failed, the ledger is the only record of the new files.
         foreach ($this->autosaveUploadLedgerTokens as $token) {
-            app(AutosaveUploadLedger::class)->forget($token);
+            app(AutosaveUploadLedger::class)->rollback($token);
         }
 
         $this->autosaveStoredUploadPaths = [];

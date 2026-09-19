@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Event;
 use Lenorix\FilamentAutosave\Events\AutosaveSynced;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingRefillEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\PollingEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosaveColumnsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosavePostForm;
@@ -145,6 +146,37 @@ test('the poll interval follows config, plugin and page precedence and 0 disable
 
     config(['filament-autosave.poll_interval' => 0]);
     Livewire::test(EditPost::class, ['record' => $post->getKey()])->assertSet('autosavePollMs', 0);
+});
+
+test('polling is off when the refresh it relies on is off', function (string $key) {
+    $post = Post::create(['title' => 'Original', 'slug' => 'original']);
+
+    config(["filament-autosave.{$key}" => false]);
+    $page = Livewire::test(EditPost::class, ['record' => $post->getKey()])->assertSet('autosavePollMs', 0);
+
+    Post::query()->whereKey($post->getKey())->update(['slug' => 'changed-elsewhere']);
+
+    // Even when called directly, the poll must not refill: the next
+    // save would otherwise write every column from this tab's state.
+    $page->call('syncAutosave')->assertNotDispatched('autosave-status');
+
+    expect($page->get('data.slug'))->toBe('original');
+})->with(['refresh_unchanged_fields', 'dirty_only']);
+
+test('a remote change is not forgotten when refilling it fails once', function () {
+    $post = Post::create(['title' => 'Original', 'slug' => 'original']);
+    $page = Livewire::test(FailingRefillEditPost::class, ['record' => $post->getKey()]);
+
+    Post::query()->whereKey($post->getKey())->update(['slug' => 'changed-elsewhere']);
+
+    $page->set('autosaveFailNextRefill', true)->call('syncAutosave')
+        ->assertDispatched('autosave-status', status: 'error');
+
+    expect($page->get('data.slug'))->toBe('original');
+
+    $page->call('syncAutosave');
+
+    expect($page->get('data.slug'))->toBe('changed-elsewhere');
 });
 
 test('a blank required field the user is still editing is reported stale, never refilled', function () {

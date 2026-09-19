@@ -81,6 +81,18 @@ trait HasAutosaveBase
 
     protected bool $autosaveCycleWrote = false;
 
+    /**
+     * Top-level paths the current cycle handed to the record write, set right
+     * before it. A Halt raised after that point, with Filament's default of
+     * keeping the transaction, has committed these.
+     *
+     * @var array<int, string>
+     */
+    protected array $autosaveWrittenPaths = [];
+
+    /** Whether the transaction wrapper committed on a Halt instead of rolling back. */
+    protected bool $autosaveHaltCommitted = false;
+
     /** Notifications are sent only after the surrounding write commits. */
     protected bool $autosaveNotificationPending = false;
 
@@ -261,12 +273,18 @@ trait HasAutosaveBase
     }
 
     /**
-     * Resolved poll interval in milliseconds (page, then plugin, then config); 0 means off.
+     * Resolved poll interval in milliseconds (page, then plugin, then config);
+     * 0 means off. A poll can only refill through the unchanged-field refresh,
+     * so it is off whenever that is (`refresh_unchanged_fields`, `dirty_only`).
      *
      * @api
      */
     public function getAutosavePollInterval(): int
     {
+        if (! $this->autosaveRefreshEnabled()) {
+            return 0;
+        }
+
         $pageInterval = $this->autosavePollInterval();
 
         if ($pageInterval !== null) {
@@ -354,7 +372,18 @@ trait HasAutosaveBase
 
     protected function performAutosave(callable $persist): void
     {
-        if (! $this->isAutosaveEnabled() || $this->isAutosaving) {
+        // The browser is waiting for a status: answer a page that turned
+        // autosave off with idle rather than leaving it at "saving". A
+        // re-entrant call stays silent — the running cycle answers.
+        if (! $this->isAutosaveEnabled()) {
+            if (! $this->isAutosaving && ! $this->autosaveCycleActive) {
+                $this->dispatchAutosaveIdle();
+            }
+
+            return;
+        }
+
+        if ($this->isAutosaving) {
             return;
         }
 
@@ -390,12 +419,20 @@ trait HasAutosaveBase
     {
         $this->autosaveCycleActive = true;
         $this->autosaveCycleWrote = false;
+        $this->autosaveWrittenPaths = [];
+        $this->autosaveHaltCommitted = false;
         $this->resetAutosaveMergeReport();
 
         try {
             $this->runAutosaveCycle(fn () => $this->performAutosave($persist));
         } catch (Halt $e) {
-            $this->discardAutosaveStoredUploads();
+            // Halt's default keeps the transaction: a Halt raised after the
+            // write (an afterSave hook) has committed the columns, so the
+            // files they point at must stay and the write be acknowledged,
+            // or the next cycle rewrites it and the column names a deleted file.
+            $this->autosaveHaltCommittedWrite()
+                ? $this->autosaveCommitPhase([])
+                : $this->discardAutosaveStoredUploads();
             $this->dispatchAutosaveIdle();
 
             if ($this->autosaveThrows) {
@@ -544,6 +581,12 @@ trait HasAutosaveBase
         return is_array($written) ? $written : $data;
     }
 
+    /** A Halt after the record write, with the transaction kept: the write is in. */
+    protected function autosaveHaltCommittedWrite(): bool
+    {
+        return $this->autosaveHaltCommitted && $this->autosaveWrittenPaths !== [];
+    }
+
     /** Acknowledge the write: snapshot hash, staged uploads, cycle flag. */
     protected function autosaveCommitPhase(array $written): void
     {
@@ -690,9 +733,12 @@ trait HasAutosaveBase
 
             return $result;
         } catch (Halt $exception) {
-            $exception->shouldRollbackDatabaseTransaction()
-                ? $this->rollBackDatabaseTransaction()
-                : $this->commitDatabaseTransaction();
+            if ($exception->shouldRollbackDatabaseTransaction()) {
+                $this->rollBackDatabaseTransaction();
+            } else {
+                $this->commitDatabaseTransaction();
+                $this->autosaveHaltCommitted = true;
+            }
 
             throw $exception;
         } catch (\Throwable $exception) {
@@ -721,7 +767,12 @@ trait HasAutosaveBase
 
             return $result;
         } catch (Halt $exception) {
-            $exception->shouldRollbackDatabaseTransaction() ? DB::rollBack() : DB::commit();
+            if ($exception->shouldRollbackDatabaseTransaction()) {
+                DB::rollBack();
+            } else {
+                DB::commit();
+                $this->autosaveHaltCommitted = true;
+            }
 
             throw $exception;
         } catch (\Throwable $exception) {
@@ -1034,7 +1085,7 @@ trait HasAutosaveBase
     {
         Log::warning("Autosave {$context} failed", ['exception' => $e::class]);
 
-        $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Error->value);
+        $this->dispatchAutosaveStatus(AutosaveStatus::Error);
         Event::dispatch(new AutosaveFailed($this, $e, $context));
     }
 
@@ -1627,7 +1678,7 @@ trait HasAutosaveBase
      */
     public function syncAutosave(array $mergeBaseHashes = []): void
     {
-        if (! $this->isAutosaveEnabled() || $this->isAutosaving || $this->autosaveCycleActive) {
+        if (! $this->isAutosaveEnabled() || ! $this->autosaveRefreshEnabled() || $this->isAutosaving || $this->autosaveCycleActive) {
             return;
         }
 
@@ -1645,9 +1696,10 @@ trait HasAutosaveBase
             }
 
             $changed = $this->autosaveChangedRecordAttributes($record);
-            $this->rememberAutosaveSyncedAttributes($record);
 
             if ($changed === []) {
+                $this->rememberAutosaveSyncedAttributes($record);
+
                 return;
             }
 
@@ -1666,6 +1718,9 @@ trait HasAutosaveBase
             );
 
             $refreshed = $this->refillAutosavePaths($record, $plan['refill']);
+            // Only now: a failed refill must leave the change visible to the
+            // next poll, or the timestamp fast path would hide it for good.
+            $this->rememberAutosaveSyncedAttributes($record);
         } catch (\Throwable $e) {
             $this->handleAutosaveFailure($e, 'sync');
 

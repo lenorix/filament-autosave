@@ -284,3 +284,39 @@ test('a patch applies on a long text with edits far from each other', function (
 test('a malformed patch is rejected', function () {
     expect(fn () => (new AutosaveTextMerge)->apply('text', "not a patch\n"))->toThrow(InvalidArgumentException::class);
 });
+
+test('a value that is not valid UTF-8 is rejected instead of being read as empty', function () {
+    $merge = new AutosaveTextMerge;
+
+    expect(fn () => $merge->merge('cafe au lait', 'cafe au lait!', "caf\xe9 au lait"))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(fn () => $merge->merge("caf\xe9", 'cafe', 'cafe'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => $merge->apply("caf\xe9 au lait", $merge->makePatch('a', 'b')))->toThrow(InvalidArgumentException::class);
+});
+
+test('a patch whose escapes decode to invalid UTF-8 is rejected as malformed', function () {
+    expect(fn () => (new AutosaveTextMerge)->apply('text', "@@ -1,4 +1,4 @@\n-%E0%A4%A\n+text\n"))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+test('a fuzzy-matched replacement lands its insertion where the deletion was', function () {
+    $merge = new AutosaveTextMerge;
+    $base = 'alpha beta gamma delta epsilon zeta';
+    $ours = 'alpha beta GAMMA delta epsilon zeta';
+    // The other editor touched the hunk's context, so it only matches fuzzily.
+    $theirs = 'alpha betA gamma deltA epsilon zeta';
+
+    $result = $merge->apply($theirs, $merge->makePatch($base, $ours));
+
+    expect($result->value)->toBe('alpha betA GAMMA deltA epsilon zeta')
+        ->and($result->applied)->toBe([true])
+        ->and($result->conflicts)->toBe([]);
+});
+
+test('a context-less patch never matches the synthetic padding', function () {
+    $merge = new AutosaveTextMerge;
+    $result = $merge->apply('hello world abc', $merge->makePatch('abc', 'xyz'));
+
+    expect($result->value)->not->toContain("\x01")
+        ->and($result->value)->toBe('hello world xyz');
+});

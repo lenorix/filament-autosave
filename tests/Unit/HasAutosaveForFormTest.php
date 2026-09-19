@@ -397,16 +397,47 @@ test('generic form saves acknowledge changed relationship state', function () {
 
     $field = new class
     {
+        public int $relationshipSaves = 0;
+
         public function getRelationship(): object
         {
             return new stdClass;
         }
+
+        public function getStatePath(): string
+        {
+            return 'data.tags';
+        }
+
+        public function saveRelationshipsBeforeChildren(): void {}
+
+        public function shouldSaveRelationshipsWhenDisabled(): bool
+        {
+            return false;
+        }
+
+        public function shouldSaveRelationshipsWhenHidden(): bool
+        {
+            return false;
+        }
+
+        public function getChildSchemas(bool $withHidden = false): array
+        {
+            return [];
+        }
+
+        public function saveRelationships(): void
+        {
+            $this->relationshipSaves++;
+        }
     };
-    $form = new class
+    $form = new class($field)
     {
         public int $relationshipSaves = 0;
 
         public array $state = ['tags' => [1]];
+
+        public function __construct(public object $field) {}
 
         public function getRawState(): array
         {
@@ -414,6 +445,11 @@ test('generic form saves acknowledge changed relationship state', function () {
         }
 
         public function fill(array $data): void {}
+
+        public function getComponents(bool $withActions = true, bool $withHidden = false): array
+        {
+            return [$this->field];
+        }
 
         public function saveRelationships(): void
         {
@@ -444,7 +480,9 @@ test('generic form saves acknowledge changed relationship state', function () {
     $component->form->state = ['tags' => [2]];
     (fn () => $this->persistAutosaveFormRecord($this->record, ['tags' => [2]]))->call($component);
 
-    expect($component->form->relationshipSaves)->toBe(1)
+    // The touched field persists itself; the whole schema is never saved.
+    expect($component->field->relationshipSaves)->toBe(1)
+        ->and($component->form->relationshipSaves)->toBe(0)
         ->and($component->autosaveFieldHashes['tags'])->toBe((fn (): string => $this->hashAutosaveValue([2]))->call($component));
 });
 

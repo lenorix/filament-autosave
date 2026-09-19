@@ -9,8 +9,8 @@ use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
-use InvalidArgumentException;
 use Lenorix\FilamentAutosave\Events\AutosaveConflict;
+use Throwable;
 
 /**
  * Merging of fields two editors change at once: plain text word by word,
@@ -364,8 +364,7 @@ trait HasAutosaveMerge
                     break;
                 }
 
-                // Raw, as the column holds it: the model's casts would decode it.
-                $theirs = $record->newQueryWithoutScopes()->whereKey($record->getKey())->toBase()->value($path);
+                $theirs = $this->autosaveMergeCurrentValue($record, $path);
 
                 if ($attempts > $retries) {
                     // Hand the browser the merge against the latest value so
@@ -416,8 +415,12 @@ trait HasAutosaveMerge
             $result = is_array($patch)
                 ? (new AutosaveTextMerge)->merge(is_string($patch['base']) ? $patch['base'] : '', $ours, $theirs)
                 : (new AutosaveTextMerge)->apply($theirs, $patch);
-        } catch (InvalidArgumentException) {
-            // A patch the engine cannot read is no patch: last write wins.
+        } catch (Throwable $e) {
+            // A patch or value the engine cannot read is no patch: last
+            // write wins, as for a field that sent none. Never let the
+            // engine take the whole cycle down.
+            Log::warning("Autosave could not merge {$path}; last write wins.", ['component' => static::class, 'exception' => $e::class, 'message' => $e->getMessage()]);
+
             return [$ours, $ours, []];
         }
 
@@ -455,6 +458,21 @@ trait HasAutosaveMerge
      * Comparing that column alone, not a row version, means a concurrent
      * write to another column never forces a retry.
      */
+    /**
+     * The value a column holds right now, raw as stored (the model's casts
+     * would decode it), for the merge to retry on.
+     *
+     * A locking read: the cycle runs inside a transaction, and under MySQL's
+     * REPEATABLE READ a plain SELECT would return the snapshot of the first
+     * read, so every retry would merge the same stale value and end
+     * contended. `FOR UPDATE` reads the committed value (and holds the row
+     * only until the conditional write that follows).
+     */
+    protected function autosaveMergeCurrentValue(Model $record, string $column): mixed
+    {
+        return $record->newQueryWithoutScopes()->whereKey($record->getKey())->toBase()->lockForUpdate()->value($column);
+    }
+
     protected function autosaveCompareAndSwap(Model $record, string $column, mixed $expected, string $value): bool
     {
         $query = $record->newQueryWithoutScopes()->whereKey($record->getKey());

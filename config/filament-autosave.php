@@ -10,7 +10,9 @@ return [
     // Draft lifetime, in hours.
     'draft_ttl' => 72,
 
-    // Save only fields changed since the edit page was loaded.
+    // Save only fields changed since the edit page was loaded. With this off
+    // every save writes the whole payload, so two editors of one record are
+    // last-write-wins at record level; refresh and polling are off as well.
     'dirty_only' => true,
 
     // After a successful dirty-only save, refresh clean top-level model fields
@@ -18,8 +20,8 @@ return [
     'refresh_unchanged_fields' => true,
 
     // Milliseconds between polls that pull other editors' changes into the
-    // fields this user is not editing. 0 disables polling. Requires
-    // refresh_unchanged_fields; the poll never overwrites a dirty field.
+    // fields this user is not editing. 0 disables polling. Off whenever
+    // refresh_unchanged_fields is; the poll never overwrites a dirty field.
     'poll_interval' => 5000,
 
     // Top-level text fields whose concurrent edits are merged instead of

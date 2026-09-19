@@ -3,17 +3,21 @@
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\BrokenMediaSnapshotUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\ClearMediaInHookEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\DropUploadColumnEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\EditFailingAfterValidateUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAfterSaveRowMediaPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAfterSaveUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\HaltingAfterSaveUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\HookedEditUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\LedgerSpyEditUploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\ValidatedEditUploadPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\HaltingAfterSaveRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\MediaItemsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\MediaItemsPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\MediaPostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\UploadPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditFailingStoragePost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Upload\EditMediaItemsPost;
@@ -66,6 +70,27 @@ test('a later hook failure removes files stored during the autosave cycle', func
 
     expect($post->refresh()->settings)->toBeNull()
         ->and(Storage::disk('public')->allFiles())->toBeEmpty();
+});
+
+test('a failed cycle never deletes media another editor added since this tab loaded', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+    $page = Livewire::test(FailingAfterSaveUploadPost::class, ['record' => $post->getKey()]);
+
+    // Another editor uploads to the gallery after this tab's page loaded.
+    $theirs = $post->addMediaFromString('theirs')->usingFileName('theirs.txt')->toMediaCollection('default', 'public');
+
+    // This tab's cycle fails in a hook: only what THIS cycle created may be rolled back.
+    $page->set('data.title', 'Changed')->call('autosave')
+        ->assertDispatched('autosave-status', status: 'error');
+
+    expect(Media::query()->where('uuid', $theirs->uuid)->exists())->toBeTrue()
+        ->and(Storage::disk('public')->exists($theirs->getPathRelativeToRoot()))->toBeTrue();
+
+    // A validation skip is a no-write cycle too.
+    $page->set('data.title', '')->call('autosave');
+
+    expect(Media::query()->where('uuid', $theirs->uuid)->exists())->toBeTrue()
+        ->and(Storage::disk('public')->exists($theirs->getPathRelativeToRoot()))->toBeTrue();
 });
 
 test('upload validation leaves existing files intact while another field saves', function () {
@@ -384,6 +409,38 @@ test('a failure after spatie media is written removes the file and forgets its l
 
     expect($post->fresh()->getMedia())->toHaveCount(0);
     expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
+});
+
+test('a Halt that keeps the transaction keeps the stored files and acknowledges the write', function (string $component) {
+    $post = $component === HaltingAfterSaveUploadPost::class ? UploadPost::create(['title' => 'Original']) : Post::create(['title' => 'Original']);
+    $page = Livewire::test($component, ['record' => $component === HaltingAfterSaveUploadPost::class ? $post->getKey() : $post]);
+
+    $page->set('data.settings', [UploadedFile::fake()->create('document.txt', 1)])
+        ->set('data.title', 'Changed')
+        ->call('autosave');
+
+    // The columns were committed (Halt's default), so the file they point at must exist...
+    $paths = $post->refresh()->settings;
+    expect($post->title)->toBe('Changed')
+        ->and($paths)->toHaveCount(1);
+    Storage::disk('public')->assertExists($paths[0]);
+
+    // ...and the write is acknowledged: nothing left to write next cycle.
+    Post::query()->whereKey($post->getKey())->update(['title' => 'Someone else']);
+    $page->call('autosave');
+    expect($post->fresh()->title)->toBe('Someone else')
+        ->and(Storage::disk('public')->allFiles())->toHaveCount(1);
+})->with([HaltingAfterSaveUploadPost::class, HaltingAfterSaveRecordForm::class]);
+
+test('a spatie file is removed through its ledger token when the media snapshot itself fails', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+
+    Livewire::test(BrokenMediaSnapshotUploadPost::class, ['record' => $post->getKey()])
+        ->set('data.gallery', [UploadedFile::fake()->create('media.txt', 1)])
+        ->call('autosave')->assertDispatched('autosave-status', status: 'error');
+
+    expect(Storage::disk('public')->allFiles())->toBeEmpty()
+        ->and(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
 });
 
 test('an untouched FileUpload does not disable undo for a column-only edit page autosave', function () {

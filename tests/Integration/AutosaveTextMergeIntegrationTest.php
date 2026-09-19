@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\MySqlConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
@@ -167,6 +168,35 @@ test('a mergeable field saved without a patch stays last-write-wins', function (
         ->and(lastMergeStatus($b, 'saved'))->toMatchArray(['merged' => [], 'conflicts' => []]);
 });
 
+test('a patch the engine cannot read never takes the cycle down: the field is saved last-write-wins', function () {
+    Log::spy();
+    $post = Post::create(['title' => 'The quick brown fox', 'slug' => 'fox']);
+    $b = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()]);
+
+    Post::query()->whereKey($post->getKey())->update(['title' => 'A quick brown fox']);
+
+    // A truncated escape decodes to invalid UTF-8.
+    $b->set('data.title', 'The quick brown fox jumps')
+        ->call('autosave', ['title' => "@@ -1,19 +1,25 @@\n-%E0%A4%A\n+The quick brown fox jumps\n"])
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->title)->toBe('The quick brown fox jumps');
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message): bool => str_contains($message, 'could not merge title'))->once();
+});
+
+test('a stored value that is not valid UTF-8 is never read as empty by the merge', function () {
+    $post = Post::create(['title' => 'cafe au lait', 'slug' => 'fox']);
+    $b = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()]);
+
+    DB::table($post->getTable())->where('id', $post->getKey())->update(['title' => "caf\xe9 au lait"]);
+
+    $b->set('data.title', 'cafe au lait!')
+        ->call('autosave', ['title' => mergePatch('cafe au lait', 'cafe au lait!')])
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->title)->toBe('cafe au lait!');
+});
+
 test('a field not listed as mergeable ignores its patch and stays last-write-wins', function () {
     $post = Post::create(['title' => 'Title', 'slug' => 'the quick fox']);
     $b = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()]);
@@ -309,6 +339,28 @@ test('retries back off from 5 ms doubling to 100 ms', function () {
     expect(MergeEditPost::$waits)->toBe([5, 10, 20, 40, 80, 100, 100, 100, 100, 100])
         ->and(array_sum(MergeEditPost::$waits))->toBe(655)
         ->and($attempt)->toBe(11);
+});
+
+test('the re-read after a failed conditional write is a locking read', function () {
+    // Under MySQL REPEATABLE READ a plain SELECT inside the cycle's
+    // transaction returns the snapshot taken by the first read, so every
+    // retry would merge the same stale value and end contended. SQLite has
+    // no snapshot to expose this, so the SQL is pinned through the MySQL
+    // grammar in pretend mode.
+    config(['database.connections.pretend-mysql' => ['driver' => 'mysql', 'database' => 'pretend']]);
+    app('db')->extend('pretend-mysql', fn (array $config, string $name): MySqlConnection => new MySqlConnection(
+        fn () => throw new LogicException('pretend mode never touches PDO'), 'pretend', '', [...$config, 'name' => $name],
+    ));
+    $post = Post::create(['title' => 'alpha beta gamma', 'slug' => 'greek']);
+    $page = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()])->instance();
+    $post->setConnection('pretend-mysql');
+
+    $queries = DB::connection('pretend-mysql')->pretend(function () use ($page, $post): void {
+        (fn () => $this->autosaveMergeCurrentValue($post, 'title'))->call($page);
+    });
+
+    expect($queries)->toHaveCount(1)
+        ->and(strtolower($queries[0]['query']))->toContain('for update');
 });
 
 test('a concurrent change to another column does not cause a retry', function () {

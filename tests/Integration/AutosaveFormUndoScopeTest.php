@@ -80,3 +80,23 @@ test('undo is still blocked by an external adapter mismatch on the touched relat
 
     expect($post->fresh()->authors->modelKeys())->toBe([$second->getKey()]);
 });
+
+test('a generic form autosave writes only the relationships it touched, never a stale untouched one', function () {
+    $post = Post::create(['title' => 'Post']);
+    $first = Author::create(['name' => 'First']);
+    $second = Author::create(['name' => 'Second']);
+    $post->authors()->attach($first);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Original', 'position' => 1]);
+
+    $page = Livewire::test(TwoRelationshipsRecordForm::class, ['record' => $post]);
+
+    // Another editor changes `items` after this tab loaded its (now stale) copy.
+    $item->update(['label' => 'Changed elsewhere']);
+
+    // This tab only touches `authors`.
+    $page->set('data.authors', [$second->getKey()])->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->authors->modelKeys())->toBe([$second->getKey()])
+        ->and(PostItem::query()->whereKey($item->getKey())->value('label'))->toBe('Changed elsewhere');
+});

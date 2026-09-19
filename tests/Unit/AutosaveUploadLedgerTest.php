@@ -39,6 +39,19 @@ test('committed uploads are removed from the ledger and pruning removes stale en
     expect($stale)->toBeString();
 });
 
+test('a lone interrupted upload is still in the ledger when its entry becomes prunable', function () {
+    // The array cache store honours TTLs against the (frozen) clock.
+    config(['filament-autosave.upload_ledger_ttl' => 30]);
+    Storage::disk('public')->put('interrupted.txt', 'interrupted');
+    $ledger = app(AutosaveUploadLedger::class);
+    $ledger->register([['disk' => 'public', 'path' => 'interrupted.txt']]);
+
+    $this->travel(31)->minutes();
+
+    expect($ledger->prune())->toBe(1);
+    Storage::disk('public')->assertMissing('interrupted.txt');
+});
+
 test('a ledger token remains available until the database commit callback runs', function () {
     Storage::disk('public')->put('pending.txt', 'pending');
     $ledger = app(AutosaveUploadLedger::class);

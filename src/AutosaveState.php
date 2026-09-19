@@ -22,11 +22,13 @@ class AutosaveState
     /**
      * Remove temporary uploads from a payload before it is stored.
      *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
+     * @param  array<array-key, mixed>  $data
+     * @return array<array-key, mixed>
      */
     public static function stripUploads(array $data): array
     {
+        $list = array_is_list($data);
+
         foreach ($data as $key => $value) {
             if ($value instanceof TemporaryUploadedFile) {
                 unset($data[$key]);
@@ -35,7 +37,8 @@ class AutosaveState
             }
         }
 
-        return $data;
+        // A multi-file list with a gap would reach a JSON column as an object.
+        return $list ? array_values($data) : $data;
     }
 
     private static function hasUploads(array $value): bool
