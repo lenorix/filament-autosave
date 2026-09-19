@@ -87,6 +87,28 @@ class AutosavePlugin implements Plugin
         return (int) (config('filament-autosave.poll_interval') ?? self::shippedDefault('poll_interval'));
     }
 
+    protected bool|Closure|null $pollRelationships = null;
+
+    /**
+     * Whether polls also refresh clean relationship, upload and media fields
+     * (one extra query per poll); `null` defers to the config file.
+     */
+    public function pollRelationships(bool|Closure|null $condition = true): static
+    {
+        $this->pollRelationships = $condition;
+
+        return $this;
+    }
+
+    public function getPollRelationships(): bool
+    {
+        if ($this->pollRelationships !== null) {
+            return (bool) $this->evaluate($this->pollRelationships);
+        }
+
+        return (bool) (config('filament-autosave.poll_relationships') ?? self::shippedDefault('poll_relationships'));
+    }
+
     /** @var array<string>|Closure|null */
     protected array|Closure|null $mergeFields = null;
 

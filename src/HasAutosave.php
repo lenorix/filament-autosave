@@ -152,6 +152,12 @@ trait HasAutosave
         $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
     }
 
+    /** A relation a poll re-read is not pending: its hash is the new baseline. */
+    protected function acknowledgeAutosaveRefreshedRelation(string $path, array $components): void
+    {
+        $this->autosaveRelationshipHashes[$path] = $this->autosaveRelationshipHash($components);
+    }
+
     /**
      * Filament's partial refresh applies casts and fill hooks like a normal
      * fill, but cannot carry an array attribute; those are filled whole.
