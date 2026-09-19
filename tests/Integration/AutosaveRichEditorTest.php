@@ -1,12 +1,9 @@
 <?php
 
 use Filament\Forms\Components\RichEditor;
-use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Schema;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostResource;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PlainRichEditorEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PlainRichEditorRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PlainRichPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RichUploadEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RichUploadPost;
 use Livewire\Livewire;
@@ -46,31 +43,6 @@ test('rich editor attachment cleanup runs during autosave and disables undo', fu
         ->and($page->get('autosaveCanUndo'))->toBeFalse();
 });
 
-class PlainRichPost extends Post
-{
-    protected $table = 'posts';
-
-    protected $fillable = ['title', 'body'];
-}
-
-class PlainRichEditorPostResource extends PostResource
-{
-    protected static ?string $model = PlainRichPost::class;
-
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title')->required(),
-            RichEditor::make('body'),
-        ]);
-    }
-}
-
-class PlainRichEditorEditPost extends EditPost
-{
-    protected static string $resource = PlainRichEditorPostResource::class;
-}
-
 test('a plain rich editor without attachments autosaves its content as a column', function () {
     $post = PlainRichPost::create(['title' => 'Post', 'body' => '<p>old</p>']);
 
@@ -99,20 +71,6 @@ test('a rich editor with an attachment provider keeps its content while cleaning
     expect($post->fresh()->body)->toBe($body)
         ->and($post->fresh()->getMedia('content'))->toHaveCount(0);
 });
-
-class PlainRichEditorRecordForm extends AutosaveUploadRecordForm
-{
-    public function form(Schema $schema): Schema
-    {
-        return $schema
-            ->model($this->record)
-            ->components([
-                TextInput::make('title'),
-                RichEditor::make('body'),
-            ])
-            ->statePath('data');
-    }
-}
 
 test('a generic record form autosaves plain rich editor content', function () {
     $post = PlainRichPost::create(['title' => 'Post', 'body' => '<p>old</p>']);

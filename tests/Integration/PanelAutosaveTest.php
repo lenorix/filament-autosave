@@ -4,15 +4,8 @@ use Lenorix\FilamentAutosave\AutosaveManager;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\ValidatedEditPost;
 use Livewire\Livewire;
-
-class ValidatedEditPost extends EditPost
-{
-    protected function getAutosaveValidationRules(): array
-    {
-        return ['title' => ['max:3']];
-    }
-}
 
 test('panel edit pages commit autosaved changes to the database', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);

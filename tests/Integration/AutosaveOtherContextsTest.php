@@ -6,6 +6,7 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveActionForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveCommentForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveCommentsRelationManager;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveDropUploadRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveTableForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadForm;
@@ -13,16 +14,6 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveUploadRecordForm
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Comment;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Livewire;
-
-class AutosaveDropUploadRecordForm extends AutosaveUploadRecordForm
-{
-    protected function mutateFormDataBeforeSave(array $data): array
-    {
-        unset($data['settings']);
-
-        return $data;
-    }
-}
 
 test('a relation manager can opt into an isolated autosave draft', function () {
     $post = Post::create(['title' => 'Post']);

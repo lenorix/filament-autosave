@@ -1,24 +1,12 @@
 <?php
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\CreatePost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\FailingAutosaveEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
-
-class FailingAutosaveEditPost extends EditPost
-{
-    protected ?bool $hasDatabaseTransactions = true;
-
-    protected function handleRecordUpdate(Model $record, array $data): Model
-    {
-        parent::handleRecordUpdate($record, $data);
-
-        throw new RuntimeException('Failure after writing the record');
-    }
-}
 
 test('a failed autosave undoes a genuine database update', function () {
     $post = Post::create(['title' => 'Original']);

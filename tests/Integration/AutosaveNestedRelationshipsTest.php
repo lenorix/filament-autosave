@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Lenorix\FilamentAutosave\HasAutosave;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
@@ -16,6 +15,8 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostSubSubItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RelationshipEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RelationshipSavingHookEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\UnsavedAlertEditPost;
 use Livewire\Livewire;
 
 test('autosave persists a changed belongsTo relation from a real select', function () {
@@ -315,14 +316,6 @@ test('autosave persists a morphMany repeater and restores it with undo', functio
     expect($comment->fresh()->body)->toBe('Original');
 });
 
-class UnsavedAlertEditPost extends RelationshipEditPost
-{
-    protected function hasUnsavedDataChangesAlert(): bool
-    {
-        return true;
-    }
-}
-
 test('a relationship-only autosave re-baselines the native unsaved-changes alert', function () {
     $post = Post::create(['title' => 'Post']);
     $first = Author::create(['name' => 'First']);
@@ -445,21 +438,6 @@ test('an unresolved pending relationship is reported as pending instead of silen
         ->call('autosave')
         ->assertDispatched('autosave-status', fn (string $event, array $params): bool => in_array('items', $params['pending'] ?? [], true));
 });
-
-/**
- * Mirrors translatable Edit-page concerns (lara-zeus/spatie-translatable,
- * Filament's own): their handleRecordUpdate() calls $this->form->getState(),
- * which is Filament's full save path and persists relationships itself.
- */
-class RelationshipSavingHookEditPost extends DeepRelationshipEditPost
-{
-    protected function handleRecordUpdate(Model $record, array $data): Model
-    {
-        $this->form->fill($this->form->getState());
-
-        return parent::handleRecordUpdate($record, $data);
-    }
-}
 
 test('a new nested row is created once when handleRecordUpdate() already saves the form relationships', function () {
     $post = Post::create(['title' => 'Post']);

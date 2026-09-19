@@ -1,64 +1,16 @@
 <?php
 
-use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
-use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Schema;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BudgetMediaEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BudgetMediaPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\BudgetMediaPostItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostItem;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\PostResource;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\RelationshipEditPost;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
-use Spatie\MediaLibrary\HasMedia;
-use Spatie\MediaLibrary\InteractsWithMedia;
-
-class BudgetMediaPostItem extends PostItem implements HasMedia
-{
-    use InteractsWithMedia;
-
-    protected $table = 'post_items';
-}
-
-class BudgetMediaPost extends Post implements HasMedia
-{
-    use InteractsWithMedia;
-
-    protected $table = 'posts';
-
-    public function items(): HasMany
-    {
-        return $this->hasMany(BudgetMediaPostItem::class, 'post_id');
-    }
-}
-
-class BudgetMediaPostResource extends PostResource
-{
-    protected static ?string $model = BudgetMediaPost::class;
-
-    public static function form(Schema $schema): Schema
-    {
-        return $schema->components([
-            TextInput::make('title')->required(),
-            SpatieMediaLibraryFileUpload::make('gallery')->multiple()->disk('public'),
-            Repeater::make('items')
-                ->relationship('items')
-                ->schema([
-                    TextInput::make('label')->required(),
-                    SpatieMediaLibraryFileUpload::make('images')->multiple()->disk('public'),
-                ]),
-        ]);
-    }
-}
-
-class BudgetMediaEditPost extends EditPost
-{
-    protected static string $resource = BudgetMediaPostResource::class;
-}
 
 beforeEach(function () {
     Storage::fake('public');
