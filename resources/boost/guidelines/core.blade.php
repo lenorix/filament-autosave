@@ -84,6 +84,13 @@ Hooks:
 - `afterAutosave(object $record): void` (edit pages)
 - `clearAutosaveDraft()` (create/custom pages)
 
+## Events
+
+All traits dispatch `Lenorix\FilamentAutosave\Events\{AutosaveSaved,
+AutosaveSkipped, AutosaveFailed, AutosaveUndone, AutosaveConflict}` as objects
+(`record` is `null` for drafts); hook monitoring to these, not to the Livewire
+`autosave-status` event.
+
 ## Explicit saves
 
 `autosave()` is the background entry point: it never throws and reports

@@ -209,6 +209,22 @@ them inline. Exceptions thrown by `beforeAutosave()`, custom rules, hooks, or
 persistence propagate unchanged, and Filament's `Halt` propagates so the
 surrounding action can stop cleanly. It is available on every autosave trait.
 
+### Events
+
+Every trait dispatches plain Laravel events so the host can observe autosave
+without touching the indicator: `Lenorix\FilamentAutosave\Events\AutosaveSaved`
+(`page`, `record`, `data`, `pending`), `AutosaveSkipped` (`reason` is
+`validation` or `unchanged`, plus `pending` and `errors`), `AutosaveFailed`
+(`exception`, `context` of `save`, `undo` or `restore`), `AutosaveUndone` and
+`AutosaveConflict` (`page`, `record`). `record` is `null` for drafts and Create
+pages. They are dispatched as objects, so type-hinted listeners work:
+
+```php
+Event::listen(AutosaveFailed::class, function (AutosaveFailed $event): void {
+    report($event->exception);
+});
+```
+
 ## Undo
 
 Undo is available for five seconds after a successful Edit save. The snapshot

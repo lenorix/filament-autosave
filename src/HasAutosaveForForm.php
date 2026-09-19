@@ -447,7 +447,7 @@ trait HasAutosaveForForm
             if ((method_exists($record, 'only') && AutosaveStore::normalizeScalars($record->only(array_keys($expected))) !== $expected)
                 || ($expectedRelationships !== null && $this->autosaveFormRelationshipHasConflict($expectedRelationships))) {
                 $this->resetAutosaveFormUndo();
-                $this->dispatchAutosaveStatus(AutosaveStatus::Conflict);
+                $this->dispatchAutosaveConflict();
 
                 return;
             }
@@ -460,7 +460,7 @@ trait HasAutosaveForForm
 
             if (! $this->autosaveExternalUndoMatches($expectedExternal ?? [], $externalFields)) {
                 $this->resetAutosaveFormUndo();
-                $this->dispatchAutosaveStatus(AutosaveStatus::Conflict);
+                $this->dispatchAutosaveConflict();
 
                 return;
             }
@@ -500,7 +500,7 @@ trait HasAutosaveForForm
                 $this->getSavedNotification()?->send();
             }
 
-            $this->dispatchAutosaveStatus(AutosaveStatus::Undone);
+            $this->dispatchAutosaveUndone();
         } catch (\Throwable $e) {
             $this->handleAutosaveFailure($e, 'undo');
         }
@@ -816,5 +816,13 @@ trait HasAutosaveForForm
     protected function getAutosaveCacheKey(): string
     {
         return $this->autosaveStore()->cacheKey(static::class.':'.$this->getAutosaveFormContext());
+    }
+
+    /** A draft's unsaved model instance is not a record anyone can act on. */
+    protected function autosaveEventRecord(): ?object
+    {
+        $record = $this->getAutosaveFormRecord();
+
+        return $record?->exists ? $record : null;
     }
 }

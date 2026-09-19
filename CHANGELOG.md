@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add package events (`AutosaveSaved`, `AutosaveSkipped`, `AutosaveFailed`,
+  `AutosaveUndone`, `AutosaveConflict`) dispatched as objects from every trait,
+  so hosts can monitor autosave outcomes; failures previously only reached a
+  `Log::warning` with the exception class.
 - **Behaviour change:** every autosave write now runs inside a database
   transaction. Filament's `beginDatabaseTransaction()` is a no-op unless the
   panel opts in with `Panel::databaseTransactions()` (off by default), so a hook

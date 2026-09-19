@@ -16,6 +16,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Lenorix\FilamentAutosave\Events\AutosaveConflict;
+use Lenorix\FilamentAutosave\Events\AutosaveFailed;
+use Lenorix\FilamentAutosave\Events\AutosaveSaved;
+use Lenorix\FilamentAutosave\Events\AutosaveSkipped;
+use Lenorix\FilamentAutosave\Events\AutosaveUndone;
 use Livewire\Attributes\Locked;
 
 trait HasAutosaveBase
@@ -298,6 +303,7 @@ trait HasAutosaveBase
 
             if (! $this->hasPendingAutosavePersistence() && $this->autosaveStore()->snapshotHash($data) === $this->autosaveSnapshotHash) {
                 $this->dispatchAutosaveIdle();
+                Event::dispatch(new AutosaveSkipped($this, 'unchanged', [], []));
 
                 return;
             }
@@ -334,6 +340,13 @@ trait HasAutosaveBase
             $this->autosaveSnapshotHash = $this->autosaveSuccessSnapshotHash(is_array($written) ? $written : $data);
             $this->commitAutosaveStoredUploads();
             $this->autosaveCycleWrote = true;
+
+            Event::dispatch(new AutosaveSaved(
+                $this,
+                $this->autosaveEventRecord(),
+                is_array($written) ? $written : $data,
+                $this->autosavePendingFields,
+            ));
 
             $this->dispatchAutosaveStatus(
                 $this->autosaveValidationErrors === [] ? AutosaveStatus::Saved : AutosaveStatus::Validation,
@@ -410,6 +423,31 @@ trait HasAutosaveBase
     {
         $this->discardAutosaveStoredUploads();
         $this->dispatchAutosaveValidationOrIdle();
+
+        Event::dispatch(new AutosaveSkipped(
+            $this,
+            $this->autosaveValidationErrors === [] ? 'unchanged' : 'validation',
+            $this->autosavePendingFields,
+            $this->autosaveValidationErrors,
+        ));
+    }
+
+    /** The record an event should carry; overridden where the trait knows one. */
+    protected function autosaveEventRecord(): ?object
+    {
+        return null;
+    }
+
+    protected function dispatchAutosaveUndone(): void
+    {
+        $this->dispatchAutosaveStatus(AutosaveStatus::Undone);
+        Event::dispatch(new AutosaveUndone($this, $this->autosaveEventRecord()));
+    }
+
+    protected function dispatchAutosaveConflict(): void
+    {
+        $this->dispatchAutosaveStatus(AutosaveStatus::Conflict);
+        Event::dispatch(new AutosaveConflict($this, $this->autosaveEventRecord()));
     }
 
     /** Allow Edit pages to put hooks, writes, and events in one transaction. */
@@ -766,6 +804,7 @@ trait HasAutosaveBase
         Log::warning("Autosave {$context} failed", ['exception' => $e::class]);
 
         $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Error->value);
+        Event::dispatch(new AutosaveFailed($this, $e, $context));
     }
 
     /**
