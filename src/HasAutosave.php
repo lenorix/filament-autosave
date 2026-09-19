@@ -760,7 +760,11 @@ trait HasAutosave
 
         $formsVersion = InstalledVersions::getPrettyVersion('filament/forms');
 
-        if (! is_string($formsVersion) || version_compare(ltrim($formsVersion, 'v'), '5.0.0', '>=')) {
+        // Filament 4.0's schema implementation is the only supported release
+        // whose translatable hook drops relationship saves. Later Filament 4
+        // releases already persist them, so running the fallback there would
+        // save the same relationship twice.
+        if (! is_string($formsVersion) || version_compare(ltrim($formsVersion, 'v'), '4.1.0', '>=')) {
             return false;
         }
 
