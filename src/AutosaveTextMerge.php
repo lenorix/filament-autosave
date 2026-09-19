@@ -400,7 +400,7 @@ final class AutosaveTextMerge
             $suffix = array_pop($diffs)[1];
         }
 
-        return [$prefix, array_values($diffs), $suffix];
+        return [$prefix, $diffs, $suffix];
     }
 
     /**

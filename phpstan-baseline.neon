@@ -97,6 +97,12 @@ parameters:
 			path: src/HasAutosaveForForm.php
 
 		-
+			message: '#^Trait Lenorix\\FilamentAutosave\\HasAutosaveMerge is used zero times and is not analysed\.$#'
+			identifier: trait.unused
+			count: 1
+			path: src/HasAutosaveMerge.php
+
+		-
 			message: '#^Trait Lenorix\\FilamentAutosave\\HasAutosaveUploads is used zero times and is not analysed\.$#'
 			identifier: trait.unused
 			count: 1

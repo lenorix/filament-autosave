@@ -443,10 +443,14 @@ trait HasAutosave
     /**
      * Background entry point: never throws, reports through the indicator.
      *
+     * @param  array<string, string|array{base: string, ours: string}>  $mergePatches  Per mergeable field, a diff-match-patch patch of the browser's change (or the base it started from). See HasAutosaveMerge.
+     *
      * @api
      */
-    public function autosave(): void
+    public function autosave(array $mergePatches = []): void
     {
+        $this->acceptAutosaveMergePatches($mergePatches);
+
         $this->performAutosave(function (array $data): array|false {
             $data = $this->storeAutosavePendingUploads($data);
             $uploads = $this->consumePendingUploads($data);
@@ -500,10 +504,18 @@ trait HasAutosave
             $this->prepareAutosavePayload($this->getAutosaveData()), $data,
         ));
 
-        $this->writeAutosave($data, $uploads, $relationships);
+        // Merged columns come back with the value actually stored; a column
+        // left contended is dropped so nothing acknowledges the user's text.
+        $data = $this->writeAutosave($data, $uploads, $relationships);
+        $this->autosaveWrittenFieldHashes = array_diff_key($this->autosaveWrittenFieldHashes, $this->autosaveContendedValues);
+        $this->markAutosavePendingFields($this->autosaveContendedPaths());
 
         $this->getRecord()->refresh();
         $this->refreshAutosaveUnchangedFields();
+        $this->refreshAutosaveMergedFields($this->getRecord());
+        $this->autosaveWrittenFieldHashes = array_replace($this->autosaveWrittenFieldHashes, array_intersect_key(
+            $this->autosaveFieldHashes ?? [], array_diff_key($this->autosaveMergedValues, $this->autosaveContendedValues),
+        ));
         $this->storeUndoExpectedSnapshot(array_keys($data));
         $this->storeUndoExpectedRelationshipSnapshot($relationships);
         $this->acknowledgeAutosaveUploads($uploads, $data);
@@ -749,9 +761,16 @@ trait HasAutosave
             $fingerprints = $data !== [] && $relationships !== []
                 ? $this->captureAutosaveRelationshipUndoFields($relationships)
                 : [];
+            $merge = $this->extractAutosaveMergeColumns($data);
 
             if ($data !== []) {
                 $this->handleRecordUpdate($this->getRecord(), $data);
+            }
+
+            if ($merge !== []) {
+                $result = $this->writeAutosaveMergeColumns($this->getRecord(), $merge);
+                $data = array_replace($data, $result['written']);
+                $this->rememberAutosaveMergeUndo($result['previous']);
             }
 
             $this->persistAutosaveUploadRelationships($uploads);
@@ -969,6 +988,25 @@ trait HasAutosave
         }
 
         return $this->autosaveUndo()->put(AutosaveUndo::VALUES, $previous);
+    }
+
+    /**
+     * A merged column's "before" value is the one it was finally written
+     * over, which a retry may have re-read; a contended column was not
+     * written, so Undo must not touch it either.
+     *
+     * @param  array<string, mixed>  $previous
+     */
+    protected function rememberAutosaveMergeUndo(array $previous): void
+    {
+        $undo = $this->autosaveUndo();
+        $values = array_diff_key($undo->get(AutosaveUndo::VALUES) ?? [], $this->autosaveContendedValues);
+
+        foreach ($previous as $path => $value) {
+            $values[$path] = $this->normalizeUndoSnapshot([$path => $value])[$path] ?? null;
+        }
+
+        $undo->replace(AutosaveUndo::VALUES, $values);
     }
 
     /** Store the values written by this autosave for optimistic Undo checks. */
