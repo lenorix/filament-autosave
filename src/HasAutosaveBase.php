@@ -354,39 +354,12 @@ trait HasAutosaveBase
             return;
         }
 
+        // Outer call: own the cycle, wrap it in the transaction, and turn
+        // whatever escapes it into an indicator status (or rethrow for
+        // flushAutosave()). The cycle re-enters this method with
+        // $autosaveCycleActive set and runs the phases below.
         if (! $this->autosaveCycleActive) {
-            $this->autosaveCycleActive = true;
-            $this->autosaveCycleWrote = false;
-
-            try {
-                $this->runAutosaveCycle(fn () => $this->performAutosave($persist));
-            } catch (Halt $e) {
-                $this->discardAutosaveStoredUploads();
-                $this->dispatchAutosaveIdle();
-
-                if ($this->autosaveThrows) {
-                    throw $e;
-                }
-            } catch (ValidationException $e) {
-                $this->discardAutosaveStoredUploads();
-
-                if ($this->autosaveThrows) {
-                    $this->dispatchAutosaveValidationOrIdle();
-
-                    throw $e;
-                }
-
-                $this->handleAutosaveFailure($e, 'save');
-            } catch (\Throwable $e) {
-                $this->discardAutosaveStoredUploads();
-                $this->handleAutosaveFailure($e, 'save');
-
-                if ($this->autosaveThrows) {
-                    throw $e;
-                }
-            } finally {
-                $this->autosaveCycleActive = false;
-            }
+            $this->runGuardedAutosaveCycle($persist);
 
             return;
         }
@@ -394,95 +367,206 @@ trait HasAutosaveBase
         $this->isAutosaving = true;
 
         try {
-            if (method_exists($this, 'resetAutosaveRefreshState')) {
-                $this->resetAutosaveRefreshState();
-            }
-
-            $this->authorizeAutosaveAccess();
-
-            // Filament calls this before reading form state, so hooks can
-            // normalize or populate values that the rest of the cycle sees.
-            $this->callAutosaveHook('beforeValidate');
-
-            $this->prepareAutosavePersistence();
-
-            $data = $this->autosavePersistenceData();
-
-            if (! $this->hasPendingAutosavePersistence() && $this->autosaveStore()->snapshotHash($data) === $this->autosaveSnapshotHash) {
-                $this->dispatchAutosaveIdle();
-                Event::dispatch(new AutosaveSkipped($this, 'unchanged', [], []));
-
-                return;
-            }
-
-            // Hooks and validation receive the complete eligible form state.
-            // Dirty-only filtering is a persistence concern: applying it here
-            // would remove unchanged fields that cross-field rules or mutators
-            // need to inspect.
-            $data = $this->beforeAutosave($data);
-            $data = $this->validateAutosaveFields($data);
-            $data = $this->enforceFieldOptionRules($data);
-            $this->syncAutosaveValidationErrors();
-
-            if ($this->autosaveThrows && $this->autosaveValidationErrors !== []) {
-                throw $this->autosaveValidationException();
-            }
-
-            $this->callAutosaveHook('afterValidate');
-
-            if ($this->autosaveHasNothingToPersist($data)) {
-                $this->finishAutosaveWithoutWrite();
-
-                return;
-            }
-
-            $written = $this->runAutosavePersistence($persist, $data);
-
-            if ($written === false) {
-                $this->finishAutosaveWithoutWrite();
-
-                return;
-            }
-
-            $this->autosaveSnapshotHash = $this->autosaveSuccessSnapshotHash(is_array($written) ? $written : $data);
-            $this->commitAutosaveStoredUploads();
-            $this->autosaveCycleWrote = true;
-
-            Event::dispatch(new AutosaveSaved(
-                $this,
-                $this->autosaveEventRecord(),
-                is_array($written) ? $written : $data,
-                $this->autosavePendingFields,
-            ));
-
-            $this->dispatchAutosaveStatus(
-                $this->autosaveValidationErrors === [] ? AutosaveStatus::Saved : AutosaveStatus::Validation,
-                [
-                    'timestamp' => now()->isoFormat('LT'),
-                    'errors' => $this->autosaveValidationErrors,
-                    'pending' => $this->autosavePendingFields,
-                    'refreshed' => method_exists($this, 'getAutosaveRefreshState')
-                        ? $this->getAutosaveRefreshState()
-                        : [],
-                ],
-            );
-        } catch (Halt $e) {
-            if ($this->autosaveCycleActive) {
-                throw $e;
-            }
-
-            $this->discardAutosaveStoredUploads();
-            $this->dispatchAutosaveIdle();
-        } catch (\Throwable $e) {
-            if ($this->autosaveCycleActive) {
-                throw $e;
-            }
-
-            $this->discardAutosaveStoredUploads();
-            $this->handleAutosaveFailure($e, 'save');
+            $this->runAutosavePhases($persist);
         } finally {
             $this->isAutosaving = false;
         }
+    }
+
+    /**
+     * The single place where a failing cycle is handled.
+     *
+     * Every exception thrown by a phase reaches this catch: the inner call
+     * runs with $autosaveCycleActive set, so it never handles errors itself.
+     * Halt is Filament's "stop quietly" signal, validation aborts before any
+     * write, anything else is reported as an autosave error; with
+     * flushAutosave() active each is rethrown after the same cleanup.
+     */
+    protected function runGuardedAutosaveCycle(callable $persist): void
+    {
+        $this->autosaveCycleActive = true;
+        $this->autosaveCycleWrote = false;
+
+        try {
+            $this->runAutosaveCycle(fn () => $this->performAutosave($persist));
+        } catch (Halt $e) {
+            $this->discardAutosaveStoredUploads();
+            $this->dispatchAutosaveIdle();
+
+            if ($this->autosaveThrows) {
+                throw $e;
+            }
+        } catch (ValidationException $e) {
+            $this->discardAutosaveStoredUploads();
+
+            if ($this->autosaveThrows) {
+                $this->dispatchAutosaveValidationOrIdle();
+
+                throw $e;
+            }
+
+            $this->handleAutosaveFailure($e, 'save');
+        } catch (\Throwable $e) {
+            $this->discardAutosaveStoredUploads();
+            $this->handleAutosaveFailure($e, 'save');
+
+            if ($this->autosaveThrows) {
+                throw $e;
+            }
+        } finally {
+            $this->autosaveCycleActive = false;
+        }
+    }
+
+    /**
+     * authorize → prepare → validate → persist → commit → report.
+     *
+     * A phase returns null to end the cycle early; each early exit has
+     * already reported its own status.
+     */
+    protected function runAutosavePhases(callable $persist): void
+    {
+        $this->autosaveAuthorizePhase();
+
+        $data = $this->autosavePreparePhase();
+
+        if ($data === null) {
+            return;
+        }
+
+        $data = $this->autosaveValidatePhase($data);
+
+        if ($data === null) {
+            return;
+        }
+
+        $written = $this->autosavePersistPhase($persist, $data);
+
+        if ($written === null) {
+            return;
+        }
+
+        $this->autosaveCommitPhase($written);
+        $this->autosaveReportPhase($written);
+    }
+
+    protected function autosaveAuthorizePhase(): void
+    {
+        if (method_exists($this, 'resetAutosaveRefreshState')) {
+            $this->resetAutosaveRefreshState();
+        }
+
+        $this->authorizeAutosaveAccess();
+    }
+
+    /**
+     * Collect the eligible state. Returns null when nothing changed since the
+     * last acknowledged snapshot, which is the common idle tick.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function autosavePreparePhase(): ?array
+    {
+        // Filament calls this before reading form state, so hooks can
+        // normalize or populate values that the rest of the cycle sees.
+        $this->callAutosaveHook('beforeValidate');
+
+        $this->prepareAutosavePersistence();
+
+        $data = $this->autosavePersistenceData();
+
+        if (! $this->hasPendingAutosavePersistence() && $this->autosaveStore()->snapshotHash($data) === $this->autosaveSnapshotHash) {
+            $this->dispatchAutosaveIdle();
+            Event::dispatch(new AutosaveSkipped($this, 'unchanged', [], []));
+
+            return null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Run hooks and validation over the complete eligible state and drop
+     * what may not be written. Returns null when nothing is left to persist.
+     *
+     * Dirty-only filtering is a persistence concern: applying it here would
+     * remove unchanged fields that cross-field rules or mutators need to
+     * inspect.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>|null
+     */
+    protected function autosaveValidatePhase(array $data): ?array
+    {
+        $data = $this->beforeAutosave($data);
+        $data = $this->validateAutosaveFields($data);
+        $data = $this->enforceFieldOptionRules($data);
+        $this->syncAutosaveValidationErrors();
+
+        if ($this->autosaveThrows && $this->autosaveValidationErrors !== []) {
+            throw $this->autosaveValidationException();
+        }
+
+        $this->callAutosaveHook('afterValidate');
+
+        if ($this->autosaveHasNothingToPersist($data)) {
+            $this->finishAutosaveWithoutWrite();
+
+            return null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Hand the state to the trait's persistence callback. Returns the
+     * written payload, or null when the callback declined to write.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>|null
+     */
+    protected function autosavePersistPhase(callable $persist, array $data): ?array
+    {
+        $written = $this->runAutosavePersistence($persist, $data);
+
+        if ($written === false) {
+            $this->finishAutosaveWithoutWrite();
+
+            return null;
+        }
+
+        return is_array($written) ? $written : $data;
+    }
+
+    /** Acknowledge the write: snapshot hash, staged uploads, cycle flag. */
+    protected function autosaveCommitPhase(array $written): void
+    {
+        $this->autosaveSnapshotHash = $this->autosaveSuccessSnapshotHash($written);
+        $this->commitAutosaveStoredUploads();
+        $this->autosaveCycleWrote = true;
+    }
+
+    /** Tell listeners and the indicator what happened. */
+    protected function autosaveReportPhase(array $written): void
+    {
+        Event::dispatch(new AutosaveSaved(
+            $this,
+            $this->autosaveEventRecord(),
+            $written,
+            $this->autosavePendingFields,
+        ));
+
+        $this->dispatchAutosaveStatus(
+            $this->autosaveValidationErrors === [] ? AutosaveStatus::Saved : AutosaveStatus::Validation,
+            [
+                'timestamp' => now()->isoFormat('LT'),
+                'errors' => $this->autosaveValidationErrors,
+                'pending' => $this->autosavePendingFields,
+                'refreshed' => method_exists($this, 'getAutosaveRefreshState')
+                    ? $this->getAutosaveRefreshState()
+                    : [],
+            ],
+        );
     }
 
     /** Errors keyed by their Livewire state path, so Filament shows them inline. */
