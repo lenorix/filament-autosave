@@ -760,11 +760,10 @@ trait HasAutosave
 
         $formsVersion = InstalledVersions::getPrettyVersion('filament/forms');
 
-        // Filament 4.0's schema implementation is the only supported release
-        // whose translatable hook drops relationship saves. Later Filament 4
-        // releases already persist them, so running the fallback there would
-        // save the same relationship twice.
-        if (! is_string($formsVersion) || version_compare(ltrim($formsVersion, 'v'), '4.1.0', '>=')) {
+        // Filament 4's translatable hook does not persist relationships during
+        // its getState(false) locale pass. Filament 5 does, so only the
+        // normalized Filament 4 version needs the fallback.
+        if (! is_string($formsVersion) || version_compare(ltrim($formsVersion, 'v'), '5.0.0', '>=')) {
             return false;
         }
 
