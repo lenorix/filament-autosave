@@ -53,6 +53,20 @@ test('upload stripping digs into repeater rows', function () {
     ]);
 });
 
+test('upload stripping keeps a multi-file list a list', function () {
+    $upload = Mockery::mock(TemporaryUploadedFile::class);
+
+    $stripped = AutosaveState::stripUploads([
+        'gallery' => [$upload, 'stored.jpg', $upload, 'other.jpg'],
+        'keyed' => ['uuid-1' => $upload, 'uuid-2' => 'stored.jpg'],
+    ]);
+
+    // A JSON column would otherwise receive {"1":"stored.jpg"} instead of a list.
+    expect($stripped['gallery'])->toBe(['stored.jpg', 'other.jpg'])
+        ->and(json_encode($stripped['gallery']))->toBe('["stored.jpg","other.jpg"]')
+        ->and($stripped['keyed'])->toBe(['uuid-2' => 'stored.jpg']);
+});
+
 test('upload stripping keeps scalars and non-upload objects', function () {
     $carbon = Carbon\Carbon::parse('2026-04-20');
 
