@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Generic forms fold every upload field's hash into `autosaveObservedHash`,
+  as Edit pages already did, so the browser watcher notices an upload-only
+  server-side change; the watcher itself now also runs in `form` mode.
 - Ship a Spanish (`es`) translation; a test keeps every shipped locale in
   key parity with English.
 - The `refreshed` payload (post-save refresh and `syncAutosave()`) now lists

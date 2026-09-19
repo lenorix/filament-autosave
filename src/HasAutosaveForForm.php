@@ -88,7 +88,22 @@ trait HasAutosaveForForm
         }
 
         $this->autosaveDataPath = $this->getAutosaveStatePath();
-        $this->autosaveObservedHash = $this->currentAutosaveSnapshotHash();
+
+        // Mirror dehydrateHasAutosave(): the snapshot hash strips temporary
+        // uploads, so fold each upload field's own hash in or the browser
+        // watcher never sees an upload-only server-side change.
+        $files = [];
+
+        foreach ($this->autosaveUploadFields() as $path => $field) {
+            if (! $this->autosavePathExcluded($path)) {
+                $files[$path] = $this->autosaveUploadHash($field);
+            }
+        }
+
+        $this->autosaveObservedHash = $this->autosaveStore()->snapshotHash([
+            'state' => $this->currentAutosaveSnapshotHash(),
+            'files' => $files,
+        ]);
     }
 
     /**
