@@ -95,7 +95,7 @@ Hooks:
 ## Events
 
 All traits dispatch `Lenorix\FilamentAutosave\Events\{AutosaveSaved,
-AutosaveSkipped, AutosaveFailed, AutosaveUndone, AutosaveConflict}` as objects
+AutosaveSkipped, AutosaveFailed, AutosaveUndone, AutosaveConflict, AutosaveSynced}` as objects
 (`record` is `null` for drafts); hook monitoring to these, not to the Livewire
 `autosave-status` event.
 
@@ -103,13 +103,13 @@ AutosaveSkipped, AutosaveFailed, AutosaveUndone, AutosaveConflict}` as objects
 
 Only trait members tagged `@api` are stable (list pinned by
 `tests/Unit/ExtensionContractTest.php`): `shouldAutosave`, `autosaveDebounce`,
-`autosaveExcept`, `autosavePollInterval`, `beforeAutosave`,
+`autosaveExcept`, `autosavePollInterval`, `autosaveMergeFields`, `beforeAutosave`,
 `getAutosaveValidationRules`, `afterAutosave`, `getUndoTtlMinutes`,
 `resolveAutosaveForm`, `getAutosaveStatePath`, `persistAutosaveForm`,
 `getAutosaveFormContext`, plus the public `autosave`, `flushAutosave`,
 `syncAutosave`, `undoAutosave`, `restoreDraft`, `discardDraft`,
 `clearAutosaveDraft`, `isAutosaveEnabled`, `getAutosaveDebounce`,
-`getAutosavePollInterval`, `getAutosaveExcept`. Every other `protected` method is
+`getAutosavePollInterval`, `getAutosaveMergeFields`, `getAutosaveExcept`. Every other `protected` method is
 internal: never tell a consumer to override it, and prefer the package events
 for observation. Adding an `@api` tag is an API decision that must update the
 test, README and CHANGELOG together.
