@@ -158,3 +158,16 @@ test('the controller exposes the status metadata on the Alpine data object', fun
     // scope, not inside the IIFE closure, so `statuses` must be a property.
     expect(controllerMarkup())->toContain('statuses: statuses,');
 });
+
+test('the controller watches server-side state changes in edit and form modes alike', function () {
+    // The controller is inlined into an HTML attribute, so quotes come back
+    // entity-encoded; decode before looking for the mode gate.
+    $js = html_entity_decode(view('filament-autosave::autosave-controller', [
+        'debounce' => 500, 'mode' => 'form', 'statusMeta' => AutosaveStatus::statusMeta(),
+    ])->render(), ENT_QUOTES);
+
+    $watch = strpos($js, 'this.$watch(() => this.$wire.autosaveObservedHash');
+
+    expect($watch)->not->toBeFalse()
+        ->and(substr($js, max(0, $watch - 80), 80))->not->toContain("if (mode === 'edit')");
+});

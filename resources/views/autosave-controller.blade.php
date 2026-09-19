@@ -86,7 +86,12 @@
                 this.schedulePoll()
             }
 
-            if (mode === 'edit') {
+            // Edit pages and record-backed generic forms both publish a
+            // request-end hash covering state the deep data watcher cannot
+            // see (upload state after a server-side remove or reorder). Create
+            // drafts do not expose it, and $wire returns a callable for any
+            // unknown name, so this has to be a mode check, not a property one.
+            if (mode === 'edit' || mode === 'form') {
                 this.$watch(() => this.$wire.autosaveObservedHash, () => {
                     const current = JSON.stringify(this.stateValue())
 

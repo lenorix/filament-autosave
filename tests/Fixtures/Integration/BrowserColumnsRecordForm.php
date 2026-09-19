@@ -47,6 +47,12 @@ class BrowserColumnsRecordForm extends Component implements HasSchemas
         return $this->record;
     }
 
+    /** A server-side change to form state, the kind an action or afterStateUpdated makes. */
+    public function generateSlug(): void
+    {
+        $this->data['slug'] = str($this->data['title'] ?? '')->slug()->toString();
+    }
+
     protected function getAutosaveFormContext(): string
     {
         return 'browser-columns:'.$this->record->getKey();

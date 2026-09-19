@@ -42,3 +42,18 @@ test('a generic record form autosaves, survives reload, and undoes from the brow
     expect($post->fresh()->title)->toBe('Original');
     $this->assertNoBrowserErrors($page);
 });
+
+test('a server-side change to a generic form is autosaved without the user typing', function () {
+    $post = Post::create(['title' => 'Hello World', 'slug' => 'original']);
+
+    $page = visit("/admin/generic-form/{$post->getKey()}")
+        ->assertValue(BrowserTestCase::field('form.slug'), 'original');
+
+    $page->click('[data-fixture-action="generate-slug"]');
+
+    $this->waitForInputValue($page, BrowserTestCase::field('form.slug'), 'hello-world');
+    $this->waitForStatus($page, 'saved');
+
+    expect($post->fresh()->slug)->toBe('hello-world');
+    $this->assertNoBrowserErrors($page);
+});

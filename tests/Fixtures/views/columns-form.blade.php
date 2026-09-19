@@ -5,4 +5,6 @@
     ])
 
     {{ $this->form }}
+
+    <button type="button" wire:click="generateSlug" data-fixture-action="generate-slug">Generate slug</button>
 </div>
