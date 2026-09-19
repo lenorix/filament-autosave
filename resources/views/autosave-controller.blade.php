@@ -1,4 +1,4 @@
-(function ({ debounce = 1500, mode = 'edit', statuses = {} }) {
+(function ({ debounce = 1500, mode = 'edit', statuses = {}, mergeFields = [] }) {
     return {
         // The indicator's x-show / x-if expressions evaluate in this data
         // scope, not inside the closure, so the metadata must be a property.
@@ -38,6 +38,15 @@
         // Live state as the last poll left it (dirty fields included), so the
         // watchers can tell the poll's own refill from a user edit.
         lastSyncedStateJson: null,
+        // Word-level merging of plain-text fields (window.FilamentAutosaveMerge,
+        // loaded by the indicator when the component lists merge fields).
+        // mergeSync keeps the base every patch is built from; conflicts are
+        // the other editor's words a merge discarded, kept until the user
+        // recovers or dismisses them.
+        mergeSync: null,
+        conflicts: [],
+        mergeSnapshots: {},
+        mergeSent: null,
 
         init() {
             if (this.$wire.autosaveEnabled === false) {
@@ -50,6 +59,11 @@
             this.cancelled = false
 
             this.rememberBaseline()
+
+            if ((mode === 'edit' || mode === 'form') && mergeFields.length && window.FilamentAutosaveMerge) {
+                this.mergeSync = window.FilamentAutosaveMerge.createSync(mergeFields)
+                this.mergeSync.seed(this.stateValue())
+            }
 
             if (mode !== 'edit' && this.$wire.autosaveHasDraft) {
                 this.status = statuses.draftAvailable
@@ -76,7 +90,11 @@
 
             this._offStatus = this.$wire.$on(statuses.event, (params) => {
                 const data = Array.isArray(params) ? params[0] : params
-                this.setStatus(data.status, data.timestamp || null, data.errors || {}, data.refreshed || {}, data.pending || [], data.stale || [])
+                // Merged values the server stored are acknowledged like a
+                // refill: they belong in the baseline, not in the diff.
+                const refreshed = { ...(data.refreshed || {}), ...this.mergeAcknowledged(data) }
+                this.setStatus(data.status, data.timestamp || null, data.errors || {}, refreshed, data.pending || [], data.stale || [])
+                this.receiveMerge(data)
             })
 
             this.pollMs = Number(this.$wire.autosavePollMs) || 0
@@ -189,7 +207,7 @@
             this.status = statuses.saving
 
             try {
-                await this.$wire.autosave()
+                await (this.mergeSync ? this.$wire.autosave(this.mergePatches()) : this.$wire.autosave())
             } catch (e) {
                 this.setStatus(statuses.error)
             } finally {
@@ -286,7 +304,7 @@
             this.pollInFlight = true
 
             try {
-                await this.$wire.syncAutosave()
+                await (this.mergeSync ? this.$wire.syncAutosave(this.mergeSync.baseHashes()) : this.$wire.syncAutosave())
                 this.pollErrors = 0
             } catch (e) {
                 this.pollErrors++
@@ -294,6 +312,144 @@
                 this.pollInFlight = false
                 this.schedulePoll()
             }
+        },
+
+        // --- Merging -------------------------------------------------------
+
+        mergeInput(path) {
+            return window.FilamentAutosaveMerge.apply.findInput(this.$el?.closest?.('[wire\\:id]'), this.statePath + '.' + path)
+        },
+
+        // Patches for the dirty mergeable fields, remembering what each
+        // input held (value and caret) so the reply can be applied to it.
+        mergePatches() {
+            const values = this.stateValue()
+            this.mergeSent = {}
+            this.mergeSnapshots = {}
+
+            for (const path of mergeFields) {
+                this.mergeSent[path] = values?.[path] ?? ''
+                this.mergeSnapshots[path] = window.FilamentAutosaveMerge.apply.snapshot(this.mergeInput(path))
+            }
+
+            return this.mergeSync.patches(values)
+        },
+
+        // Merged values the server wrote (not the contended ones).
+        mergeAcknowledged(data) {
+            const acknowledged = {}
+
+            if (this.mergeSync && data.merged) {
+                for (const [path, value] of Object.entries(data.merged)) {
+                    if (!data.patches?.[path]) {
+                        acknowledged[path] = value
+                    }
+                }
+            }
+
+            return acknowledged
+        },
+
+        // Fold a save or poll reply into the bases, put the merged text
+        // into the inputs around the caret, and list what was discarded.
+        receiveMerge(data) {
+            if (!this.mergeSync || !data) {
+                return
+            }
+
+            const reply = data.status !== statuses.synced && this.mergeSent !== null
+            const sent = reply ? this.mergeSent : null
+            const snapshots = this.mergeSnapshots
+
+            if (reply) {
+                this.mergeSent = null
+                this.mergeSnapshots = {}
+            }
+
+            // Undo and a draft restore rewrite the fields outside any merge:
+            // whatever they hold now is the value the server has.
+            if (typeof data.v !== 'number') {
+                if (this.isSettled(data.status) && data.status !== statuses.idle) {
+                    this.mergeSync.resync(this.stateValue())
+                }
+
+                return
+            }
+
+            // A reply that wrote nothing (error) leaves every base as it was.
+            if (reply && !this.isSaveResult(data.status) && data.status !== statuses.validation) {
+                return
+            }
+
+            // What the inputs hold right now: the state already carries the
+            // server's values, but a textarea still shows what the user typed
+            // while the request ran, and that is what the merge must keep.
+            const live = JSON.parse(JSON.stringify(this.stateValue()))
+
+            for (const path of mergeFields) {
+                const input = this.mergeInput(path)
+
+                if (input) {
+                    live[path] = input.value
+                }
+            }
+
+            const { updates, conflicts } = this.mergeSync.receive(data, live, sent)
+            const paths = Object.keys(updates)
+
+            if (paths.length) {
+                // The inputs are about to change on the server's behalf, not
+                // the user's: neither watcher may read it as a new edit.
+                const expected = JSON.parse(JSON.stringify(this.stateValue()))
+
+                for (const [path, value] of Object.entries(data.refreshed || {})) {
+                    this.setStatePath(expected, path, value)
+                }
+
+                for (const path of paths) {
+                    this.setStatePath(expected, path, updates[path])
+                }
+
+                this.lastSyncedStateJson = JSON.stringify(expected)
+
+                for (const path of paths) {
+                    const input = this.mergeInput(path)
+
+                    if (input) {
+                        window.FilamentAutosaveMerge.apply.toInput(input, updates[path], sent ? snapshots[path] : null)
+                    } else {
+                        this.stateValue()[path] = updates[path]
+                    }
+                }
+            }
+
+            if (conflicts.length) {
+                this.conflicts = [...this.conflicts.filter((c) => !conflicts.some((n) => n.path === c.path)), ...conflicts]
+            }
+
+            // A contended field was not written: the adopted text is a fresh
+            // local edit from the new base, and the next cycle retries it.
+            if (sent && data.patches && Object.keys(data.patches).length && !this.savePending) {
+                this.onDataChanged()
+            }
+        },
+
+        // Put the other editor's discarded words back where ours replaced
+        // them; a real edit, so it is saved like any other.
+        recoverConflict(index) {
+            const conflict = this.conflicts[index]
+            const input = conflict ? this.mergeInput(conflict.path) : null
+
+            if (!conflict || !input) {
+                return
+            }
+
+            window.FilamentAutosaveMerge.apply.toInput(input, window.FilamentAutosaveMerge.apply.recover(input.value, conflict))
+            this.conflicts = this.conflicts.filter((_, i) => i !== index)
+        },
+
+        dismissConflicts() {
+            this.conflicts = []
         },
 
         stateValue() {
@@ -500,4 +656,4 @@
             this._offStatus?.()
         },
     }
-})({ debounce: {{ (int) $debounce }}, mode: @js($mode), statuses: @js($statusMeta ?? []) })
+})({ debounce: {{ (int) $debounce }}, mode: @js($mode), statuses: @js($statusMeta ?? []), mergeFields: @js(array_values($mergeFields ?? [])) })

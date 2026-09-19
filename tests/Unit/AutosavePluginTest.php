@@ -6,6 +6,7 @@ use Filament\View\PanelsRenderHook;
 use Lenorix\FilamentAutosave\AutosavePlugin;
 use Lenorix\FilamentAutosave\Tests\Fixtures\AutosaveCreateFormComponent;
 use Lenorix\FilamentAutosave\Tests\Fixtures\AutosaveEditFormComponent;
+use Livewire\Features\SupportScriptsAndAssets\SupportScriptsAndAssets;
 
 test('mode detection identifies edit pages', function () {
     $mode = (fn ($c) => $this->detectMode($c))->call(autosavePlugin(), AutosaveEditFormComponent::class);
@@ -154,9 +155,12 @@ test('the indicator ships its controller inline', function (string $mode) {
     // Undo is rendered in every mode and hidden client-side while
     // $wire.autosaveCanUndo is false, so record-backed generic forms get it too.
     // It appears twice: in the plain "saved" badge and in the callout shown
-    // when some fields were skipped.
-    expect($xpath->query('//button[@type="button"]')->length)->toBe(4)
-        ->and($xpath->query('//button[@data-autosave-action="undo"]')->length)->toBe(2);
+    // when some fields were skipped. The merge conflict callout adds its
+    // recover and dismiss links.
+    expect($xpath->query('//button[@type="button"]')->length)->toBe(6)
+        ->and($xpath->query('//button[@data-autosave-action="undo"]')->length)->toBe(2)
+        ->and($xpath->query('//button[@data-autosave-action="recover"]')->length)->toBe(1)
+        ->and($xpath->query('//button[@data-autosave-action="dismiss-conflicts"]')->length)->toBe(1);
 
     // Everything visual is a Filament component; none of our former helper
     // classes or raw Tailwind utilities remain (Filament's own markup may
@@ -165,3 +169,45 @@ test('the indicator ships its controller inline', function (string $mode) {
         ->not->toContain('fi-autosave-stack')->not->toContain('fi-autosave-note')->not->toContain('fi-autosave-list')
         ->not->toContain('text-gray-')->not->toContain('flex-col')->not->toContain('text-xs');
 })->with(['edit', 'create', 'form']);
+
+test('the indicator ships the merge runtime only for a component that lists merge fields', function () {
+    $component = new class
+    {
+        /** @return list<string> */
+        public function getAutosaveMergeFields(): array
+        {
+            return ['body', 'summary'];
+        }
+    };
+
+    $html = view('filament-autosave::autosave-indicator', ['mode' => 'edit', '__livewire' => $component])->render();
+
+    $document = new DOMDocument;
+    @$document->loadHTML($html);
+    $xpath = new DOMXPath($document);
+    $controller = $xpath->query('//*[@class="fi-autosave-indicator"]')->item(0)->getAttribute('x-data');
+
+    // One inline, dependency-free script (no asset publishing, no build
+    // step) exposing the engine, the sync state and the input applier. It
+    // goes through Livewire's @assets, so it lands in the page head once
+    // and never travels in the component's own HTML (nor its re-renders).
+    $assets = implode('', SupportScriptsAndAssets::$nonLivewireAssets);
+
+    expect($html)->not->toContain('<script')
+        ->and(substr_count($assets, '<script data-autosave-merge>'))->toBe(1)
+        ->and($assets)->toContain('window.FilamentAutosaveMerge = window.FilamentAutosaveMerge ||')
+        ->and($assets)->toContain('createSync', 'makePatch', 'mapOffset', 'toInput')
+        ->and($controller)->toContain('mergeFields: JSON.parse(', 'body', 'summary');
+
+    $plain = view('filament-autosave::autosave-indicator', ['mode' => 'edit', '__livewire' => new class
+    {
+        /** @return list<string> */
+        public function getAutosaveMergeFields(): array
+        {
+            return [];
+        }
+    }])->render();
+
+    expect($plain)->not->toContain('<script')
+        ->and($plain)->toContain('mergeFields: []');
+});

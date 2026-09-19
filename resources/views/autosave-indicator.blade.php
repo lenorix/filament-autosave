@@ -16,15 +16,34 @@
 
     // Alpine expression for the "Stored at HH:MM" label, shared by the badge and the callout.
     $savedAtExpression = \Illuminate\Support\Js::from(__('filament-autosave::autosave.saved_at').' ').' + timestamp';
+
+    // Plain-text fields merged word by word, resolved by the component that
+    // includes this view (page, then plugin, then config). Livewire hands the
+    // component to its views as $__livewire; outside one there is nothing to merge.
+    $autosaveComponent = $__livewire ?? null;
+    $mergeFields = is_object($autosaveComponent) && method_exists($autosaveComponent, 'getAutosaveMergeFields')
+        ? $autosaveComponent->getAutosaveMergeFields()
+        : [];
+    $mergeScript = dirname((new \ReflectionClass(\Lenorix\FilamentAutosave\AutosaveServiceProvider::class))->getFileName(), 2).'/resources/js/autosave-merge.js';
 @endphp
+
+@if ($mergeFields !== [])
+    {{-- Dependency-free diff/merge runtime, shipped with the views: no asset
+         publishing, no build step. Livewire's @assets loads it once per page
+         and keeps it out of every later response. --}}
+    @assets
+        <script data-autosave-merge>{!! file_get_contents($mergeScript) !!}</script>
+    @endassets
+@endif
 
 <div
     x-data="{{ view('filament-autosave::autosave-controller', [
         'debounce' => $debounce,
         'mode' => $mode,
         'statusMeta' => $statusMeta,
+        'mergeFields' => $mergeFields,
     ])->render() }}"
-    x-show="status !== statuses.idle"
+    x-show="status !== statuses.idle || conflicts.length"
     x-transition.opacity.duration.150ms
     class="fi-autosave-indicator"
     role="status"
@@ -152,6 +171,44 @@
         <x-filament::badge color="info" icon="heroicon-m-arrow-path" data-autosave-synced>
             {{ __('filament-autosave::autosave.synced') }}
         </x-filament::badge>
+    </template>
+
+    {{-- Words of another editor this browser's save replaced, or a field
+         nobody could write. Outlives the status badge: it is dismissed by
+         the user, recovered, or superseded by the next report. --}}
+    <template x-if="conflicts.length">
+        <x-filament::callout
+            color="warning"
+            icon="heroicon-m-exclamation-triangle"
+            :heading="__('filament-autosave::autosave.conflicts')"
+            data-autosave-conflicts
+        >
+            <x-slot name="footer">
+                <template x-for="(conflict, index) in conflicts" :key="conflict.path + ':' + index">
+                    <div x-bind:data-autosave-conflict-reason="conflict.reason">
+                        <x-filament::badge color="gray" size="sm">
+                            <span x-text="conflict.path"></span>
+                        </x-filament::badge>
+                        <template x-if="conflict.reason === 'contended'">
+                            <span>{{ __('filament-autosave::autosave.contended') }}</span>
+                        </template>
+                        <template x-if="conflict.reason !== 'contended'">
+                            <span>
+                                <span x-text="conflict.theirs"></span>
+                                <x-filament::link tag="button" type="button" size="sm" x-on:click="recoverConflict(index)" data-autosave-action="recover">
+                                    {{ __('filament-autosave::autosave.recover') }}
+                                </x-filament::link>
+                            </span>
+                        </template>
+                    </div>
+                </template>
+            </x-slot>
+            <x-slot name="controls">
+                <x-filament::link tag="button" type="button" size="sm" color="gray" x-on:click="dismissConflicts()" data-autosave-action="dismiss-conflicts">
+                    {{ __('filament-autosave::autosave.dismiss') }}
+                </x-filament::link>
+            </x-slot>
+        </x-filament::callout>
     </template>
 
     {{-- Synced, but fields the user is editing also changed elsewhere. --}}

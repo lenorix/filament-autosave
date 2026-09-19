@@ -59,6 +59,12 @@ class BrowserColumnsRecordForm extends Component implements HasSchemas
         return 'browser-columns:'.$this->record->getKey();
     }
 
+    /** @return array<int, string> */
+    protected function autosaveMergeFields(): ?array
+    {
+        return ['title'];
+    }
+
     public function render(): View
     {
         return view('autosave-fixtures::columns-form');

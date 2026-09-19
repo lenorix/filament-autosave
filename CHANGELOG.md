@@ -15,8 +15,21 @@
   fields. The `autosave-status` payload is versioned (`v: 1`) and gains
   `merged`, `conflicts`, `patches`; `AutosaveSaved`, `AutosaveSynced` and
   `AutosaveConflict` gain matching properties (new optional constructor
-  parameters). No browser-side patching yet: without a patch, listed fields
-  behave as before.
+  parameters).
+- The browser does its part of the merge, with no build step and no
+  dependency: when a component lists merge fields, the indicator loads a
+  runtime once per page through Livewire's `@assets`
+  (`resources/js/autosave-merge.js`, ~24 KB, the same word-level diff, diff3
+  and patch format as the server; never part of a Livewire response) and the controller keeps the
+  last acknowledged value of each field as its base, sends a patch per dirty
+  field with `autosave()` and the hashes it holds with `syncAutosave()`, and
+  merges `merged` / `patches.theirs` into the input while keeping the caret
+  and selection in place (also for text typed while the request ran). Words
+  of another editor a save replaced, or a field nobody could write, are
+  listed in a callout with a "recover the other version" link; a contended
+  field adopts the merge against the latest value, rebases and is retried by
+  the next cycle. Translations gain `conflicts`, `contended`, `recover`,
+  `dismiss`. Fields not listed, and pages without merge fields, are unchanged.
 - Autosave `SpatieMediaLibraryFileUpload` fields inside a JSON (non-relationship)
   `Repeater` when every row resolves its own distinct collection (a persisted
   `Hidden` uuid plus `->collection(fn (Get $get) => 'row_'.$get('uuid'))`).

@@ -6,9 +6,10 @@ status indicator; untouched fields pick up other editors' changes.
 - Edit pages persist eligible fields to the record.
 - Create/custom pages store drafts in Laravel Cache until explicit submit.
 - Other editors' changes reach untouched fields after a save and by polling;
-  listed plain-text fields are merged word by word on save. There is no
-  WebSocket/SSE transport and no merge UI. Undo detects a concurrent change
-  and reports a conflict instead of restoring over it.
+  listed plain-text fields are merged word by word, in the browser and on
+  the server, and the other editor's discarded words can be recovered from
+  the indicator. There is no WebSocket/SSE transport. Undo detects a
+  concurrent change and reports a conflict instead of restoring over it.
 
 ## Install
 
@@ -220,8 +221,27 @@ the latest value) and `patches[path].theirs`; `AutosaveConflict` fires; status
 is `validation`. Overlapping ranges: last save wins there only, `reason =
 'overlap'`. `syncAutosave(array $mergeBaseHashes)` adds `patches` for stale
 mergeable fields unless the browser's hash matches. Without a patch a field
-stays last-write-wins. The browser side (building patches, applying `merged`
-with the cursor kept) is not implemented yet.
+stays last-write-wins.
+
+Browser side: `resources/js/autosave-merge.js` (inlined by the indicator view
+through Livewire's `@assets`, so it loads once into the head and never rides
+in a component re-render; only when `getAutosaveMergeFields()` is non-empty;
+no asset publishing) exposes `window.FilamentAutosaveMerge = { engine,
+createSync, apply }`. `engine` mirrors the PHP tokenizer/diff/diff3/patch
+text on code-point arrays (a browser test pins parity with `makePatch()`
+and `merge()`); `createSync(fields)` holds the per-field base (mount, then
+each acknowledged save/refill/merge) and hashes the server named, builds
+`patches(values)` and `baseHashes()`, and `receive(payload, live, sent)`
+turns a reply into input updates + conflicts; `apply.toInput(el, value,
+snapshot)` maps the caret/selection through the diff (UTF-16 ⇄ code points),
+fires `input` so the bound state follows, and `apply.recover(value,
+conflict)` puts theirs back. The Alpine controller (`mergeSync`, `conflicts`,
+`receiveMerge()`, `recoverConflict()`, `dismissConflicts()`) sets
+`lastSyncedStateJson` before applying so the watchers do not read a merge as
+a user edit, folds non-contended `merged` into the baseline, keeps a
+contended field dirty and re-arms a save from the rebased value, and
+resyncs bases after undo/restore. Invariant: a base only advances to a value
+the input reflects.
 
 When changing this behavior, test two edit instances changing different columns
 with `dirty_only` enabled, plus upload add/remove/reorder cases, including

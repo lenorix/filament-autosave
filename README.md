@@ -27,7 +27,7 @@ class EditArticle extends EditRecord
 - Relationship repeaters at any depth, file uploads and Spatie Media Library,
   with cleanup when something fails and a ledger to recover from crashes.
 - Works on Edit and Create pages, relation managers, actions, modals, table
-  forms and plain Livewire components.
+  forms, and plain Livewire components.
 - A stable `@api` surface, lifecycle events, and 580+ tests including real
   browser flows.
 
@@ -60,7 +60,7 @@ class EditArticle extends EditRecord
 - Filament 4 or 5
 - Livewire 3 with Filament 4, or Livewire 4 with Filament 5
 
-The test suite runs against every combination of those PHP, Filament and
+The test suite runs against every combination of those PHP, Filament, and
 Laravel versions.
 
 Two Spatie integrations are optional. If your app installs
@@ -88,7 +88,7 @@ public function panel(Panel $panel): Panel
 That's all a resource page needs. The status indicator is added for you; see
 [The indicator](#the-indicator) if you're curious how it's built.
 
-Publish the config, translations or views only if you want to change them:
+Publish the config, translations, or views only if you want to change them:
 
 ```bash
 php artisan vendor:publish --tag="filament-autosave-config"
@@ -162,12 +162,12 @@ class UserPreferences extends Page
 }
 ```
 
-A draft is just a draft: it never creates a record, stores a permanent file or
+A draft is just a draft: it never creates a record, stores a permanent file, or
 attaches Spatie media. That only happens when the user actually submits.
 
 ### Any other form
 
-Relation managers, action and modal forms, table forms and standalone Livewire
+Relation managers, action and modal forms, table forms, and standalone Livewire
 components use `HasAutosaveForForm`:
 
 ```php
@@ -203,7 +203,7 @@ the same one-step Undo as an Edit page, with the same conflict check.
 
 Pick a context that names the owner, record or action, so two unrelated forms
 never share a draft. If you're writing a reusable relation manager, action,
-modal or table form, set `require_form_context` to `true`: a missing context
+modal, or table form, set `require_form_context` to `true`: a missing context
 then throws a `LogicException` instead of silently sharing drafts.
 
 Action and table forms often keep their state under `mountedActions.*.data`.
@@ -233,7 +233,7 @@ schema, override `persistAutosaveForm()`.
   the package's own events instead.
 - Record-backed generic forms get the same upload lifecycle as Edit pages;
   recordless drafts never store permanent files or media. Undo on a generic
-  form covers model columns and supported relationships. Files, media and
+  form covers model columns and supported relationships. Files, media, and
   RichEditor attachments stay outside Undo unless you register a reversible
   external adapter, and any extra side effects of the host action are yours.
 - With `dirty_only` on, each partial autosave of a recordless form is merged
@@ -263,7 +263,7 @@ are applied and fields marked `dehydrated(false)` are left out.
 | Relationship `Repeater` nested inside another relationship `Repeater` (any depth) | Yes; each nested repeater saves its own rows, innermost first |
 | Other `dehydrated(false)` fields | No |
 
-A group, section, repeater or builder that lives in one column is treated as a
+A group, section, repeater, or builder that lives in one column is treated as a
 single value. It's written only when every child passes the safety checks; if
 one child is invalid or half-filled, the column is left as it was. This is also
 what stops a container with a password field inside from being saved, while
@@ -350,7 +350,7 @@ the last save wins, unless that field is listed for
 With `refresh_unchanged_fields` on, every successful autosave also refreshes the
 fields you haven't touched from the record, on Edit pages and on record-backed
 generic forms (drafts have nothing to refresh from). Your dirty values stay
-put; relationship, upload and excluded fields are never refreshed. This
+put; relationship, upload, and excluded fields are never refreshed. This
 happens in the save response, it isn't polling.
 
 ### Live updates by polling
@@ -366,14 +366,14 @@ A poll:
 
 - refills clean, model-backed columns whose value changed on the record, with
   the same eligibility rule as the post-save refresh (never relationships,
-  uploads, excluded fields or anything outside `attributesToArray()`);
+  uploads, excluded fields, or anything outside `attributesToArray()`);
 - marks as `stale` the fields that are dirty locally **and** changed remotely,
   without touching what you typed;
 - reports both in the `autosave-status` Livewire event (`status: synced`,
   `refreshed`, `stale`) and in the `AutosaveSynced` package event;
 - stays quiet when nothing changed, so an idle page never flickers.
 
-A poll never writes to the database, never touches Undo snapshots and never
+A poll never writes to the database, never touches Undo snapshots, and never
 overwrites a field you're editing.
 
 ```php
@@ -437,9 +437,9 @@ Here's how it works, with no WebSockets and no state kept on the server:
 - The merged column is written with a compare-and-swap on that column alone:
   `UPDATE … SET col = merged WHERE id = ? AND col = <the value it was merged
   on>`. If someone else committed in between, the column is read again, merged
-  again and retried after a short wait (5 ms, doubling up to 100 ms), up to
+  again, and retried after a short wait (5 ms, doubling up to 100 ms), up to
   `merge_retries` times (10 by default, 655 ms of waiting in total). Comparing
-  the column instead of a row version means a concurrent write to *another*
+  the column instead of a row version means a concurrent writing to *another*
   column never causes a retry, and no row lock is held while people type.
 - If a field is still contended after every retry, it isn't written, and
   nothing is lost: the text stays in the form and dirty, the field is
@@ -452,7 +452,7 @@ Here's how it works, with no WebSockets and no state kept on the server:
   editor's current value in `patches`, unless the browser already has it (it
   sends back the `hash` it last received).
 
-The guarantee is simple: **no other editor's change to a mergeable field is
+The guarantee is straightforward: **no other editor's change to a mergeable field is
 ever overwritten without being reported**. It's either merged in or listed in
 `conflicts`. Fields you don't list keep the column-level last-write-wins rule,
 and a save that arrives without a patch (an older browser session, an unlisted
@@ -496,7 +496,7 @@ last-write-wins until it does.
 
 ## Undo
 
-For five seconds after a successful Edit save the user can undo it. The
+For five seconds after a successful Edit save, the user can undo it. The
 snapshot itself lives for 90 minutes by default; change that with
 `getUndoTtlMinutes()` or `undo_ttl`.
 
@@ -506,7 +506,7 @@ Undo restores the previous values of:
 - `BelongsToMany` pivot data;
 - `HasOne` and `HasMany` child records;
 - supported `HasManyThrough` graphs, including rows that have to be restored,
-  updated or removed.
+  updated, or removed.
 
 Before restoring anything, Undo checks that the current value is still the one
 the autosave wrote. If another user changed that same value in the meantime,
@@ -516,9 +516,9 @@ other columns don't get in the way.
 Undo runs the relevant Filament save hooks and events and shows the normal
 saved notification. It's tied to the live page instance that made the save.
 
-File operations and RichEditor attachments keep Undo disabled by default,
+File operations and RichEditor attachments keep Undo disabled by default 
 because a database transaction can't roll back the filesystem or an external
-store. If your provider can snapshot, compare and restore its state, register a
+store. If your provider can be snapshot, compare, and restore its state, register a
 reversible `AutosaveExternalUndoAdapter` in `external_undo_adapters` (it
 implements `supports`, `snapshot`, `matches` and `restore`). If any changed
 external field has no adapter, Undo stays off for the whole cycle rather than
@@ -540,7 +540,7 @@ Edit pages get upload support through `HasAutosave`; there's no need to add
 
 ### `FileUpload`
 
-`FileUpload` handles new files, removals and reordering. Upload validation runs
+`FileUpload` handles new files, removals, and reordering. Upload validation runs
 before anything is stored permanently, including size and type rules. An
 invalid upload leaves its whole column alone, while the rest of the form still
 saves.
@@ -558,7 +558,7 @@ is physically deleted follows the component's own configuration.
 ### Spatie Media Library
 
 `SpatieMediaLibraryFileUpload` uses its relationship callback for additions,
-removals and ordering. Collections that didn't change aren't touched. Install
+removals, and ordering. Collections that didn't change aren't touched. Install
 Filament's Spatie plugin in your app to use this; for this package it's only a
 development dependency.
 
@@ -621,7 +621,7 @@ Every autosave write runs inside a database transaction: Filament's own when
 the panel has `databaseTransactions()` enabled, the package's own otherwise.
 
 <details>
-<summary>How staging, the ledger and the transaction fit together</summary>
+<summary>How staging, the ledger, and the transaction fit together</summary>
 
 The controller waits for in-flight uploads to finish, and its request-end hash
 also catches server-side actions such as removing a row or reordering files.
@@ -817,7 +817,7 @@ with no stylesheet or Tailwind build of its own.
   time on the saved badge.
 - **Pending fields**: after a save that skipped something, the indicator lists
   the skipped field paths: validation failures, blank required values, invalid
-  uploads or half-filled containers.
+  uploads, or half-filled containers.
 - **Stale fields**: after a poll, the fields that are dirty locally and changed
   remotely are listed, without touching the local value.
 - **Undo**: shown during the Undo window whenever `autosaveCanUndo` is true,
