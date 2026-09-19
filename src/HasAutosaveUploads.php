@@ -526,6 +526,35 @@ trait HasAutosaveUploads
         return $this->autosaveStore()->snapshotHash(['files' => $state]);
     }
 
+    /** The key an upload field's hash is stored under, or null when it is not a declared upload field. */
+    protected function autosaveUploadFieldKey(object $field): ?string
+    {
+        foreach ($this->autosaveUploadFields() as $path => $candidate) {
+            if ($candidate === $field) {
+                return (string) $path;
+            }
+        }
+
+        return null;
+    }
+
+    protected function autosaveUploadFieldIsClean(object $field): bool
+    {
+        $key = $field instanceof BaseFileUpload ? $this->autosaveUploadFieldKey($field) : null;
+
+        return $key !== null && ($this->autosaveUploadHashes[$key] ?? null) === $this->autosaveUploadHash($field);
+    }
+
+    /** A media field a poll re-read is not pending: its hash is the new baseline. */
+    protected function acknowledgeAutosaveRefreshedUpload(object $field): void
+    {
+        $key = $field instanceof BaseFileUpload ? $this->autosaveUploadFieldKey($field) : null;
+
+        if ($key !== null) {
+            $this->autosaveUploadHashes[$key] = $this->autosaveUploadHash($field);
+        }
+    }
+
     /** Capture the current upload hashes as the acknowledged baseline. */
     protected function resetAutosaveUploadHashes(): void
     {

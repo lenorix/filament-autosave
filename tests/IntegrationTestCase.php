@@ -81,6 +81,35 @@ abstract class IntegrationTestCase extends TestCase
             $table->string('label');
         });
 
+        Schema::create('poll_posts', function ($table) {
+            $table->id();
+            $table->string('title')->nullable();
+            $table->string('attachment')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('poll_items', function ($table) {
+            $table->id();
+            $table->foreignId('poll_post_id');
+            $table->string('label');
+            $table->unsignedInteger('position')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('poll_notes', function ($table) {
+            $table->id();
+            $table->foreignId('poll_post_id');
+            $table->text('body')->nullable();
+        });
+
+        Schema::create('author_poll_post', function ($table) {
+            $table->foreignId('author_id');
+            $table->foreignId('poll_post_id');
+            $table->string('role')->nullable();
+            $table->timestamps();
+            $table->primary(['author_id', 'poll_post_id']);
+        });
+
         Filament::setCurrentPanel('admin');
     }
 

@@ -204,7 +204,12 @@ it relies on the same refill. Same eligibility rule as the
 post-save refresh, shared in `HasAutosaveBase` (`autosaveRefreshablePaths`,
 `refillAutosavePaths`): never relationships, uploads, excluded or dirty fields.
 A dirty field that also changed remotely is reported as `stale` and left
-alone. It emits `status: synced` (+ `refreshed`, `stale`) and the
+alone. `poll_relationships` (default false; plugin `pollRelationships()`)
+extends the same refill/stale rule to relationship repeaters, relation
+selects, upload columns and Spatie media, via `autosavePolledRelationFields`,
+`autosaveChangedRelationPaths` (one UNION detector query: count + max
+updated_at per relation; a relation without timestamps is re-read every poll)
+and `refillAutosaveRelationPaths`. It emits `status: synced` (+ `refreshed`, `stale`) and the
 `AutosaveSynced` event only when something changed, never writes to the
 database, never touches Undo. The controller pauses polling while a save is
 pending/in flight or the tab is hidden and backs off after 3 failures (max

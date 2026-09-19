@@ -9,10 +9,12 @@ use Filament\Resources\Events\RecordUpdated;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -52,6 +54,19 @@ trait HasAutosaveBase
      */
     #[Locked]
     public array $autosaveSyncedAttributeHashes = [];
+
+    /**
+     * Fingerprint of each polled relation (row count + latest updated_at) as
+     * this component last observed it, by top-level path. Only kept while
+     * `poll_relationships` is on.
+     *
+     * @var array<string, string>
+     */
+    #[Locked]
+    public array $autosaveSyncedRelationHashes = [];
+
+    /** @var array<string, string>|null Fingerprints already read this request; null once a write invalidated them. */
+    protected ?array $autosaveReadRelationFingerprints = null;
 
     /** @var array<string, mixed> Clean columns re-read from the record for the status event. */
     protected array $autosaveRefreshState = [];
@@ -421,6 +436,9 @@ trait HasAutosaveBase
         $this->autosaveCycleWrote = false;
         $this->autosaveWrittenPaths = [];
         $this->autosaveHaltCommitted = false;
+        // This cycle writes: relation fingerprints read earlier in the request
+        // no longer describe the database.
+        $this->autosaveReadRelationFingerprints = null;
         $this->resetAutosaveMergeReport();
 
         try {
@@ -1691,33 +1709,57 @@ trait HasAutosaveBase
         $this->authorizeAutosaveAccess();
 
         try {
-            if (! $this->autosaveRecordChangedRemotely($record)) {
+            // Relations first: their detector is one query whatever the form,
+            // and a column check that finds nothing must not end the poll
+            // while a child row changed underneath.
+            $relations = $this->autosaveChangedRelationPaths($record);
+            $columnsChanged = $this->autosaveRecordChangedRemotely($record);
+
+            if (! $columnsChanged && $relations === []) {
                 return;
             }
 
-            $changed = $this->autosaveChangedRecordAttributes($record);
+            $changed = $columnsChanged ? $this->autosaveChangedRecordAttributes($record) : [];
 
-            if ($changed === []) {
+            if ($changed === [] && $relations === []) {
                 $this->rememberAutosaveSyncedAttributes($record);
 
                 return;
             }
 
-            $this->autosaveFieldsCache = null;
-            $current = $this->prepareAutosavePayload($this->getAutosaveData());
-            $plan = AutosaveSync::plan(
-                $changed,
-                $current,
-                $this->autosaveRefreshablePaths($record, $current),
-                $this->autosaveMergeablePaths(),
-                array_filter($mergeBaseHashes, 'is_string'),
-                $record->getAttributes(),
-                $this->autosaveFieldIsClean(...),
-                $this->autosavePathExcluded(...),
-                fn (string $path, mixed $raw): mixed => $this->autosaveMergeRemoteValue($record, $path, $raw),
-            );
+            // Dehydrating the form is the expensive part of a poll (a query
+            // per relationship field), so only when a column changed or a
+            // relation's cleanliness cannot be judged without it.
+            $current = $changed !== [] || $this->autosaveRelationsNeedPayload($relations)
+                ? $this->autosaveDehydrateForPoll()
+                : [];
+
+            $plan = $changed === []
+                ? ['refill' => [], 'stale' => [], 'patches' => []]
+                : AutosaveSync::plan(
+                    $changed,
+                    $current,
+                    $this->autosaveRefreshablePaths($record, $current, polling: true),
+                    $this->autosaveMergeablePaths(),
+                    array_filter($mergeBaseHashes, 'is_string'),
+                    $record->getAttributes(),
+                    $this->autosaveFieldIsClean(...),
+                    $this->autosavePathExcluded(...),
+                    fn (string $path, mixed $raw): mixed => $this->autosaveMergeRemoteValue($record, $path, $raw),
+                );
 
             $refreshed = $this->refillAutosavePaths($record, $plan['refill']);
+            $relationPlan = $this->refillAutosaveRelationPaths($record, $relations, $current);
+            $refreshed = [...$refreshed, ...$relationPlan['refreshed']];
+            $stale = $plan['stale'];
+
+            foreach ($relationPlan['stale'] as $path) {
+                if (! in_array($path, $stale, true)) {
+                    $stale[] = $path;
+                }
+            }
+
+            sort($stale);
             // Only now: a failed refill must leave the change visible to the
             // next poll, or the timestamp fast path would hide it for good.
             $this->rememberAutosaveSyncedAttributes($record);
@@ -1727,12 +1769,361 @@ trait HasAutosaveBase
             return;
         }
 
-        if ($refreshed === [] && $plan['stale'] === []) {
+        if ($refreshed === [] && $stale === []) {
             return;
         }
 
-        $this->dispatchAutosaveStatus(AutosaveStatus::Synced, AutosaveSync::syncedPayload($refreshed, $plan['stale'], $plan['patches']));
-        Event::dispatch(new AutosaveSynced($this, $record, $refreshed, $plan['stale'], $plan['patches']));
+        $this->dispatchAutosaveStatus(AutosaveStatus::Synced, AutosaveSync::syncedPayload($refreshed, $stale, $plan['patches']));
+        Event::dispatch(new AutosaveSynced($this, $record, $refreshed, $stale, $plan['patches']));
+    }
+
+    /** The live form's prepared payload, for the poll's eligibility checks. */
+    protected function autosaveDehydrateForPoll(): array
+    {
+        $this->autosaveFieldsCache = null;
+
+        return $this->prepareAutosavePayload($this->getAutosaveData());
+    }
+
+    /**
+     * Whether judging these relations clean needs the dehydrated payload. A
+     * trait that keeps relationship hashes (Edit pages) answers from those;
+     * a media field answers from its upload hash.
+     *
+     * @param  array<string, bool>  $relations
+     */
+    protected function autosaveRelationsNeedPayload(array $relations): bool
+    {
+        if ($relations === []) {
+            return false;
+        }
+
+        if (! property_exists($this, 'autosaveRelationshipHashes') || ! method_exists($this, 'autosaveRelationshipHash')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether polls also refresh clean relationship, upload and media fields.
+     * Off whenever polling itself is, and never for drafts.
+     */
+    protected function autosavePollsRelationships(): bool
+    {
+        return $this->autosaveRefreshEnabled() && AutosavePlugin::resolve()->getPollRelationships();
+    }
+
+    /**
+     * Top-level fields a poll may refresh from a relation, by path: repeaters,
+     * selects and checkbox lists bound to a real relation (`relation`), and
+     * Spatie media fields, which hang off the record's `media()` relation
+     * (`media`). Not a RichEditor nor a BelongsTo select (both are columns),
+     * not excluded, not nested in a repeater row (those refresh with their
+     * parent).
+     *
+     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation}>
+     */
+    protected function autosavePolledRelationFields(object $record): array
+    {
+        if (! $this->autosavePollsRelationships()) {
+            return [];
+        }
+
+        $polled = [];
+
+        if (method_exists($this, 'autosaveRelationshipFields')) {
+            foreach ($this->autosaveRelationshipFields() as $path => $fields) {
+                $path = (string) $path;
+
+                if (str_contains($path, '*') || str_contains($path, '.') || $this->autosavePathExcluded($path)) {
+                    continue;
+                }
+
+                $relation = method_exists($fields[0], 'getRelationship') ? $fields[0]->getRelationship() : null;
+
+                if (! $relation instanceof Relation || $relation instanceof BelongsTo || $fields[0] instanceof RichEditor) {
+                    continue;
+                }
+
+                $polled[$path] = ['kind' => 'relation', 'components' => array_values($fields), 'relation' => $relation];
+            }
+        }
+
+        if (method_exists($this, 'autosaveUploadFields') && method_exists($record, 'media')) {
+            foreach ($this->autosaveUploadFields() as $path => $field) {
+                $path = (string) $path;
+
+                if (! $field instanceof SpatieMediaLibraryFileUpload || str_contains($path, '*') || str_contains($path, '.')
+                    || $this->autosavePathExcluded($path) || isset($polled[$path])) {
+                    continue;
+                }
+
+                $relation = $record->media();
+
+                if ($relation instanceof Relation) {
+                    $polled[$path] = ['kind' => 'media', 'components' => [$field], 'relation' => $relation];
+                }
+            }
+        }
+
+        return $polled;
+    }
+
+    /**
+     * One query for every polled relation: `count(*)` and the latest
+     * `updated_at` of its rows (the pivot's for a BelongsToMany), compared
+     * against what the last poll saw. Relations without timestamps get no
+     * fingerprint and are re-read on every poll instead.
+     *
+     * @return array{fingerprints: array<string, string>, unfingerprinted: list<string>}
+     */
+    protected function autosaveRelationFingerprints(object $record): array
+    {
+        $fields = $this->autosavePolledRelationFields($record);
+
+        if ($fields === [] || ! $record instanceof Model) {
+            return ['fingerprints' => [], 'unfingerprinted' => []];
+        }
+
+        $union = null;
+        $unfingerprinted = [];
+
+        foreach ($fields as $path => ['relation' => $relation]) {
+            $stamp = $this->autosaveRelationStampColumn($relation);
+
+            if ($stamp === null) {
+                $unfingerprinted[] = $path;
+
+                continue;
+            }
+
+            $query = (clone $relation->getQuery())->toBase();
+            $query->columns = null;
+            $query->orders = null;
+            $query->limit = null;
+            $query->offset = null;
+            // A quoted literal, not a binding: Postgres cannot type a bare
+            // parameter in a select list.
+            // The key columns catch a row swapped for another within the
+            // same second, which the timestamp alone cannot see.
+            $grammar = $query->getGrammar();
+            $key = $grammar->wrap($this->autosaveRelationKeyColumn($relation));
+            $query->selectRaw(
+                $grammar->quoteString($path).' as autosave_path, count(*) as autosave_count, max('.$grammar->wrap($stamp).') as autosave_stamp'
+                .", max({$key}) as autosave_max_key, sum({$key}) as autosave_sum_key",
+            );
+
+            $union = $union === null ? $query : $union->unionAll($query);
+        }
+
+        $fingerprints = [];
+
+        if ($union !== null) {
+            foreach ($union->get() as $row) {
+                $row = (array) $row;
+                $fingerprints[(string) $row['autosave_path']] = $this->autosaveStore()->snapshotHash([
+                    'count' => (int) $row['autosave_count'],
+                    'stamp' => $row['autosave_stamp'] === null ? null : (string) $row['autosave_stamp'],
+                    'max' => $row['autosave_max_key'] === null ? null : (string) $row['autosave_max_key'],
+                    'sum' => $row['autosave_sum_key'] === null ? null : (string) $row['autosave_sum_key'],
+                ]);
+            }
+        }
+
+        return ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted];
+    }
+
+    /** The related row's key (the related key on a pivot), qualified. */
+    protected function autosaveRelationKeyColumn(Relation $relation): string
+    {
+        if ($relation instanceof BelongsToMany) {
+            return $relation->getQualifiedRelatedPivotKeyName();
+        }
+
+        return $relation->getRelated()->getQualifiedKeyName();
+    }
+
+    /** The column whose maximum tells a row edit apart, or null when the relation has no timestamps. */
+    protected function autosaveRelationStampColumn(Relation $relation): ?string
+    {
+        if ($relation instanceof BelongsToMany) {
+            $column = $relation->updatedAt();
+
+            return $relation->hasPivotColumn($column) ? $relation->qualifyPivotColumn($column) : null;
+        }
+
+        $related = $relation->getRelated();
+
+        return $related->usesTimestamps() && $related->getUpdatedAtColumn() !== null
+            ? $related->getQualifiedUpdatedAtColumn()
+            : null;
+    }
+
+    /**
+     * Polled relation paths that may have changed since the last poll: those
+     * whose fingerprint moved (`true`, a certain change) plus every relation
+     * that has none (`false`: re-read and compared, never reported stale).
+     *
+     * @return array<string, bool>
+     */
+    protected function autosaveChangedRelationPaths(object $record): array
+    {
+        if (! $this->autosavePollsRelationships()) {
+            return [];
+        }
+
+        ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted] = $this->autosaveRelationFingerprints($record);
+        $this->autosaveReadRelationFingerprints = $fingerprints;
+        $changed = array_fill_keys($unfingerprinted, false);
+
+        foreach ($fingerprints as $path => $hash) {
+            if (($this->autosaveSyncedRelationHashes[$path] ?? null) !== $hash) {
+                $changed[$path] = true;
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
+     * Re-read the given relations through their components, exactly as on
+     * page load, when this user has not touched them; report the rest as
+     * stale. Nothing is written and Undo is untouched.
+     *
+     * @param  array<string, bool>  $paths  Path => whether the remote change is certain.
+     * @param  array<string, mixed>  $current  Prepared payload of the live form.
+     * @return array{refreshed: array<string, mixed>, stale: list<string>}
+     */
+    protected function refillAutosaveRelationPaths(object $record, array $paths, array $current): array
+    {
+        if ($paths === []) {
+            return ['refreshed' => [], 'stale' => []];
+        }
+
+        $fields = $this->autosavePolledRelationFields($record);
+        $refreshed = [];
+        $stale = [];
+        $refilled = [];
+
+        foreach ($paths as $path => $certain) {
+            $entry = $fields[$path] ?? null;
+
+            if ($entry === null) {
+                continue;
+            }
+
+            ['kind' => $kind, 'components' => $components] = $entry;
+
+            if (! $this->autosaveRelationFieldIsClean($kind, $path, $components, $current)) {
+                if ($certain) {
+                    $stale[] = $path;
+                }
+
+                continue;
+            }
+
+            $before = $this->autosaveRelationStateHash($components);
+
+            foreach ($components as $component) {
+                if (method_exists($component, 'getRelationshipName') && method_exists($record, 'unsetRelation')) {
+                    $record->unsetRelation((string) $component->getRelationshipName());
+                }
+
+                if (method_exists($component, 'clearCachedExistingRecords')) {
+                    $component->clearCachedExistingRecords();
+                }
+
+                $component->loadStateFromRelationships(true);
+            }
+
+            if ($this->autosaveRelationStateHash($components) !== $before) {
+                $refilled[$path] = $entry;
+            }
+        }
+
+        if ($refilled === []) {
+            return ['refreshed' => [], 'stale' => $stale];
+        }
+
+        $after = $this->autosaveDehydrateForPoll();
+
+        foreach ($refilled as $path => ['kind' => $kind, 'components' => $components]) {
+            if (array_key_exists($path, $after)) {
+                $this->acknowledgeAutosaveRefreshedField($path, $after[$path]);
+            }
+
+            if ($kind === 'media') {
+                if (method_exists($this, 'acknowledgeAutosaveRefreshedUpload')) {
+                    $this->acknowledgeAutosaveRefreshedUpload($components[0]);
+                }
+            } else {
+                $this->acknowledgeAutosaveRefreshedRelation($path, $components);
+            }
+
+            // The raw state is what the browser holds under this path; the
+            // controller folds it into its baseline as-is.
+            $refreshed[$path] = method_exists($components[0], 'getRawState') ? $components[0]->getRawState() : ($after[$path] ?? null);
+        }
+
+        return ['refreshed' => $refreshed, 'stale' => $stale];
+    }
+
+    /**
+     * Whether a polled field still holds what was last acknowledged: a media
+     * field by its upload hash; a relation by its relationship hash where the
+     * trait keeps one, else by the field hash of the payload it folds into.
+     *
+     * @param  'relation'|'media'  $kind
+     * @param  array<int, object>  $components
+     * @param  array<string, mixed>  $current
+     */
+    protected function autosaveRelationFieldIsClean(string $kind, string $path, array $components, array $current): bool
+    {
+        // Media hooks live on the uploads trait, looked up like autosaveUploadFields().
+        if ($kind === 'media') {
+            return method_exists($this, 'autosaveUploadFieldIsClean') && $this->autosaveUploadFieldIsClean($components[0]);
+        }
+
+        if (array_key_exists($path, $current) && ! $this->autosaveFieldIsClean($path, $current[$path])) {
+            return false;
+        }
+
+        if (property_exists($this, 'autosaveRelationshipHashes') && method_exists($this, 'autosaveRelationshipHash')) {
+            return ($this->autosaveRelationshipHashes[$path] ?? null) === $this->autosaveRelationshipHash($components);
+        }
+
+        return array_key_exists($path, $current);
+    }
+
+    /** Record a refilled relation's state as its new acknowledged state; traits with a relationship hash override. */
+    protected function acknowledgeAutosaveRefreshedRelation(string $path, array $components): void {}
+
+    /** @param array<int, object> $components */
+    protected function autosaveRelationStateHash(array $components): string
+    {
+        $states = [];
+
+        foreach ($components as $index => $component) {
+            $states[$index] = method_exists($component, 'getRawState') ? $component->getRawState() : null;
+        }
+
+        return $this->hashAutosaveValue($states);
+    }
+
+    protected function rememberAutosaveSyncedRelations(object $record): void
+    {
+        if (! $this->autosavePollsRelationships()) {
+            $this->autosaveSyncedRelationHashes = [];
+
+            return;
+        }
+
+        // A poll already read them this request; reading again would double
+        // the detector's cost. A write invalidates them, so the persist phase
+        // clears this first.
+        $this->autosaveSyncedRelationHashes = $this->autosaveReadRelationFingerprints
+            ?? $this->autosaveRelationFingerprints($record)['fingerprints'];
     }
 
     /** The record polling reads; traits that own one override this. */
@@ -1897,9 +2288,10 @@ trait HasAutosaveBase
      * attribute.
      *
      * @param  array<string, mixed>  $current  Prepared payload of the live form.
+     * @param  bool  $polling  A poll with `poll_relationships` on also refills clean upload columns.
      * @return array<string, true>
      */
-    protected function autosaveRefreshablePaths(object $record, array $current): array
+    protected function autosaveRefreshablePaths(object $record, array $current, bool $polling = false): array
     {
         if (! $this->autosaveCanRefillFromRecord() || ! method_exists($record, 'attributesToArray')) {
             return [];
@@ -1927,7 +2319,7 @@ trait HasAutosaveBase
             }
         }
 
-        if (method_exists($this, 'autosaveUploadFields')) {
+        if (method_exists($this, 'autosaveUploadFields') && ! ($polling && $this->autosavePollsRelationships())) {
             foreach (array_keys($this->autosaveUploadFields()) as $path) {
                 $skip[AutosaveFieldTree::topLevelKey((string) $path)] = true;
             }
@@ -2001,7 +2393,10 @@ trait HasAutosaveBase
     {
         if (method_exists($record, 'usesTimestamps') && $record->usesTimestamps()
             && method_exists($record, 'getUpdatedAtColumn') && ($column = $record->getUpdatedAtColumn()) !== null) {
-            $stamp = $record->newQuery()->whereKey($record->getKey())->value($column);
+            // Through the base builder: Eloquent would cast the value to a
+            // Carbon, which never equals the raw attribute string the hash
+            // was built from, and the fast path would never hit.
+            $stamp = $record->newQuery()->toBase()->where($record->getQualifiedKeyName(), $record->getKey())->value($column);
             $seen = $this->autosaveSyncedAttributeHashes['__updated_at'] ?? null;
 
             if ($seen !== null && $this->autosaveStore()->snapshotHash(['v' => $stamp]) === $seen) {
@@ -2063,6 +2458,7 @@ trait HasAutosaveBase
     protected function rememberAutosaveSyncedAttributes(object $record): void
     {
         $this->autosaveSyncedAttributeHashes = $this->autosaveRecordAttributeHashes($record);
+        $this->rememberAutosaveSyncedRelations($record);
     }
 
     /** @return array<string, string> */

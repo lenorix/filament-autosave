@@ -24,6 +24,18 @@ return [
     // refresh_unchanged_fields is; the poll never overwrites a dirty field.
     'poll_interval' => 5000,
 
+    // Also pull other editors' changes to relationship repeaters, relation
+    // selects, upload columns and Spatie media collections on each poll, as
+    // long as this user has not touched that field (a touched field is only
+    // reported as stale). Detection costs one extra query per poll, whatever
+    // the form: a count and latest updated_at per relation table, in one
+    // UNION. A relation whose rows have no timestamps is re-read on every
+    // poll instead. Nested relationship repeaters are refreshed with their
+    // parent; a change in a nested row alone is noticed only when the parent
+    // row is touched ($touches). Off by default: forms with many relations
+    // pay for it on every poll.
+    'poll_relationships' => false,
+
     // Top-level text fields whose concurrent edits are merged instead of
     // last-write-wins: TextInput, Textarea and MarkdownEditor word by word
     // (the browser sends a patch of its own change; the server plays it on
