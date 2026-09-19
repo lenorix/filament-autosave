@@ -536,9 +536,21 @@ controller takes it from there.
   lets the next autosave retry from there. The field stays dirty and the
   callout says why. Nothing you typed is lost at any point.
 
-The caret handling applies to `TextInput` and `Textarea`. A merged
-`MarkdownEditor` value is set on the state and the editor re-renders it (the
-merge is kept, the caret is not).
+The caret handling applies to `TextInput`, `Textarea` and `RichEditor`. A
+merged `MarkdownEditor` value is set on the state and the editor re-renders
+it (the merge is kept, the caret is not).
+
+A `RichEditor` gets the same treatment on its document. The runtime borrows
+ProseMirror from the editor Filament already put on the page (nothing else is
+loaded), keeps the editor's own JSON as the base, sends that document with
+the save, and applies whatever comes back as one editor transaction that
+touches only the blocks that changed: the caret and selection are mapped
+through it, and text typed while the save was in flight is merged back in,
+block by block. Filament's usual "reset the editor on a server refill" is
+skipped for that one update, which is what keeps the caret. A conflict shows
+the other version as text in the callout; recovering puts the other editor's
+nodes back at their block (in place of yours when they are still there),
+images and custom blocks included, as an ordinary edit.
 
 <details>
 <summary>Payload contract (version 1)</summary>

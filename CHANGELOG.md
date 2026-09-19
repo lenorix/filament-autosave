@@ -16,6 +16,15 @@
   A rich field is merged before the form dehydrates, so the editor's
   attachment cleanup keeps every image the merged document still references.
   A rich merge adds exactly one query (the read of the rich columns).
+- The browser applies a merged `RichEditor` document inside the live TipTap
+  editor (`resources/js/autosave-rich-merge.js`, loaded with the merge
+  runtime and borrowing ProseMirror from Filament's own editor bundle): only
+  the blocks that differ are replaced, in one transaction, so the caret,
+  the selection and text typed while the save was in flight are kept; a
+  clean field refilled by a poll goes the same way instead of a reset.
+  Rich conflicts are previewed as text in the callout and recovered by
+  putting the other editor's nodes back at their block; a contended field
+  adopts the latest merge and stays dirty.
 - Generic forms (`HasAutosaveForForm`) store a `RichEditor`'s column format
   (HTML or JSON, through its state cast) instead of the raw Tiptap document
   the form holds.

@@ -194,3 +194,28 @@ test('the controller watches server-side state changes in edit and form modes al
     expect($watch)->not->toBeFalse()
         ->and(substr($js, max(0, $watch - 80), 80))->not->toContain("if (mode === 'edit')");
 });
+
+test('the controller merges rich editor documents inside the live editor', function () {
+    $markup = controllerMarkup();
+
+    expect($markup)
+        // A rich field is told apart from the DOM and its base kept as the editor's JSON.
+        ->toContain('rich: {')
+        ->toContain('is: (path) => this.isRichField(path)')
+        ->toContain('serialize: (path, value) => this.richSerialize(path, value)')
+        ->toContain('window.FilamentAutosaveRichMerge.element(')
+        ->toContain('window.FilamentAutosaveRichMerge.docs.normalize(found.editor, value)')
+        // The reply is read against a copy of what was sent, not the live state.
+        ->toContain('JSON.parse(JSON.stringify(values[path]))')
+        // Applied as one transaction, with Filament's own reset skipped once.
+        ->toContain('data.shouldUpdateState = false')
+        ->toContain('rich.apply.toEditor(editor, target, { before: sync })')
+        ->toContain("rich.merge.blocks(sentDoc, live, target, 'theirs')")
+        ->toContain("rich.merge.blocks(baseDoc, live, target, 'ours')")
+        ->toContain('rich.apply.mapSelection(')
+        // Refills of a clean rich field go the same way instead of a reset.
+        ->toContain('updates[path] = { rich: true, value, base: null, sent: null, contended: false }')
+        // Conflicts are previewed as text and recovered inside the editor.
+        ->toContain('conflict.preview = window.FilamentAutosaveRichMerge.docs.preview(')
+        ->toContain('window.FilamentAutosaveRichMerge.apply.recover(found.editor, conflict)');
+});

@@ -61,7 +61,15 @@
             this.rememberBaseline()
 
             if ((mode === 'edit' || mode === 'form') && mergeFields.length && window.FilamentAutosaveMerge) {
-                this.mergeSync = window.FilamentAutosaveMerge.createSync(mergeFields)
+                // A rich editor's field holds a document; its base is kept
+                // as the editor's own JSON, resolved lazily because the
+                // editor is loaded after this controller.
+                this.mergeSync = window.FilamentAutosaveMerge.createSync(mergeFields, {
+                    rich: {
+                        is: (path) => this.isRichField(path),
+                        serialize: (path, value) => this.richSerialize(path, value),
+                    },
+                })
                 this.mergeSync.seed(this.stateValue())
             }
 
@@ -92,7 +100,7 @@
                 const data = Array.isArray(params) ? params[0] : params
                 // Merged values the server stored are acknowledged like a
                 // refill: they belong in the baseline, not in the diff.
-                const refreshed = { ...(data.refreshed || {}), ...this.mergeAcknowledged(data) }
+                const refreshed = this.richNormalized({ ...(data.refreshed || {}), ...this.mergeAcknowledged(data) })
                 this.setStatus(data.status, data.timestamp || null, data.errors || {}, refreshed, data.pending || [], data.stale || [])
                 this.receiveMerge(data)
             })
@@ -320,6 +328,99 @@
             return window.FilamentAutosaveMerge.apply.findInput(this.$el?.closest?.('[wire\\:id]'), this.statePath + '.' + path)
         },
 
+        // --- Rich editors ---------------------------------------------------
+
+        // Whether the field is a Filament rich editor: decided from the DOM
+        // so it holds before the editor's own script has loaded.
+        isRichField(path) {
+            if (!window.FilamentAutosaveRichMerge) {
+                return false
+            }
+
+            if (this.richFieldCache?.[path] === undefined) {
+                this.richFieldCache = this.richFieldCache || {}
+                this.richFieldCache[path] = window.FilamentAutosaveRichMerge.element(this.$el?.closest?.('[wire\\:id]'), this.statePath + '.' + path) !== null
+            }
+
+            return this.richFieldCache[path]
+        },
+
+        // Filament's editor bound to the field: `{ el, data, editor }` or null.
+        richEditor(path) {
+            return window.FilamentAutosaveRichMerge?.find(this.$el?.closest?.('[wire\\:id]'), this.statePath + '.' + path) || null
+        },
+
+        // The base a rich field is kept as: the editor's JSON for the value.
+        // Before the editor exists the raw document is close enough; the
+        // first save re-reads every base through the editor.
+        richSerialize(path, value) {
+            const found = this.richEditor(path)
+
+            if (found) {
+                return window.FilamentAutosaveRichMerge.docs.normalize(found.editor, value)
+            }
+
+            return typeof value === 'string' ? value : JSON.stringify(value ?? null)
+        },
+
+        // Rich values the server sent (a refill or a merge) as the editor
+        // will report them once applied, so baselines compare equal.
+        richNormalized(values) {
+            const out = { ...values }
+
+            for (const path of Object.keys(out)) {
+                const found = this.mergeSync && this.mergeSync.isRich(path) ? this.richEditor(path) : null
+
+                if (found) {
+                    out[path] = window.FilamentAutosaveRichMerge.docs.toDoc(found.editor, out[path]).toJSON()
+                }
+            }
+
+            return out
+        },
+
+        // Put a document into the editor changing only what differs, with
+        // the Livewire state and both watchers told first. Filament's own
+        // state watcher would reset the whole editor (and the caret) when the
+        // server refilled the field: skip that one run.
+        richApply(path, found, target, selection = null) {
+            const rich = window.FilamentAutosaveRichMerge
+            const { editor, data } = found
+
+            // Filament's watcher runs once for the state write below (and
+            // the server's refill it may be batched with); the flag is put
+            // back if no run consumed it.
+            data.shouldUpdateState = false
+            setTimeout(() => {
+                if (data.shouldUpdateState === false) {
+                    data.shouldUpdateState = true
+                }
+            }, 0)
+
+            const sync = (docJson) => {
+                const expected = JSON.parse(JSON.stringify(this.stateValue()))
+                this.setStatePath(expected, path, docJson)
+                this.lastSyncedStateJson = JSON.stringify(expected)
+                this.stateValue()[path] = docJson
+            }
+
+            const changed = rich.apply.toEditor(editor, target, { before: sync })
+
+            if (!changed) {
+                // The editor already shows it: align the state with the
+                // editor's own JSON so the refill does not read as an edit.
+                const docJson = editor.getJSON()
+
+                if (JSON.stringify(this.stateValue()?.[path] ?? null) !== JSON.stringify(docJson)) {
+                    sync(docJson)
+                }
+            }
+
+            if (selection) {
+                rich.apply.select(editor, selection)
+            }
+        },
+
         // Patches for the dirty mergeable fields, remembering what each
         // input held (value and caret) so the reply can be applied to it.
         mergePatches() {
@@ -328,7 +429,25 @@
             this.mergeSnapshots = {}
 
             for (const path of mergeFields) {
-                this.mergeSent[path] = values?.[path] ?? ''
+                // A copy: Livewire updates the state object in place when
+                // the reply lands, and the reply must be read against what
+                // was actually sent.
+                this.mergeSent[path] = values?.[path] === undefined ? '' : JSON.parse(JSON.stringify(values[path]))
+
+                if (this.mergeSync.isRich(path)) {
+                    const found = this.richEditor(path)
+
+                    // A base seeded before the editor existed is re-read
+                    // through it now, so it compares with what we send.
+                    if (found && !this.richRebased?.[path]) {
+                        this.richRebased = { ...(this.richRebased || {}), [path]: true }
+                        this.mergeSync.acknowledge(path, this.mergeSync.base(path))
+                    }
+
+                    this.mergeSnapshots[path] = found ? { selection: found.editor.state.selection.toJSON() } : null
+                    continue
+                }
+
                 this.mergeSnapshots[path] = window.FilamentAutosaveMerge.apply.snapshot(this.mergeInput(path))
             }
 
@@ -385,8 +504,15 @@
             // server's values, but a textarea still shows what the user typed
             // while the request ran, and that is what the merge must keep.
             const live = JSON.parse(JSON.stringify(this.stateValue()))
+            const editors = {}
 
             for (const path of mergeFields) {
+                if (this.mergeSync.isRich(path)) {
+                    editors[path] = this.richEditor(path)
+                    live[path] = editors[path] ? editors[path].editor.getJSON() : live[path]
+                    continue
+                }
+
                 const input = this.mergeInput(path)
 
                 if (input) {
@@ -395,6 +521,37 @@
             }
 
             const { updates, conflicts } = this.mergeSync.receive(data, live, sent)
+
+            // A clean rich field the server refilled: the same document
+            // goes into the editor block by block, not through a reset.
+            for (const [path, value] of Object.entries(data.refreshed || {})) {
+                if (editors[path] && !updates[path]) {
+                    updates[path] = { rich: true, value, base: null, sent: null, contended: false }
+                }
+            }
+
+            for (const path of Object.keys(updates)) {
+                if (!updates[path]?.rich) {
+                    continue
+                }
+
+                const found = editors[path]
+                const update = updates[path]
+                delete updates[path]
+
+                // Without an editor on the page there is nothing to merge
+                // into; a refill already reached the state on its own.
+                if (found) {
+                    this.richReceive(path, found, update, sent ? snapshots[path] : null)
+                }
+            }
+
+            for (const conflict of conflicts) {
+                if (editors[conflict.path]) {
+                    conflict.preview = window.FilamentAutosaveRichMerge.docs.preview(editors[conflict.path].editor, conflict.theirs)
+                }
+            }
+
             const paths = Object.keys(updates)
 
             if (paths.length) {
@@ -434,13 +591,66 @@
             }
         },
 
+        // A document from the server into its editor. On a save reply the
+        // server merged what we sent; anything typed since is merged back
+        // in block by block, the server's blocks winning where both moved.
+        // On a poll their value meets our unsaved edits from the shared
+        // base, ours winning: the next save merges those word by word.
+        richReceive(path, found, update, snapshot = null) {
+            const rich = window.FilamentAutosaveRichMerge
+            const { editor } = found
+            const live = editor.state.doc
+            let target = rich.docs.toDoc(editor, update.value)
+
+            if (update.sent !== null) {
+                const sentDoc = rich.docs.toDoc(editor, update.sent)
+
+                if (!live.eq(sentDoc)) {
+                    target = rich.merge.blocks(sentDoc, live, target, 'theirs')
+                }
+            } else if (update.base !== null && update.base !== undefined) {
+                const baseDoc = rich.docs.toDoc(editor, update.base)
+
+                if (!live.eq(baseDoc)) {
+                    target = rich.merge.blocks(baseDoc, live, target, 'ours')
+                }
+            }
+
+            // Filament may already have reset the editor to the refilled
+            // state (the caret at the end): the selection to keep is the
+            // one captured before the request, mapped to the new document.
+            const selection = snapshot?.selection && live.eq(rich.docs.toDoc(editor, update.value)) && editor.state.selection.empty
+                ? rich.apply.mapSelection(rich.docs.toDoc(editor, update.sent), target, snapshot.selection)
+                : null
+
+            // A contended field was not written: the adopted document is a
+            // fresh edit from the new base, and receiveMerge re-arms the save.
+            this.richApply(path, found, target, selection)
+        },
+
         // Put the other editor's discarded words back where ours replaced
         // them; a real edit, so it is saved like any other.
         recoverConflict(index) {
             const conflict = this.conflicts[index]
-            const input = conflict ? this.mergeInput(conflict.path) : null
 
-            if (!conflict || !input) {
+            if (!conflict) {
+                return
+            }
+
+            if (this.mergeSync.isRich(conflict.path)) {
+                const found = this.richEditor(conflict.path)
+
+                if (found) {
+                    window.FilamentAutosaveRichMerge.apply.recover(found.editor, conflict)
+                    this.conflicts = this.conflicts.filter((_, i) => i !== index)
+                }
+
+                return
+            }
+
+            const input = this.mergeInput(conflict.path)
+
+            if (!input) {
                 return
             }
 
