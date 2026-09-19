@@ -194,3 +194,52 @@ test('a recordless draft keeps a three-level nested repeater state intact across
         ->and($subitems[0]['label'])->toBe('Group')
         ->and($leaves[0]['label'])->toBe('Option');
 });
+
+function leafPath(array $data): string
+{
+    $itemKey = array_key_first($data['items']);
+    $subKey = array_key_first($data['items'][$itemKey]['subitems']);
+    $leafKey = array_key_first($data['items'][$itemKey]['subitems'][$subKey]['subsubitems']);
+
+    return "items.{$itemKey}.subitems.{$subKey}.subsubitems.{$leafKey}";
+}
+
+function visibleLeafLabels(array $data): array
+{
+    return collect($data['items'])
+        ->flatMap(fn ($i) => collect($i['subitems'])->flatMap(fn ($s) => collect($s['subsubitems'])->pluck('label')))
+        ->all();
+}
+
+test('a generic record form undoes a nested edit three levels deep and shows the original value again', function () {
+    [$post, , , $leaf] = seedDeepGraph();
+    $page = Livewire::test(DeepRelationshipRecordForm::class, ['record' => $post]);
+    $path = leafPath($page->get('data'));
+
+    $page->set("data.{$path}.label", 'Option changed')->call('autosave')->assertSet('autosaveCanUndo', true);
+    expect($leaf->fresh()->label)->toBe('Option changed');
+
+    $page->call('undoAutosave')->assertDispatched('autosave-status', status: 'undone');
+
+    expect($leaf->fresh()->label)->toBe('Option')
+        ->and(visibleLeafLabels($page->get('data')))->toBe(['Option']);
+});
+
+test('a generic record form undoes a newly added nested row and it disappears from the form', function () {
+    [$post, , $subitem] = seedDeepGraph();
+    $page = Livewire::test(DeepRelationshipRecordForm::class, ['record' => $post]);
+    $data = $page->get('data');
+    $itemKey = array_key_first($data['items']);
+    $subKey = array_key_first($data['items'][$itemKey]['subitems']);
+    $leaves = $data['items'][$itemKey]['subitems'][$subKey]['subsubitems'];
+    $leaves['new-leaf'] = ['label' => 'Added'];
+
+    $page->set("data.items.{$itemKey}.subitems.{$subKey}.subsubitems", $leaves)
+        ->call('autosave')->assertSet('autosaveCanUndo', true);
+    expect(PostSubSubItem::query()->where('post_sub_item_id', $subitem->getKey())->count())->toBe(2);
+
+    $page->call('undoAutosave')->assertDispatched('autosave-status', status: 'undone');
+
+    expect(PostSubSubItem::query()->where('post_sub_item_id', $subitem->getKey())->pluck('label')->all())->toBe(['Option'])
+        ->and(visibleLeafLabels($page->get('data')))->toBe(['Option']);
+});

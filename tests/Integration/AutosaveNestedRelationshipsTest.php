@@ -536,3 +536,60 @@ test('a relationship-saving handleRecordUpdate() still lets a nested edit on an 
         ->and(PostSubItem::query()->where('post_item_id', $item->getKey())->count())->toBe(1)
         ->and($updates)->toBe(1);
 });
+
+function editPageLeafPath(array $data): string
+{
+    $itemKey = array_key_first($data['items']);
+    $subKey = array_key_first($data['items'][$itemKey]['subitems']);
+    $leafKey = array_key_first($data['items'][$itemKey]['subitems'][$subKey]['subsubitems']);
+
+    return "items.{$itemKey}.subitems.{$subKey}.subsubitems.{$leafKey}";
+}
+
+function editPageLeafLabels(array $data): array
+{
+    return collect($data['items'])
+        ->flatMap(fn ($i) => collect($i['subitems'])->flatMap(fn ($s) => collect($s['subsubitems'])->pluck('label')))
+        ->all();
+}
+
+test('an edit page undoes a nested edit three levels deep and shows the original value again', function () {
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Service', 'position' => 1]);
+    $subitem = PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Group']);
+    $leaf = PostSubSubItem::create(['post_sub_item_id' => $subitem->getKey(), 'label' => 'Option']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $path = editPageLeafPath($page->get('data'));
+
+    $page->set("data.{$path}.label", 'Option changed')->call('autosave')->assertSet('autosaveCanUndo', true);
+    expect($leaf->fresh()->label)->toBe('Option changed');
+
+    $page->call('undoAutosave')->assertDispatched('autosave-status', status: 'undone');
+
+    expect($leaf->fresh()->label)->toBe('Option')
+        ->and(editPageLeafLabels($page->get('data')))->toBe(['Option']);
+});
+
+test('an edit page undoes a newly added nested row and it disappears from the form', function () {
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Service', 'position' => 1]);
+    $subitem = PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Group']);
+    PostSubSubItem::create(['post_sub_item_id' => $subitem->getKey(), 'label' => 'Option']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $data = $page->get('data');
+    $itemKey = array_key_first($data['items']);
+    $subKey = array_key_first($data['items'][$itemKey]['subitems']);
+    $leaves = $data['items'][$itemKey]['subitems'][$subKey]['subsubitems'];
+    $leaves['new-leaf'] = ['label' => 'Added'];
+
+    $page->set("data.items.{$itemKey}.subitems.{$subKey}.subsubitems", $leaves)
+        ->call('autosave')->assertSet('autosaveCanUndo', true);
+    expect(PostSubSubItem::query()->where('post_sub_item_id', $subitem->getKey())->count())->toBe(2);
+
+    $page->call('undoAutosave')->assertDispatched('autosave-status', status: 'undone');
+
+    expect(PostSubSubItem::query()->where('post_sub_item_id', $subitem->getKey())->pluck('label')->all())->toBe(['Option'])
+        ->and(editPageLeafLabels($page->get('data')))->toBe(['Option']);
+});
