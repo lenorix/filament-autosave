@@ -60,7 +60,11 @@ trait HasAutosaveBase
     #[Locked]
     public string $autosaveDataPath = 'data';
 
-    /** Validation failures remain visible while valid sibling fields save. */
+    /**
+     * Validation failures remain visible while valid sibling fields save.
+     *
+     * @var array<string, array<int, string>>
+     */
     #[Locked]
     public array $autosaveValidationErrors = [];
 
@@ -137,7 +141,11 @@ trait HasAutosaveBase
         $this->dispatchAutosaveStatus(AutosaveStatus::Idle);
     }
 
-    /** Push one of the small autosave status events to the frontend. */
+    /**
+     * Push one of the small autosave status events to the frontend.
+     *
+     * @param  array<string, mixed>  $extra
+     */
     protected function dispatchAutosaveStatus(AutosaveStatus $status, array $extra = []): void
     {
         // ->self(): the indicator listens with $wire.$on() inside this
@@ -157,17 +165,16 @@ trait HasAutosaveBase
      * Eloquent model, but the parameter stays duck-typed so callers are not
      * forced into an Eloquent dependency they may not have.
      *
-     * `RecordUpdated`/`RecordSaved` declare a constructor, so dispatching
-     * them by class name with an array payload (the pattern Filament's own
-     * `EditRecord::save()` uses) never builds that object: Laravel spreads
-     * the array positionally into each listener instead, which throws a
-     * `TypeError` for any listener type-hinted against the event class, and
-     * that error was silently swallowed by the autosave failure handler.
-     * Real instances are built whenever the record and this component
-     * satisfy the constructor; otherwise a generic Livewire component
-     * (a relation manager, a bare form) cannot supply a real
-     * `Filament\Resources\Pages\Page`, so the payload falls back to
-     * Filament's own convention for parity, with the same caveat.
+     * `RecordUpdated`/`RecordSaved` take a `Filament\Resources\Pages\Page`
+     * in their constructor, so they are built only when this component is
+     * one — an Edit page, or a custom resource page hosting its own form.
+     * A relation manager, action or bare Livewire component is not, and
+     * dispatches nothing: sending the class name with an array payload
+     * instead (Filament's own `EditRecord::save()` idiom) never builds the
+     * object and throws a `TypeError` inside any typed listener. Use the
+     * package's own events there.
+     *
+     * @param  array<string, mixed>  $data
      */
     protected function dispatchAutosaveRecordEvents(object $record, array $data): void
     {
@@ -180,12 +187,7 @@ trait HasAutosaveBase
         if ($record instanceof Model && $this instanceof Page) {
             Event::dispatch(new RecordUpdated($record, $data, $this));
             Event::dispatch(new RecordSaved($record, $data, $this));
-
-            return;
         }
-
-        Event::dispatch(RecordUpdated::class, ['record' => $record, 'data' => $data, 'page' => $this]);
-        Event::dispatch(RecordSaved::class, ['record' => $record, 'data' => $data, 'page' => $this]);
     }
 
     /**
@@ -229,7 +231,11 @@ trait HasAutosaveBase
         return $data;
     }
 
-    /** Return the snapshot hash to keep after a successful write. */
+    /**
+     * Return the snapshot hash to keep after a successful write.
+     *
+     * @param  array<string, mixed>  $written
+     */
     protected function autosaveSuccessSnapshotHash(array $written): string
     {
         return $this->currentAutosaveSnapshotHash();
@@ -587,7 +593,11 @@ trait HasAutosaveBase
         return $this->autosaveHaltCommitted && $this->autosaveWrittenPaths !== [];
     }
 
-    /** Acknowledge the write: snapshot hash, staged uploads, cycle flag. */
+    /**
+     * Acknowledge the write: snapshot hash, staged uploads, cycle flag.
+     *
+     * @param  array<string, mixed>  $written
+     */
     protected function autosaveCommitPhase(array $written): void
     {
         $this->autosaveSnapshotHash = $this->autosaveSuccessSnapshotHash($written);
@@ -595,7 +605,11 @@ trait HasAutosaveBase
         $this->autosaveCycleWrote = true;
     }
 
-    /** Tell listeners and the indicator what happened. */
+    /**
+     * Tell listeners and the indicator what happened.
+     *
+     * @param  array<string, mixed>  $written
+     */
     protected function autosaveReportPhase(array $written): void
     {
         Event::dispatch(new AutosaveSaved(
@@ -698,7 +712,11 @@ trait HasAutosaveBase
         Event::dispatch(new AutosaveConflict($this, $this->autosaveEventRecord()));
     }
 
-    /** Allow Edit pages to put hooks, writes, and events in one transaction. */
+    /**
+     * Allow Edit pages to put hooks, writes, and events in one transaction.
+     *
+     * @param  array<string, mixed>  $data
+     */
     protected function runAutosavePersistence(callable $persist, array $data): mixed
     {
         return $persist($data);
@@ -707,6 +725,115 @@ trait HasAutosaveBase
     protected function runAutosaveCycle(callable $cycle): mixed
     {
         return $cycle();
+    }
+
+    /**
+     * Run a record-backed cycle in one transaction, keeping the field hashes
+     * and snapshot hash consistent with what actually reached the database.
+     *
+     * A failed or rolled-back cycle restores the hashes taken before it and
+     * drops the Undo it prepared; a Halt that kept the transaction has
+     * committed the write, so its hashes stand and only the report is quiet.
+     */
+    protected function runAutosaveCycleInTransaction(callable $cycle): mixed
+    {
+        $baseline = $this->captureAutosaveBaseline();
+        $this->clearQueuedAutosaveNotification();
+
+        try {
+            $result = $this->autosaveWithinDatabaseTransaction($cycle);
+            $this->afterAutosaveCycleCommitted();
+
+            return $result;
+        } catch (\Throwable $e) {
+            // A failed commit must never leave a notification queued for a
+            // later request.
+            $this->clearQueuedAutosaveNotification();
+
+            if ($this->autosaveHaltCommittedWrite()) {
+                $this->afterAutosaveCycleHaltCommitted();
+
+                throw $e;
+            }
+
+            $this->restoreAutosaveBaseline($baseline);
+            $this->discardAutosaveCycleUndo();
+
+            throw $e;
+        }
+    }
+
+    /**
+     * What a rolled-back cycle must put back: the acknowledged state the
+     * dirty checks compare against. Traits with per-field hashes add them.
+     *
+     * @return array<string, mixed>
+     */
+    protected function captureAutosaveBaseline(): array
+    {
+        return ['snapshotHash' => $this->autosaveSnapshotHash];
+    }
+
+    /** @param  array<string, mixed>  $baseline */
+    protected function restoreAutosaveBaseline(array $baseline): void
+    {
+        $this->autosaveSnapshotHash = $baseline['snapshotHash'];
+    }
+
+    /** The cycle's transaction committed normally. */
+    protected function afterAutosaveCycleCommitted(): void
+    {
+        $this->flushAutosaveSavedNotification();
+    }
+
+    /** A Halt raised after the write kept the transaction: the write stands. */
+    protected function afterAutosaveCycleHaltCommitted(): void {}
+
+    /** The cycle rolled back: whatever Undo it prepared targets nothing. */
+    protected function discardAutosaveCycleUndo(): void {}
+
+    /**
+     * Hooks, restores and events of one Undo, inside the caller's transaction.
+     * Mirrors an explicit Filament save so hooks may halt or fail and roll
+     * the restoration back.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, array<string, mixed>>  $relationshipSnapshot
+     * @param  array<string, array<string, mixed>>  $externalSnapshot
+     * @param  array<string, object>  $externalFields
+     */
+    protected function restoreAutosaveUndoParts(object $record, array $snapshot, array $relationshipSnapshot, array $externalSnapshot, array $externalFields): void
+    {
+        $this->callAutosaveHook('beforeValidate');
+        $this->callAutosaveHook('afterValidate');
+        $this->callAutosaveHook('beforeSave');
+
+        if ($snapshot !== []) {
+            $this->restoreAutosaveColumns($record, $snapshot);
+        }
+
+        if ($relationshipSnapshot !== []) {
+            $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
+        }
+
+        // External (file/media) restores come from the uploads trait, which
+        // draft-only hosts do not carry.
+        if ($externalSnapshot !== [] && method_exists($this, 'restoreAutosaveExternalUndo')) {
+            $this->restoreAutosaveExternalUndo($externalSnapshot, $externalFields);
+        }
+
+        $this->callAutosaveHook('afterSave');
+        $this->dispatchAutosaveRecordEvents($record, $snapshot);
+    }
+
+    /**
+     * Write the column values of an Undo snapshot back to the record.
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    protected function restoreAutosaveColumns(object $record, array $snapshot): void
+    {
+        $record->update($snapshot);
     }
 
     /**
@@ -819,7 +946,11 @@ trait HasAutosaveBase
 
     protected function commitAutosaveStoredUploads(): void {}
 
-    /** Whether the payload is empty and nothing else waits to be persisted. */
+    /**
+     * Whether the payload is empty and nothing else waits to be persisted.
+     *
+     * @param  array<string, mixed>  $data
+     */
     protected function autosaveHasNothingToPersist(array $data): bool
     {
         return empty($data) && ! $this->hasPendingAutosavePersistence();
@@ -1079,11 +1210,32 @@ trait HasAutosaveBase
     }
 
     /**
+     * A lookup that may legitimately fail while a component mounts or renders
+     * (no mounted action yet, no record yet). Not a failure, but a
+     * misconfigured host is undiagnosable without a trace of it.
+     */
+    protected function autosaveLookupFailed(string $what, \Throwable $e): void
+    {
+        Log::debug("Autosave could not resolve {$what}", [
+            'component' => static::class,
+            'exception' => $e::class,
+        ]);
+    }
+
+    /**
      * Surface a failed autosave operation without leaking field values.
      */
     protected function handleAutosaveFailure(\Throwable $e, string $context): void
     {
-        Log::warning("Autosave {$context} failed", ['exception' => $e::class]);
+        $record = $this->autosaveEventRecord();
+
+        // The message stays out on purpose: a database error quotes the
+        // statement, values included.
+        Log::warning("Autosave {$context} failed", [
+            'component' => static::class,
+            'record' => $record instanceof Model ? $record->getKey() : null,
+            'exception' => $e::class,
+        ]);
 
         $this->dispatchAutosaveStatus(AutosaveStatus::Error);
         Event::dispatch(new AutosaveFailed($this, $e, $context));
@@ -1228,7 +1380,7 @@ trait HasAutosaveBase
 
         $this->autosaveValidationErrors = $errors;
         $this->autosaveValidationKeys = array_map(strval(...), array_keys($errors));
-        $this->autosavePendingFields = array_values(array_map(strval(...), array_keys($errors)));
+        $this->autosavePendingFields = array_map(strval(...), array_keys($errors));
     }
 
     protected function autosaveValidationLabel(string $key): string
@@ -1324,8 +1476,9 @@ trait HasAutosaveBase
                 if (is_object($form) && method_exists($form, 'getRawState') && method_exists($form, 'fill')) {
                     return $form;
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // A component may have no mounted action during mount/render.
+                $this->autosaveLookupFailed('mounted action schema', $e);
             }
 
             // A table or relation manager's generic `form` schema can be a
@@ -1346,8 +1499,9 @@ trait HasAutosaveBase
                 if (is_object($form) && method_exists($form, 'getRawState') && method_exists($form, 'fill')) {
                     return $form;
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Some components only register action schemas lazily.
+                $this->autosaveLookupFailed('form schema', $e);
             }
         }
 
@@ -1361,8 +1515,10 @@ trait HasAutosaveBase
     /**
      * Turn dates and enums into scalars without losing JSON-cast arrays.
      *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
+     * @template TSnapshot of array<array-key, mixed>
+     *
+     * @param  TSnapshot  $data
+     * @return TSnapshot
      */
     protected function normalizeUndoSnapshot(array $data): array
     {
@@ -1445,7 +1601,10 @@ trait HasAutosaveBase
         };
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param  MorphTo<Model, Model>  $relation
+     * @return array<string, mixed>
+     */
     protected function captureMorphToAttributes(MorphTo $relation): array
     {
         $parent = $relation->getParent();
@@ -1458,7 +1617,10 @@ trait HasAutosaveBase
         ]);
     }
 
-    /** @return array<int, array<string, mixed>> */
+    /**
+     * @param  BelongsToMany<Model, Model>  $relation
+     * @return array<int, array<string, mixed>>
+     */
     protected function captureBelongsToManyRows(BelongsToMany $relation): array
     {
         $rows = [];
@@ -1473,7 +1635,10 @@ trait HasAutosaveBase
         return $this->normalizeUndoSnapshot($rows);
     }
 
-    /** @return array<int, array<string, mixed>> */
+    /**
+     * @param  HasOneOrMany<Model, Model, mixed>|HasOneOrManyThrough<Model, Model, Model, mixed>  $relation
+     * @return array<int, array<string, mixed>>
+     */
     protected function captureHasManyRows(HasOneOrMany|HasOneOrManyThrough $relation): array
     {
         $rows = $relation->get()->map(function ($related): array {
@@ -1488,6 +1653,18 @@ trait HasAutosaveBase
         })->all();
 
         return $this->normalizeUndoSnapshot($rows);
+    }
+
+    /**
+     * Relationship fields keyed by state path, with their component instances.
+     * Edit pages and record-backed generic forms provide the real map; a
+     * draft-only host has none.
+     *
+     * @return array<string, array<int, object>>
+     */
+    protected function autosaveRelationshipFields(): array
+    {
+        return [];
     }
 
     /** @param  array<string, array<string, mixed>>  $snapshot */
@@ -1514,7 +1691,10 @@ trait HasAutosaveBase
         }
     }
 
-    /** @param array<string, mixed> $attributes */
+    /**
+     * @param  MorphTo<Model, Model>  $relation
+     * @param  array<string, mixed>  $attributes
+     */
     protected function restoreMorphToUndo(MorphTo $relation, array $attributes): void
     {
         if ($attributes !== []) {
@@ -1522,7 +1702,10 @@ trait HasAutosaveBase
         }
     }
 
-    /** @param array<int, array<string, mixed>> $rows */
+    /**
+     * @param  BelongsToMany<Model, Model>  $relation
+     * @param  array<int, array<string, mixed>>  $rows
+     */
     protected function restoreBelongsToManyUndo(BelongsToMany $relation, array $rows): void
     {
         $ids = [];
@@ -1535,6 +1718,7 @@ trait HasAutosaveBase
     }
 
     /**
+     * @param  HasOneOrManyThrough<Model, Model, Model, mixed>  $relation
      * @param  array<int, array<string, mixed>>  $rows
      */
     protected function restoreHasManyThroughUndo(HasOneOrManyThrough $relation, array $rows): void
@@ -1555,7 +1739,10 @@ trait HasAutosaveBase
         }
     }
 
-    /** @param array<int, array<string, mixed>> $rows */
+    /**
+     * @param  HasOneOrMany<Model, Model, mixed>  $relation
+     * @param  array<int, array<string, mixed>>  $rows
+     */
     protected function restoreHasManyUndo(HasOneOrMany $relation, array $rows): void
     {
         $related = $relation->getRelated();
@@ -1574,6 +1761,8 @@ trait HasAutosaveBase
      * Fetch every row currently on the relation in one query. Undo reuses it
      * both to find rows to delete and, keyed by primary key, to update rows
      * that survived instead of issuing a `whereKey()` lookup per row.
+     *
+     * @return Collection<string, object>
      */
     protected function autosaveCurrentRelatedRows(object $relation): Collection
     {
@@ -1582,7 +1771,10 @@ trait HasAutosaveBase
         );
     }
 
-    /** @param array<string, mixed> $attributes */
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @param  Collection<string, object>|null  $existing
+     */
     protected function restoreAutosaveRelatedModel(object $related, array $attributes, string $keyName, ?Collection $existing = null): object
     {
         $key = (string) ($attributes[$keyName] ?? '');
@@ -1595,6 +1787,7 @@ trait HasAutosaveBase
     /**
      * Delete current rows that were not part of the original snapshot.
      *
+     * @param  Collection<string, object>  $current
      * @param  array<string, array<string, mixed>>  $original
      */
     protected function deleteAutosaveRowsMissingFrom(Collection $current, array $original): void
@@ -1917,13 +2110,11 @@ trait HasAutosaveBase
         // mergeable, it refills like any other column.
         $mergeable = $this->autosaveMergeablePaths();
 
-        if (method_exists($this, 'autosaveRelationshipFields')) {
-            foreach (array_keys($this->autosaveRelationshipFields()) as $path) {
-                $top = AutosaveFieldTree::topLevelKey((string) $path);
+        foreach (array_keys($this->autosaveRelationshipFields()) as $path) {
+            $top = AutosaveFieldTree::topLevelKey((string) $path);
 
-                if (! isset($mergeable[$top]) || ! $this->autosaveMergeComponent($top) instanceof RichEditor) {
-                    $skip[$top] = true;
-                }
+            if (! isset($mergeable[$top]) || ! $this->autosaveMergeComponent($top) instanceof RichEditor) {
+                $skip[$top] = true;
             }
         }
 

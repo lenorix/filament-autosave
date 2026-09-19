@@ -29,11 +29,11 @@ use InvalidArgumentException;
  */
 final class AutosaveTextMerge
 {
-    private const EQUAL = 0;
+    private const EQUAL = AutosaveDiff3::EQUAL;
 
-    private const DELETE = -1;
+    private const DELETE = AutosaveDiff3::DELETE;
 
-    private const INSERT = 1;
+    private const INSERT = AutosaveDiff3::INSERT;
 
     /** Match quality below which a fuzzy context match is rejected (0 = exact, 1 = anything). */
     private const MATCH_THRESHOLD = 0.5;
@@ -50,8 +50,13 @@ final class AutosaveTextMerge
     /** Fraction of a long hunk the fuzzy match may fail to cover before the hunk is treated as missing. */
     private const PATCH_DELETE_THRESHOLD = 0.5;
 
-    /** Edit-script size above which a diff degrades to "replace everything between the common ends". */
-    private const MAX_EDIT_DISTANCE = 1000;
+    /** @var AutosaveDiff3<string> */
+    private readonly AutosaveDiff3 $diff3;
+
+    public function __construct()
+    {
+        $this->diff3 = new AutosaveDiff3;
+    }
 
     // ---------------------------------------------------------------------
     // Three-way merge
@@ -74,8 +79,8 @@ final class AutosaveTextMerge
 
         $baseTokens = $this->tokenize($base);
         $hunks = [
-            ...$this->hunks($baseTokens, $this->tokenize($ours), 'ours'),
-            ...$this->hunks($baseTokens, $this->tokenize($theirs), 'theirs'),
+            ...$this->diff3->hunks($baseTokens, $this->tokenize($ours), 'ours'),
+            ...$this->diff3->hunks($baseTokens, $this->tokenize($theirs), 'theirs'),
         ];
 
         usort($hunks, static fn (array $a, array $b): int => [$a['start'], $a['end'] > $a['start'] ? 1 : 0, $a['side']]
@@ -89,14 +94,14 @@ final class AutosaveTextMerge
         $conflicts = [];
         $previousInsertion = null;
 
-        foreach ($this->groupOverlapping($hunks) as $group) {
+        foreach ($this->diff3->groupOverlapping($hunks) as $group) {
             $equal = implode('', array_slice($baseTokens, $cursor, $group['start'] - $cursor));
             $output .= $equal;
             $position += mb_strlen($equal);
             $from = implode('', array_slice($baseTokens, $group['start'], $group['end'] - $group['start']));
             $sides = array_unique(array_column($group['hunks'], 'side'));
-            $oursText = $this->applyHunks($baseTokens, $group, 'ours');
-            $theirsText = $this->applyHunks($baseTokens, $group, 'theirs');
+            $oursText = implode('', $this->diff3->applyHunks($baseTokens, $group, 'ours'));
+            $theirsText = implode('', $this->diff3->applyHunks($baseTokens, $group, 'theirs'));
             $resolved = in_array('ours', $sides, true) ? $oursText : $theirsText;
 
             // Two insertions at the same point from different editors are
@@ -147,7 +152,7 @@ final class AutosaveTextMerge
 
         $diffs = [];
 
-        foreach ($this->diff($this->tokenize($before), $this->tokenize($after)) as [$op, $tokens]) {
+        foreach ($this->diff3->diff($this->tokenize($before), $this->tokenize($after)) as [$op, $tokens]) {
             $diffs[] = [$op, $this->chars(implode('', $tokens))];
         }
 
@@ -282,7 +287,7 @@ final class AutosaveTextMerge
      */
     private function applyFuzzy(array $text, array $patch, array $text1, array $text2, int $start, int $expected, int $delta): array
     {
-        $diffs = $this->diff($text1, $text2);
+        $diffs = $this->diff3->diff($text1, $text2);
         $length1 = count($text1);
 
         if ($length1 > self::MATCH_MAX_BITS && $this->levenshtein($diffs) / $length1 > self::PATCH_DELETE_THRESHOLD) {
@@ -855,290 +860,12 @@ final class AutosaveTextMerge
     }
 
     /**
-     * Changes turning `$base` into `$side` as base-index ranges.
-     *
-     * @param  list<string>  $base
-     * @param  list<string>  $side
-     * @return list<array{start: int, end: int, tokens: list<string>, side: string}>
-     */
-    private function hunks(array $base, array $side, string $name): array
-    {
-        $hunks = [];
-        $index = 0;
-        $open = null;
-
-        foreach ($this->diff($base, $side) as [$op, $tokens]) {
-            if ($op === self::EQUAL) {
-                if ($open !== null) {
-                    $hunks[] = $open;
-                    $open = null;
-                }
-
-                $index += count($tokens);
-
-                continue;
-            }
-
-            $open ??= ['start' => $index, 'end' => $index, 'tokens' => [], 'side' => $name];
-
-            if ($op === self::DELETE) {
-                $open['end'] += count($tokens);
-                $index += count($tokens);
-            } else {
-                $open['tokens'] = [...$open['tokens'], ...$tokens];
-            }
-        }
-
-        if ($open !== null) {
-            $hunks[] = $open;
-        }
-
-        return $hunks;
-    }
-
-    /**
-     * @param  list<array{start: int, end: int, tokens: list<string>, side: string}>  $hunks  Sorted by start.
-     * @return list<array{start: int, end: int, hunks: list<array{start: int, end: int, tokens: list<string>, side: string}>}>
-     */
-    private function groupOverlapping(array $hunks): array
-    {
-        $groups = [];
-        $group = null;
-
-        foreach ($hunks as $hunk) {
-            if ($group !== null && $this->overlaps($group, $hunk)) {
-                $group['end'] = max($group['end'], $hunk['end']);
-                $group['hunks'][] = $hunk;
-
-                continue;
-            }
-
-            if ($group !== null) {
-                $groups[] = $group;
-            }
-
-            $group = ['start' => $hunk['start'], 'end' => $hunk['end'], 'hunks' => [$hunk]];
-        }
-
-        if ($group !== null) {
-            $groups[] = $group;
-        }
-
-        return $groups;
-    }
-
-    /**
-     * Ranges sharing at least one base token, or an insertion strictly
-     * inside a changed range. Touching ranges and same-point insertions
-     * are independent.
-     *
-     * @param  array{start: int, end: int}  $a
-     * @param  array{start: int, end: int}  $b
-     */
-    private function overlaps(array $a, array $b): bool
-    {
-        if (max($a['start'], $b['start']) < min($a['end'], $b['end'])) {
-            return true;
-        }
-
-        return ($b['start'] === $b['end'] && $a['start'] < $b['start'] && $b['start'] < $a['end'])
-            || ($a['start'] === $a['end'] && $b['start'] < $a['start'] && $a['start'] < $b['end']);
-    }
-
-    /**
-     * One side's version of a group's base range.
-     *
-     * @param  list<string>  $base
-     * @param  array{start: int, end: int, hunks: list<array{start: int, end: int, tokens: list<string>, side: string}>}  $group
-     */
-    private function applyHunks(array $base, array $group, string $side): string
-    {
-        $output = '';
-        $cursor = $group['start'];
-
-        foreach ($group['hunks'] as $hunk) {
-            if ($hunk['side'] !== $side) {
-                continue;
-            }
-
-            $output .= implode('', array_slice($base, $cursor, $hunk['start'] - $cursor)).implode('', $hunk['tokens']);
-            $cursor = $hunk['end'];
-        }
-
-        return $output.implode('', array_slice($base, $cursor, $group['end'] - $cursor));
-    }
-
-    /**
      * @param  list<array{position: int, from: string, to: string}>  $hunks
      * @return list<array{position: int, from: string, to: string}>
      */
     private function uniqueHunks(array $hunks): array
     {
         return array_values(array_unique($hunks, SORT_REGULAR));
-    }
-
-    /**
-     * Shortest edit script between two token lists (Myers), grouped into
-     * runs of equal, deleted and inserted tokens.
-     *
-     * @param  list<string>  $a
-     * @param  list<string>  $b
-     * @return list<array{0: int, 1: list<string>}>
-     */
-    private function diff(array $a, array $b): array
-    {
-        $n = count($a);
-        $m = count($b);
-        $prefix = 0;
-
-        while ($prefix < $n && $prefix < $m && $a[$prefix] === $b[$prefix]) {
-            $prefix++;
-        }
-
-        $suffix = 0;
-
-        while ($suffix < $n - $prefix && $suffix < $m - $prefix && $a[$n - 1 - $suffix] === $b[$m - 1 - $suffix]) {
-            $suffix++;
-        }
-
-        $ops = [];
-
-        if ($prefix > 0) {
-            $ops[] = [self::EQUAL, array_slice($a, 0, $prefix)];
-        }
-
-        foreach ($this->myers(array_slice($a, $prefix, $n - $prefix - $suffix), array_slice($b, $prefix, $m - $prefix - $suffix)) as $op) {
-            $ops[] = $op;
-        }
-
-        if ($suffix > 0) {
-            $ops[] = [self::EQUAL, array_slice($a, $n - $suffix)];
-        }
-
-        return $ops;
-    }
-
-    /**
-     * @param  list<string>  $a
-     * @param  list<string>  $b
-     * @return list<array{0: int, 1: list<string>}>
-     */
-    private function myers(array $a, array $b): array
-    {
-        $n = count($a);
-        $m = count($b);
-
-        if ($n === 0) {
-            return $m === 0 ? [] : [[self::INSERT, $b]];
-        }
-
-        if ($m === 0) {
-            return [[self::DELETE, $a]];
-        }
-
-        $max = min($n + $m, self::MAX_EDIT_DISTANCE);
-        $v = [1 => 0];
-        $trace = [];
-        $found = false;
-
-        for ($d = 0; $d <= $max && ! $found; $d++) {
-            $trace[] = $v;
-
-            for ($k = -$d; $k <= $d; $k += 2) {
-                $x = ($k === -$d || ($k !== $d && $v[$k - 1] < $v[$k + 1])) ? $v[$k + 1] : $v[$k - 1] + 1;
-                $y = $x - $k;
-
-                while ($x < $n && $y < $m && $a[$x] === $b[$y]) {
-                    $x++;
-                    $y++;
-                }
-
-                $v[$k] = $x;
-
-                if ($x >= $n && $y >= $m) {
-                    $found = true;
-
-                    break;
-                }
-            }
-        }
-
-        if (! $found) {
-            return [[self::DELETE, $a], [self::INSERT, $b]];
-        }
-
-        $steps = [];
-        $x = $n;
-        $y = $m;
-
-        for ($d = count($trace) - 1; $d >= 0; $d--) {
-            $v = $trace[$d];
-            $k = $x - $y;
-            $previousK = ($k === -$d || ($k !== $d && $v[$k - 1] < $v[$k + 1])) ? $k + 1 : $k - 1;
-            $previousX = $v[$previousK];
-            $previousY = $previousX - $previousK;
-
-            while ($x > $previousX && $y > $previousY) {
-                $steps[] = [self::EQUAL, $a[$x - 1]];
-                $x--;
-                $y--;
-            }
-
-            if ($d > 0) {
-                $steps[] = $x === $previousX ? [self::INSERT, $b[$previousY]] : [self::DELETE, $a[$previousX]];
-            }
-
-            $x = $previousX;
-            $y = $previousY;
-        }
-
-        return $this->groupSteps(array_reverse($steps));
-    }
-
-    /**
-     * Collapse single-token steps into runs; a mixed run becomes one delete
-     * followed by one insert.
-     *
-     * @param  list<array{0: int, 1: string}>  $steps
-     * @return list<array{0: int, 1: list<string>}>
-     */
-    private function groupSteps(array $steps): array
-    {
-        $runs = [];
-
-        foreach ($steps as [$op, $token]) {
-            $last = array_key_last($runs);
-
-            if ($last !== null && $runs[$last][0] === $op) {
-                $runs[$last][1][] = $token;
-            } else {
-                $runs[] = [$op, [$token]];
-            }
-        }
-
-        $ops = [];
-        $changed = [self::DELETE => [], self::INSERT => []];
-
-        foreach ([...$runs, [self::EQUAL, []]] as [$op, $tokens]) {
-            if ($op !== self::EQUAL) {
-                $changed[$op] = [...$changed[$op], ...$tokens];
-
-                continue;
-            }
-
-            foreach ([self::DELETE, self::INSERT] as $kind) {
-                if ($changed[$kind] !== []) {
-                    $ops[] = [$kind, $changed[$kind]];
-                    $changed[$kind] = [];
-                }
-            }
-
-            if ($tokens !== []) {
-                $ops[] = [self::EQUAL, $tokens];
-            }
-        }
-
-        return $ops;
     }
 
     /**

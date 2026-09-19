@@ -142,6 +142,11 @@ class AutosaveFieldRules
 
         $errors = $validator->errors()->toArray();
 
+        // A nested rule (`items.*.qty`) drops its whole top-level container on
+        // purpose: `$fields` holds column payloads, and a repeater or builder
+        // stored in one column is a single value that is either written
+        // whole or left as it is. Writing the valid rows only would persist a
+        // half-edited structure the user never saw as saved.
         foreach (array_keys($validator->failed()) as $failed) {
             unset($fields[explode('.', (string) $failed, 2)[0]]);
         }

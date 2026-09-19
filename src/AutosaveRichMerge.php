@@ -79,10 +79,24 @@ final class AutosaveRichMerge
     /** @var list<array<string, mixed>> */
     private array $conflicts = [];
 
+    /** @var AutosaveDiff3<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}> Inline tokens, compared by their `key`. */
+    private readonly AutosaveDiff3 $diff3;
+
+    /**
+     * Word bags of the blocks seen by the current merge, keyed by node JSON.
+     * `align()` compares every base block with every side block, so each
+     * block's bag is built once instead of once per comparison.
+     *
+     * @var array<string, array<string, true>>
+     */
+    private array $wordBags = [];
+
     public function __construct(
         private readonly Editor $editor,
         private readonly bool $json = false,
-    ) {}
+    ) {
+        $this->diff3 = new AutosaveDiff3(self::tokenKey(...));
+    }
 
     // ---------------------------------------------------------------------
     // Public surface
@@ -101,6 +115,7 @@ final class AutosaveRichMerge
         $oursDoc = $this->doc($ours);
         $theirsDoc = $this->doc($theirs);
         $this->conflicts = [];
+        $this->wordBags = [];
 
         if ($this->same($oursDoc, $theirsDoc)) {
             $merged = $this->restore($oursDoc, [$theirsDoc, $baseDoc]);
@@ -135,7 +150,13 @@ final class AutosaveRichMerge
     {
         $canonical = $this->canonical($value);
 
-        return is_array($canonical) ? $canonical === $value : $canonical === $value;
+        if (! is_array($canonical)) {
+            return $canonical === $value;
+        }
+
+        // A document parsed from HTML carries `stdClass` attrs; compare the
+        // JSON shape so the same document in either representation is canonical.
+        return is_array($value) && json_encode($canonical) === json_encode($value);
     }
 
     /**
@@ -468,8 +489,8 @@ final class AutosaveRichMerge
         $theirsTokens = $this->inlineTokens($theirs['content'] ?? [], $whole);
 
         $hunks = [
-            ...$this->hunks($baseTokens, $oursTokens, 'ours'),
-            ...$this->hunks($baseTokens, $theirsTokens, 'theirs'),
+            ...$this->diff3->hunks($baseTokens, $oursTokens, 'ours'),
+            ...$this->diff3->hunks($baseTokens, $theirsTokens, 'theirs'),
         ];
 
         usort($hunks, static fn (array $a, array $b): int => [$a['start'], $a['end'] > $a['start'] ? 1 : 0, $a['side']]
@@ -480,13 +501,13 @@ final class AutosaveRichMerge
         $cursor = 0;
         $conflicts = [];
 
-        foreach ($this->groupOverlapping($hunks) as $group) {
+        foreach ($this->diff3->groupOverlapping($hunks) as $group) {
             $equal = array_slice($baseTokens, $cursor, $group['start'] - $cursor);
             $output = [...$output, ...$equal];
             $offset += $this->tokensLength($equal);
             $sides = array_unique(array_column($group['hunks'], 'side'));
-            $oursTokensHere = $this->applyHunks($baseTokens, $group, 'ours');
-            $theirsTokensHere = $this->applyHunks($baseTokens, $group, 'theirs');
+            $oursTokensHere = $this->diff3->applyHunks($baseTokens, $group, 'ours');
+            $theirsTokensHere = $this->diff3->applyHunks($baseTokens, $group, 'theirs');
             $resolved = in_array('ours', $sides, true) ? $oursTokensHere : $theirsTokensHere;
 
             if (count($sides) === 2 && $this->tokenKeys($oursTokensHere) !== $this->tokenKeys($theirsTokensHere)) {
@@ -609,6 +630,12 @@ final class AutosaveRichMerge
         return $length;
     }
 
+    /** @param  array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}  $token */
+    private static function tokenKey(array $token): string
+    {
+        return $token['key'];
+    }
+
     /**
      * @param  list<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}>  $tokens
      * @return list<string>
@@ -640,99 +667,8 @@ final class AutosaveRichMerge
     }
 
     // ---------------------------------------------------------------------
-    // Diff3 over token keys (mirrors AutosaveTextMerge)
+    // Block alignment
     // ---------------------------------------------------------------------
-
-    /**
-     * @param  list<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}>  $base
-     * @param  list<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}>  $side
-     * @return list<array{start: int, end: int, tokens: list<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}>, side: string}>
-     */
-    private function hunks(array $base, array $side, string $name): array
-    {
-        $pairs = $this->lcs($base, $side, static fn (array $a, array $b): float => $a['key'] === $b['key'] ? 1.0 : 0.0);
-        $hunks = [];
-        $i = 0;
-        $j = 0;
-
-        foreach ([...$pairs, [count($base), count($side)]] as [$bi, $sj]) {
-            if ($bi > $i || $sj > $j) {
-                $hunks[] = ['start' => $i, 'end' => $bi, 'tokens' => array_slice($side, $j, $sj - $j), 'side' => $name];
-            }
-
-            $i = $bi + 1;
-            $j = $sj + 1;
-        }
-
-        return $hunks;
-    }
-
-    /**
-     * @param  list<array{start: int, end: int, tokens: list<mixed>, side: string}>  $hunks  Sorted by start.
-     * @return list<array{start: int, end: int, hunks: list<array{start: int, end: int, tokens: list<mixed>, side: string}>}>
-     */
-    private function groupOverlapping(array $hunks): array
-    {
-        $groups = [];
-        $group = null;
-
-        foreach ($hunks as $hunk) {
-            if ($group !== null && $this->overlaps($group, $hunk)) {
-                $group['end'] = max($group['end'], $hunk['end']);
-                $group['hunks'][] = $hunk;
-
-                continue;
-            }
-
-            if ($group !== null) {
-                $groups[] = $group;
-            }
-
-            $group = ['start' => $hunk['start'], 'end' => $hunk['end'], 'hunks' => [$hunk]];
-        }
-
-        if ($group !== null) {
-            $groups[] = $group;
-        }
-
-        return $groups;
-    }
-
-    /**
-     * @param  array{start: int, end: int}  $a
-     * @param  array{start: int, end: int}  $b
-     */
-    private function overlaps(array $a, array $b): bool
-    {
-        if (max($a['start'], $b['start']) < min($a['end'], $b['end'])) {
-            return true;
-        }
-
-        return ($b['start'] === $b['end'] && $a['start'] < $b['start'] && $b['start'] < $a['end'])
-            || ($a['start'] === $a['end'] && $b['start'] < $a['start'] && $a['start'] < $b['end']);
-    }
-
-    /**
-     * @param  list<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}>  $base
-     * @param  array{start: int, end: int, hunks: list<array{start: int, end: int, tokens: list<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}>, side: string}>}  $group
-     * @return list<array{key: string, text: string, node: array<string, mixed>|null, marks: list<array<string, mixed>>}>
-     */
-    private function applyHunks(array $base, array $group, string $side): array
-    {
-        $output = [];
-        $cursor = $group['start'];
-
-        foreach ($group['hunks'] as $hunk) {
-            if ($hunk['side'] !== $side) {
-                continue;
-            }
-
-            $output = [...$output, ...array_slice($base, $cursor, $hunk['start'] - $cursor), ...$hunk['tokens']];
-            $cursor = $hunk['end'];
-        }
-
-        return [...$output, ...array_slice($base, $cursor, $group['end'] - $cursor)];
-    }
 
     /**
      * Heaviest common subsequence as `[i, j]` pairs; `$weight` returns 0
@@ -744,6 +680,53 @@ final class AutosaveRichMerge
      * @return list<array{0: int, 1: int}>
      */
     private function lcs(array $a, array $b, callable $weight): array
+    {
+        // Blocks nobody touched sit at both ends of most edits; pairing them
+        // first keeps the weight table to the changed middle.
+        $n = count($a);
+        $m = count($b);
+        $prefix = 0;
+
+        while ($prefix < $n && $prefix < $m && $weight($a[$prefix], $b[$prefix]) > 0 && $this->same($a[$prefix], $b[$prefix])) {
+            $prefix++;
+        }
+
+        $suffix = 0;
+
+        while ($suffix < $n - $prefix && $suffix < $m - $prefix
+            && $weight($a[$n - 1 - $suffix], $b[$m - 1 - $suffix]) > 0
+            && $this->same($a[$n - 1 - $suffix], $b[$m - 1 - $suffix])) {
+            $suffix++;
+        }
+
+        $pairs = [];
+
+        for ($i = 0; $i < $prefix; $i++) {
+            $pairs[] = [$i, $i];
+        }
+
+        foreach ($this->weightedLcs(
+            array_slice($a, $prefix, $n - $prefix - $suffix),
+            array_slice($b, $prefix, $m - $prefix - $suffix),
+            $weight,
+        ) as [$i, $j]) {
+            $pairs[] = [$i + $prefix, $j + $prefix];
+        }
+
+        for ($i = 0; $i < $suffix; $i++) {
+            $pairs[] = [$n - $suffix + $i, $m - $suffix + $i];
+        }
+
+        return $pairs;
+    }
+
+    /**
+     * @param  list<mixed>  $a
+     * @param  list<mixed>  $b
+     * @param  callable(mixed, mixed): float  $weight
+     * @return list<array{0: int, 1: int}>
+     */
+    private function weightedLcs(array $a, array $b, callable $weight): array
     {
         $n = count($a);
         $m = count($b);
@@ -831,6 +814,12 @@ final class AutosaveRichMerge
      */
     private function wordBag(array $node): array
     {
+        $cacheKey = (string) json_encode($node);
+
+        if (isset($this->wordBags[$cacheKey])) {
+            return $this->wordBags[$cacheKey];
+        }
+
         $bag = [];
 
         foreach ($this->blockTexts($node) as $text) {
@@ -841,7 +830,7 @@ final class AutosaveRichMerge
             }
         }
 
-        return $bag;
+        return $this->wordBags[$cacheKey] = $bag;
     }
 
     /**

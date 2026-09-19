@@ -254,6 +254,8 @@ trait HasAutosaveUploads
      * "none" -- an untouched FileUpload must not disable Undo for a
      * column-only save.
      *
+     * @param  array<string, BaseFileUpload>|null  $uploads
+     * @param  array<string, array<object>>|null  $relationships
      * @return array<string, object>
      */
     protected function autosaveExternalUndoFields(?array $uploads = null, ?array $relationships = null): array
@@ -303,7 +305,10 @@ trait HasAutosaveUploads
         return $fields;
     }
 
-    /** @param array<string, object> $fields */
+    /**
+     * @param  array<string, object>  $fields
+     * @return array<string, array{adapter: class-string, state: array<string, mixed>}>
+     */
     protected function autosaveExternalUndoSnapshots(array $fields): array
     {
         $snapshots = [];
@@ -323,13 +328,19 @@ trait HasAutosaveUploads
         return $fields !== [] && $this->autosaveExternalUndoManager()->hasUnsupported($fields);
     }
 
-    /** @param array<string, array<string, mixed>> $snapshots @param array<string, object> $fields */
+    /**
+     * @param  array<string, array<string, mixed>>  $snapshots
+     * @param  array<string, object>  $fields
+     */
     protected function autosaveExternalUndoMatches(array $snapshots, array $fields): bool
     {
         return $snapshots === [] || $this->autosaveExternalUndoManager()->matches($snapshots, $fields);
     }
 
-    /** @param array<string, array<string, mixed>> $snapshots @param array<string, object> $fields */
+    /**
+     * @param  array<string, array<string, mixed>>  $snapshots
+     * @param  array<string, object>  $fields
+     */
     protected function restoreAutosaveExternalUndo(array $snapshots, array $fields): void
     {
         if ($snapshots !== []) {
@@ -499,7 +510,7 @@ trait HasAutosaveUploads
         // deleting only the file would leave a Media row pointing at nothing.
         if (is_string($media['uuid'] ?? null) && class_exists(SpatieMedia::class)) {
             try {
-                SpatieMedia::where('uuid', $media['uuid'])->delete();
+                SpatieMedia::query()->where('uuid', $media['uuid'])->delete();
             } catch (\Throwable) {
                 // Best effort: a transaction-wrapped host may have already
                 // rolled this row back, or the media table may be unreachable.
@@ -861,6 +872,7 @@ trait HasAutosaveUploads
         );
     }
 
+    /** @param  array<string, mixed>  $data */
     protected function autosaveUploadCanPersist(BaseFileUpload $field, string $path, array $data): bool
     {
         return $field instanceof SpatieMediaLibraryFileUpload
@@ -935,6 +947,8 @@ trait HasAutosaveUploads
      * and one killed before it never wrote a file. Standard `FileUpload`
      * files are journaled in `storeAutosavePendingUploads()` instead,
      * because that is where they are written.
+     *
+     * @param  array<string, BaseFileUpload>  $uploads
      */
     protected function persistAutosaveUploadRelationships(array $uploads): void
     {
@@ -967,7 +981,12 @@ trait HasAutosaveUploads
         }
     }
 
-    /** Acknowledge upload hashes only after their persistence completed. */
+    /**
+     * Acknowledge upload hashes only after their persistence completed.
+     *
+     * @param  array<string, BaseFileUpload>  $uploads
+     * @param  array<string, mixed>  $data
+     */
     protected function acknowledgeAutosaveUploads(array $uploads, array $data): void
     {
         foreach ($uploads as $path => $field) {
@@ -977,7 +996,11 @@ trait HasAutosaveUploads
         }
     }
 
-    /** Include unchanged media fields when checking whether the form was fully saved. */
+    /**
+     * Include unchanged media fields when checking whether the form was fully saved.
+     *
+     * @param  array<string, mixed>  $covered
+     */
     protected function includeStableAutosaveUploads(array &$covered): void
     {
         foreach ($this->autosaveUploadFields() as $path => $field) {
@@ -988,7 +1011,7 @@ trait HasAutosaveUploads
         }
     }
 
-    /** @param mixed $state @return array<string> */
+    /** @return array<int, string> */
     protected function autosaveUploadStatePaths(mixed $state): array
     {
         if (! is_array($state)) {
@@ -1015,7 +1038,7 @@ trait HasAutosaveUploads
     {
         $record = method_exists($this, 'getRecord') ? $this->getRecord() : null;
 
-        if ($record === null || ! method_exists($record, 'getAttribute')) {
+        if (! is_object($record) || ! method_exists($record, 'getAttribute')) {
             return $stored;
         }
 
@@ -1080,7 +1103,11 @@ trait HasAutosaveUploads
         $this->rollbackAutosaveExternalMedia();
     }
 
-    /** Remove only the files belonging to upload fields omitted by a mutator. */
+    /**
+     * Remove only the files belonging to upload fields omitted by a mutator.
+     *
+     * @param  array<int, string>  $paths
+     */
     protected function discardAutosaveStoredUploadPaths(array $paths): void
     {
         foreach ($paths as $path) {

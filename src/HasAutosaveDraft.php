@@ -70,6 +70,8 @@ trait HasAutosaveDraft
      */
     public function clearAutosaveDraft(): void
     {
+        $this->authorizeAutosaveAccess();
+
         $this->autosaveStore()->clearDraft($this->getAutosaveCacheKey());
         $this->autosaveHasDraft = false;
     }

@@ -698,7 +698,7 @@ test('an expired undo snapshot leaves the record untouched', function () {
     expect(end($page->dispatched)['params']['status'])->toBe('idle');
 });
 
-test('dispatching record events does not require a real Eloquent model', function () {
+test('record events are dispatched only as real objects, so a host that is not a resource page dispatches none', function () {
     Event::fake([RecordUpdated::class, RecordSaved::class]);
 
     $page = makeEditPage(['title' => 'Original'], ['title' => 'Original']);
@@ -707,7 +707,8 @@ test('dispatching record events does not require a real Eloquent model', functio
 
     $page->autosave();
 
+    // The save itself is unaffected; only the Filament events need a Page.
     expect($page->autosaveCanUndo)->toBeTrue();
-    Event::assertDispatched(RecordUpdated::class);
-    Event::assertDispatched(RecordSaved::class);
+    Event::assertNotDispatched(RecordUpdated::class);
+    Event::assertNotDispatched(RecordSaved::class);
 })->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');

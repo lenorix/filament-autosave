@@ -137,6 +137,24 @@ test('discarding a draft demands page access', function () {
     expect(AutosaveManager::restoreDraft($key))->not->toBeNull();
 });
 
+test('clearing a draft directly demands page access like every other entry point', function () {
+    $page = new class extends AutosaveCreateFormComponent
+    {
+        public function authorizeAccess(): void
+        {
+            throw new RuntimeException('denied');
+        }
+    };
+    $page->mount();
+
+    $key = (fn () => $this->getAutosaveCacheKey())->call($page);
+    AutosaveManager::storeDraft($key, ['title' => 'Draft'], 1);
+
+    // Public and Livewire-callable, so a browser can invoke it on its own.
+    expect(fn () => $page->clearAutosaveDraft())->toThrow(RuntimeException::class);
+    expect(AutosaveManager::restoreDraft($key))->not->toBeNull();
+});
+
 test('discarding a draft purges the cache and resets the availability flag', function () {
     $page = makeCreatePage();
     $key = AutosaveManager::cacheKey(get_class($page));

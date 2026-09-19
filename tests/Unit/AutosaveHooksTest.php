@@ -225,8 +225,10 @@ test('edit autosave runs the standard lifecycle hooks and events', function () {
     expect($page->hooks)->toBe([
         'beforeValidate', 'afterValidate', 'beforeSave', 'afterSave', 'notification',
     ]);
-    Event::assertDispatched(RecordUpdated::class);
-    Event::assertDispatched(RecordSaved::class);
+    // A fake host is not a resource Page: Filament's record events are built
+    // for real pages only (see AutosaveRecordEventsTest for the real objects).
+    Event::assertNotDispatched(RecordUpdated::class);
+    Event::assertNotDispatched(RecordSaved::class);
 })->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
 
 test('edit save mutation runs inside the page transaction', function () {

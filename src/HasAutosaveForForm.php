@@ -108,6 +108,8 @@ trait HasAutosaveForForm
     /**
      * Background entry point: never throws, reports through the indicator.
      *
+     * @param  array<string, string|array{base: string, ours: string}>  $mergePatches  Per mergeable field, a diff-match-patch patch of the browser's change (or the base it started from). See HasAutosaveMerge.
+     *
      * @api
      */
     public function autosave(array $mergePatches = []): void
@@ -164,7 +166,11 @@ trait HasAutosaveForForm
         return $this->hasPendingAutosaveUploadsPersistence();
     }
 
-    /** Capture provider-managed media around the generic form lifecycle too. */
+    /**
+     * Capture provider-managed media around the generic form lifecycle too.
+     *
+     * @return array<string, mixed>
+     */
     protected function getAutosaveData(): array
     {
         $this->captureAutosaveExternalMediaBaseline();
@@ -177,6 +183,7 @@ trait HasAutosaveForForm
     /**
      * Fold relationship component state into the payload being persisted.
      *
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     protected function mergeAutosaveRelationshipState(array $data): array
@@ -239,6 +246,7 @@ trait HasAutosaveForForm
      * when the component owns a custom action lifecycle or side effects.
      *
      * @param  array<string, mixed>  $data
+     * @return bool|array<string, mixed> `false` skips the write, an array replaces what is acknowledged as written.
      *
      * @api
      */
@@ -348,9 +356,9 @@ trait HasAutosaveForForm
         $externalUndo = $this->autosaveExternalUndoSnapshots($externalFields);
 
         $this->resetAutosaveFormUndo();
-        $this->putAutosaveFormUndo('values', AutosaveStore::normalizeScalars($previous));
-        $this->putAutosaveFormUndo('relationships', $relationshipUndo);
-        $this->putAutosaveFormUndo('external', $externalUndo);
+        $this->putAutosaveFormUndo(AutosaveUndo::VALUES, AutosaveStore::normalizeScalars($previous));
+        $this->putAutosaveFormUndo(AutosaveUndo::RELATIONSHIPS, $relationshipUndo);
+        $this->putAutosaveFormUndo(AutosaveUndo::EXTERNAL, $externalUndo);
 
         $merge = $this->extractAutosaveMergeColumns($columns);
         $this->autosaveWrittenPaths = array_keys($data + $uploads);
@@ -380,11 +388,11 @@ trait HasAutosaveForForm
         $this->dispatchAutosaveRecordEvents($record, $columns);
 
         $record->refresh();
-        $this->putAutosaveFormUndo('expected', AutosaveStore::normalizeScalars($record->only(array_keys($columns))));
-        $this->putAutosaveFormUndo('expected-relationships', $this->captureAutosaveRelationshipUndoFields(
+        $this->putAutosaveFormUndo(AutosaveUndo::EXPECTED, AutosaveStore::normalizeScalars($record->only(array_keys($columns))));
+        $this->putAutosaveFormUndo(AutosaveUndo::EXPECTED_RELATIONSHIPS, $this->captureAutosaveRelationshipUndoFields(
             $this->autosaveFormDirtyRelationshipFields($data),
         ));
-        $this->putAutosaveFormUndo('expected-external', $this->autosaveExternalUndoManager()->snapshot($externalFields));
+        $this->putAutosaveFormUndo(AutosaveUndo::EXPECTED_EXTERNAL, $this->autosaveExternalUndoManager()->snapshot($externalFields));
         $this->acknowledgeAutosaveUploads($uploads, $data);
         $this->autosaveCanUndo = ! $this->autosaveExternalUndoHasUnsupported($externalFields)
             && array_diff_key($externalFields, $externalUndo) === []
@@ -410,18 +418,6 @@ trait HasAutosaveForForm
 
         return $columns;
     }
-
-    /**
-     * `RecordUpdated`/`RecordSaved` require a real `Filament\Resources\Pages\Page`
-     * to construct. Relation managers, actions, and other generic Livewire
-     * components using this trait are not one, so `HasAutosaveBase`'s
-     * dispatch falls back to Filament's own class-name-plus-array
-     * convention -- which throws inside any listener type-hinted against the
-     * event class, an error the autosave failure handler swallows, silently
-     * rolling back the whole write. These events are Edit-page only; use
-     * `afterAutosave()` or the package's own hooks here instead.
-     */
-    protected function dispatchAutosaveRecordEvents(object $record, array $data): void {}
 
     /** Post-save refresh of clean columns; see HasAutosaveBase::refreshAutosaveFieldsFromRecord(). */
     protected function refreshAutosaveUnchangedFields(Model $record): void
@@ -505,7 +501,11 @@ trait HasAutosaveForForm
         $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
     }
 
-    /** Generic components have no refreshFormData(); fill the schema partially. */
+    /**
+     * Generic components have no refreshFormData(); fill the schema partially.
+     *
+     * @param  array<int, string>  $paths
+     */
     protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void
     {
         $attributes = $record->attributesToArray();
@@ -528,9 +528,10 @@ trait HasAutosaveForForm
                 if ($record instanceof Model) {
                     return $record;
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Action and modal schemas may not have a record while they
                 // are being mounted or detached.
+                $this->autosaveLookupFailed('the schema record', $e);
             }
         }
 
@@ -539,8 +540,9 @@ trait HasAutosaveForForm
                 $record = $this->getRecord();
 
                 return $record instanceof Model ? $record : null;
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Standalone forms do not necessarily own a record.
+                $this->autosaveLookupFailed('the component record', $e);
             }
         }
 
@@ -549,39 +551,31 @@ trait HasAutosaveForForm
 
     protected function runAutosaveCycle(callable $cycle): mixed
     {
-        $fieldHashes = $this->autosaveFieldHashes;
-        $snapshotHash = $this->autosaveSnapshotHash;
-        $this->clearQueuedAutosaveNotification();
-
-        try {
-            $result = $this->autosaveFormWithinTransaction($cycle);
-            $this->flushAutosaveSavedNotification();
-
-            return $result;
-        } catch (\Throwable $e) {
-            $this->clearQueuedAutosaveNotification();
-
-            // A Halt that kept the transaction committed the write: acknowledge
-            // the written fields (the hook interrupted that step) and keep Undo.
-            if ($this->autosaveHaltCommittedWrite()) {
-                $this->acknowledgeAutosaveFormFields($this->autosaveWrittenPaths);
-
-                throw $e;
-            }
-
-            $this->autosaveFieldHashes = $fieldHashes;
-            $this->autosaveSnapshotHash = $snapshotHash;
-            // A failed write or commit invalidates the snapshot prepared for
-            // this request. Do not leave a stale generic Undo target behind.
-            $this->resetAutosaveFormUndo();
-
-            throw $e;
-        }
+        return $this->runAutosaveCycleInTransaction($cycle);
     }
 
-    protected function autosaveFormWithinTransaction(callable $write): mixed
+    /** The hook interrupted the acknowledgement step; the written fields still count. */
+    protected function afterAutosaveCycleHaltCommitted(): void
     {
-        return $this->autosaveWithinDatabaseTransaction($write);
+        $this->acknowledgeAutosaveFormFields($this->autosaveWrittenPaths);
+    }
+
+    protected function discardAutosaveCycleUndo(): void
+    {
+        $this->resetAutosaveFormUndo();
+    }
+
+    /** @return array<string, mixed> */
+    protected function captureAutosaveBaseline(): array
+    {
+        return ['snapshotHash' => $this->autosaveSnapshotHash, 'fieldHashes' => $this->autosaveFieldHashes];
+    }
+
+    /** @param  array<string, mixed>  $baseline */
+    protected function restoreAutosaveBaseline(array $baseline): void
+    {
+        $this->autosaveSnapshotHash = $baseline['snapshotHash'];
+        $this->autosaveFieldHashes = $baseline['fieldHashes'];
     }
 
     /** A recordless draft only touches the cache, so it needs no transaction. */
@@ -655,26 +649,13 @@ trait HasAutosaveForForm
                 return;
             }
 
-            $this->autosaveFormWithinTransaction(function () use ($record, $snapshot, $relationshipSnapshot, $externalSnapshot, $externalFields): void {
-                $this->callAutosaveHook('beforeValidate');
-                $this->callAutosaveHook('afterValidate');
-                $this->callAutosaveHook('beforeSave');
-
-                if ($snapshot !== []) {
-                    $record->update($snapshot);
-                }
-
-                if ($relationshipSnapshot !== []) {
-                    $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
-                }
-
-                if ($externalSnapshot !== []) {
-                    $this->restoreAutosaveExternalUndo($externalSnapshot, $externalFields);
-                }
-
-                $this->callAutosaveHook('afterSave');
-                $this->dispatchAutosaveRecordEvents($record, $snapshot);
-            });
+            $this->autosaveWithinDatabaseTransaction(fn () => $this->restoreAutosaveUndoParts(
+                $record,
+                $snapshot,
+                $relationshipSnapshot,
+                $externalSnapshot,
+                $externalFields,
+            ));
 
             $record->refresh();
             $this->fillAutosaveFormFromRecord($record, $snapshot);
@@ -716,6 +697,7 @@ trait HasAutosaveForForm
         return $this->autosaveUndo()->key($part);
     }
 
+    /** @param  array<string, mixed>  $value */
     protected function putAutosaveFormUndo(string $part, array $value): void
     {
         $this->autosaveUndo()->put($part, $value);
@@ -771,7 +753,10 @@ trait HasAutosaveForForm
         return $relationships;
     }
 
-    /** @param array<string, mixed> $data @return array<string, array<string, mixed>> */
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, array<string, mixed>>
+     */
     protected function captureAutosaveFormRelationshipUndo(array $data): array
     {
         return $this->captureAutosaveRelationshipUndoFields($this->autosaveFormDirtyRelationshipFields($data));
@@ -810,6 +795,7 @@ trait HasAutosaveForForm
         );
     }
 
+    /** @param  array<string, mixed>  $fallback */
     protected function fillAutosaveFormFromRecord(Model $record, array $fallback): void
     {
         $form = $this->resolveAutosaveForm();
@@ -863,13 +849,15 @@ trait HasAutosaveForForm
                             if ($actionRecord instanceof Model && $actionRecord->getKey() !== null) {
                                 $context[] = 'action-record:'.get_class($actionRecord).':'.$actionRecord->getKey();
                             }
-                        } catch (\Throwable) {
+                        } catch (\Throwable $e) {
                             // A mounted action may not have resolved its row yet.
+                            $this->autosaveLookupFailed('the mounted action record', $e);
                         }
                     }
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // There is no active modal during the initial render.
+                $this->autosaveLookupFailed('the mounted action', $e);
             }
         }
 
@@ -879,8 +867,9 @@ trait HasAutosaveForForm
             if (method_exists($this, $method)) {
                 try {
                     $record = $this->{$method}();
-                } catch (\Throwable) {
+                } catch (\Throwable $e) {
                     // Standalone forms may not have an owner or record yet.
+                    $this->autosaveLookupFailed("{$method}()", $e);
                 }
             } elseif ($method === 'getOwnerRecord' && isset($this->ownerRecord)) {
                 $record = $this->ownerRecord;
@@ -928,6 +917,7 @@ trait HasAutosaveForForm
      *
      * @param  array<string, mixed>  $data
      * @param  array<string, mixed>  $formValues
+     * @return array<string, mixed>
      */
     protected function filterAutosaveFormPayload(array $data, array $formValues = []): array
     {
@@ -997,7 +987,7 @@ trait HasAutosaveForForm
             return;
         }
 
-        $touched = array_flip(array_map(AutosaveFieldTree::topLevelKey(...), [...array_keys($data), ...array_keys($uploads)]));
+        $touched = array_fill_keys(array_map(AutosaveFieldTree::topLevelKey(...), [...array_keys($data), ...array_keys($uploads)]), true);
 
         if ($touched !== []) {
             $this->saveAutosaveTouchedRelationships($form, $touched);

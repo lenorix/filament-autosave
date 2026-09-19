@@ -47,6 +47,9 @@ jobs:
       - name: Run static analysis
         run: vendor/bin/phpstan analyse --no-progress --debug
 
+  # One Filament cell only: pestphp/pest-plugin-browser requires Livewire ^4.3,
+  # which Filament 4 (Livewire 3) cannot satisfy. Filament 4 is covered by the
+  # PHP matrix above and by the controller markup tests.
   browser:
     runs-on: ubuntu-latest
     name: Browser - PHP 8.4 - Filament ^5.0 - Testbench ^11.0
