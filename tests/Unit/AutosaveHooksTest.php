@@ -4,6 +4,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
+use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Lenorix\FilamentAutosave\AutosaveManager;
@@ -105,9 +106,13 @@ test('autosave respects Filament field validation limits', function () {
 
         protected function getAutosaveFields(): array
         {
+            // Bare components have no container; Filament 4.0.x reads it
+            // eagerly in isDisabled()/isHidden().
+            $schema = Schema::make();
+
             return [
-                'short_name' => [TextInput::make('short_name')->minLength(3)],
-                'age' => [TextInput::make('age')->numeric()->maxValue(10)],
+                'short_name' => [TextInput::make('short_name')->minLength(3)->container($schema)],
+                'age' => [TextInput::make('age')->numeric()->maxValue(10)->container($schema)],
             ];
         }
     };
@@ -222,7 +227,7 @@ test('edit autosave runs the standard lifecycle hooks and events', function () {
     ]);
     Event::assertDispatched(RecordUpdated::class);
     Event::assertDispatched(RecordSaved::class);
-});
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
 
 test('edit save mutation runs inside the page transaction', function () {
     $page = new class extends AutosaveEditFormComponent

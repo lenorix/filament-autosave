@@ -6,6 +6,7 @@ use Filament\Forms\Components\BaseFileUpload;
 use Filament\Forms\Components\RichEditor;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Locked;
 
@@ -701,14 +702,45 @@ trait HasAutosave
      * @param  array<string, array<object>>  $relationships
      * @return array<string, array<object>>
      */
-    protected function refreshAutosavePendingRelationships(array $relationships): array
+    protected function refreshAutosavePendingRelationships(array $relationships, array $pending = [], array $fingerprints = []): array
     {
         $this->autosaveFieldsCache = null;
         $live = $this->autosaveRelationshipFields();
+        $current = $fingerprints !== [] ? $this->captureAutosaveRelationshipUndoFields($relationships) : [];
 
         foreach (array_keys($relationships) as $path) {
             if (isset($live[$path])) {
                 $relationships[$path] = $live[$path];
+            }
+
+            // A hook that refilled the form WITHOUT writing this relationship
+            // (e.g. `$this->form->fill($this->form->getState(false))`) has
+            // re-hydrated its repeaters from the database, discarding the
+            // user's pending rows and edits. If the rows are untouched since
+            // before the hook, put the resolved state back so the pass below
+            // still writes it. If the hook did write, the live state is the
+            // re-keyed truth and must be kept, or rows would be created twice.
+            if ($fingerprints !== []) {
+                foreach ($relationships[$path] as $field) {
+                    $fieldPath = $this->autosaveRelativeFieldPath($field) ?? $path;
+                    $before = $fingerprints[$fieldPath] ?? $fingerprints[$path] ?? null;
+                    $after = $current[$fieldPath] ?? $current[$path] ?? null;
+
+                    // Restore only what we can prove untouched: a real snapshot
+                    // that is identical after the hook, for a component whose
+                    // parent row still exists in the live state. A nested
+                    // component under a row the hook re-keyed (new-row ->
+                    // record-N) must be skipped: writing to its old state path
+                    // would resurrect an empty parent row.
+                    if ($before === null || $before !== $after
+                        || ! array_key_exists($fieldPath, $pending)
+                        || ! method_exists($field, 'rawState')
+                        || ! $this->autosaveParentRowExists($fieldPath)) {
+                        continue;
+                    }
+
+                    $field->rawState($pending[$fieldPath]);
+                }
             }
 
             // Filament fills a repeater's existing-record cache while building
@@ -726,6 +758,41 @@ trait HasAutosave
         $this->autosavePendingRelationships = $relationships;
 
         return $relationships;
+    }
+
+    /** Whether the row that owns a nested field path is still present in the live form state. */
+    protected function autosaveParentRowExists(string $fieldPath): bool
+    {
+        if (! str_contains($fieldPath, '.')) {
+            return true;
+        }
+
+        $parent = substr($fieldPath, 0, strrpos($fieldPath, '.'));
+        $raw = $this->resolveAutosaveForm()?->getRawState();
+
+        return is_array($raw) && Arr::has($raw, $parent);
+    }
+
+    /**
+     * Resolved raw state of every pending relationship component, keyed by
+     * its concrete field path, taken before any page hook can touch the form.
+     *
+     * @param  array<string, array<object>>  $relationships
+     * @return array<string, mixed>
+     */
+    protected function captureAutosavePendingRelationshipState(array $relationships): array
+    {
+        $state = [];
+
+        foreach ($relationships as $path => $fields) {
+            foreach ($fields as $field) {
+                if (method_exists($field, 'getRawState')) {
+                    $state[$this->autosaveRelativeFieldPath($field) ?? $path] = $field->getRawState();
+                }
+            }
+        }
+
+        return $state;
     }
 
     /**
@@ -751,6 +818,11 @@ trait HasAutosave
     protected function writeAutosave(array $data, array $uploads, array $relationships): array
     {
         try {
+            $pending = $this->captureAutosavePendingRelationshipState($relationships);
+            $fingerprints = $data !== [] && $relationships !== []
+                ? $this->captureAutosaveRelationshipUndoFields($relationships)
+                : [];
+
             if ($data !== []) {
                 $this->handleRecordUpdate($this->getRecord(), $data);
             }
@@ -763,7 +835,7 @@ trait HasAutosave
             // repeater has to save itself; a nested repeater in a row that
             // does not exist yet bails on its missing record and is then
             // created by the parent's own recursion, never twice.
-            $relationships = $this->refreshAutosavePendingRelationships($relationships);
+            $relationships = $this->refreshAutosavePendingRelationships($relationships, $pending, $fingerprints);
 
             foreach ($this->autosaveRelationshipsInnermostFirst($relationships) as $fields) {
                 foreach ($fields as $field) {

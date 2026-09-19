@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fix pending relationship rows and edits being lost when a page's
+  `handleRecordUpdate()` refills the form without saving relationships
+  (`$this->form->fill($this->form->getState(false))`, as lara-zeus/spatie-translatable
+  1.x does): the refill re-hydrated every relationship repeater from the
+  database before the package's own pass wrote them. The resolved state is now
+  restored for relationships the hook left untouched, while hooks that did save
+  keep their re-keyed state so rows are never created twice.
+- Fix a fatal error on Filament 4.0.x, which has no `Filament\Resources\Events`:
+  `RecordUpdated`/`RecordSaved` are now dispatched only when the classes exist.
 - `refresh_unchanged_fields` now also applies to record-backed generic forms
   (`HasAutosaveForForm`): after a successful save, clean model-backed columns
   are re-read from the record and reported in the status event's `refreshed`

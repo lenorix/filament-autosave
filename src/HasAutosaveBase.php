@@ -130,6 +130,12 @@ trait HasAutosaveBase
      */
     protected function dispatchAutosaveRecordEvents(object $record, array $data): void
     {
+        // Filament\Resources\Events only exists from later 4.x releases; on
+        // 4.0.x there is nothing to dispatch and `new` would be a fatal error.
+        if (! class_exists(RecordUpdated::class) || ! class_exists(RecordSaved::class)) {
+            return;
+        }
+
         if ($record instanceof Model && $this instanceof Page) {
             Event::dispatch(new RecordUpdated($record, $data, $this));
             Event::dispatch(new RecordSaved($record, $data, $this));
