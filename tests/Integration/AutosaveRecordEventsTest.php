@@ -9,6 +9,10 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Livewire;
 
 test('a real listener typed against RecordUpdated receives the actual event object', function () {
+    if (! class_exists(RecordUpdated::class)) {
+        $this->markTestSkipped('Filament 4.0 does not expose resource record events.');
+    }
+
     $post = Post::create(['title' => 'Original']);
     $received = null;
 
@@ -26,6 +30,10 @@ test('a real listener typed against RecordUpdated receives the actual event obje
 });
 
 test('a real listener typed against RecordSaved receives the actual event object', function () {
+    if (! class_exists(RecordSaved::class)) {
+        $this->markTestSkipped('Filament 4.0 does not expose resource record events.');
+    }
+
     $post = Post::create(['title' => 'Original']);
     $received = null;
 
@@ -42,6 +50,10 @@ test('a real listener typed against RecordSaved receives the actual event object
 });
 
 test('a typed RecordUpdated listener does not crash a generic record form autosave', function () {
+    if (! class_exists(RecordUpdated::class)) {
+        $this->markTestSkipped('Filament 4.0 does not expose resource record events.');
+    }
+
     Event::listen(RecordUpdated::class, function (RecordUpdated $event) {
         // Exists purely so autosave has to survive a real, typed listener.
     });

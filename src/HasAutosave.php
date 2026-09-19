@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave;
 
+use Composer\InstalledVersions;
 use Filament\Forms\Components\BaseFileUpload;
 use Filament\Forms\Components\RichEditor;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -695,9 +696,28 @@ trait HasAutosave
      */
     protected function writeAutosave(array $data, array $uploads, array $relationships): array
     {
+        // Older translatable page concerns rebuild the form from dehydrated
+        // column state and can drop relationship components (which dehydrate
+        // false). Keep the request state so it can be restored if the hook
+        // did not persist it itself.
+        $relationshipStates = $this->captureAutosaveRelationshipStates($relationships);
+
         try {
             if ($data !== []) {
                 $this->handleRecordUpdate($this->getRecord(), $data);
+            }
+
+            // Filament 4's translatable concern calls getState(false) while
+            // iterating locales. That API does not save relationships, while
+            // the same concern on Filament 5 does. Preserve the documented
+            // relationship callback on the legacy combination when no
+            // relationship was already pending for this request.
+            if ($data !== [] && $relationships === [] && $this->usesLegacyTranslatableRelationshipFallback()) {
+                foreach ($this->autosaveRelationshipFields() as $fields) {
+                    foreach ($fields as $field) {
+                        $field->saveRelationships();
+                    }
+                }
             }
 
             $this->persistAutosaveUploadRelationships($uploads);
@@ -709,6 +729,7 @@ trait HasAutosave
             // does not exist yet bails on its missing record and is then
             // created by the parent's own recursion, never twice.
             $relationships = $this->refreshAutosavePendingRelationships($relationships);
+            $this->restoreAutosaveRelationshipStates($relationships, $relationshipStates);
 
             foreach ($this->autosaveRelationshipsInnermostFirst($relationships) as $fields) {
                 foreach ($fields as $field) {
@@ -725,6 +746,132 @@ trait HasAutosave
             // to roll back and the newly-created media rows disappear with it.
             $this->captureAutosaveExternalMediaAfter();
         }
+    }
+
+    protected function usesLegacyTranslatableRelationshipFallback(): bool
+    {
+        if (! class_exists('Composer\\InstalledVersions') || ! function_exists('trait_uses_recursive')) {
+            return false;
+        }
+
+        if (! InstalledVersions::isInstalled('filament/forms')) {
+            return false;
+        }
+
+        $formsVersion = InstalledVersions::getPrettyVersion('filament/forms');
+
+        if (! is_string($formsVersion) || version_compare(ltrim($formsVersion, 'v'), '5.0.0', '>=')) {
+            return false;
+        }
+
+        foreach (trait_uses_recursive(static::class) as $trait) {
+            if (str_contains($trait, 'LaraZeus\\SpatieTranslatable\\') && str_ends_with($trait, '\\Translatable')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, array<object>> $relationships */
+    protected function captureAutosaveRelationshipStates(array $relationships): array
+    {
+        $states = [];
+
+        foreach ($relationships as $path => $fields) {
+            foreach ($fields as $field) {
+                if (! method_exists($field, 'getStatePath') || ! method_exists($field, 'getRawState')) {
+                    continue;
+                }
+
+                $fieldPath = (string) ($field->getStatePath() ?? $path);
+                $states[$fieldPath] = $this->normalizeStateArray($field->getRawState());
+            }
+        }
+
+        return $states;
+    }
+
+    /**
+     * @param  array<string, array<object>>  $relationships
+     * @param  array<string, array<string, mixed>>  $states
+     */
+    protected function restoreAutosaveRelationshipStates(array $relationships, array $states): void
+    {
+        foreach ($relationships as $path => $fields) {
+            foreach ($fields as $field) {
+                if (! method_exists($field, 'getStatePath') || ! method_exists($field, 'getRawState') || ! method_exists($field, 'rawState')) {
+                    continue;
+                }
+
+                $fieldPath = (string) ($field->getStatePath() ?? $path);
+
+                if (! array_key_exists($fieldPath, $states)) {
+                    continue;
+                }
+
+                $expected = $states[$fieldPath];
+                $current = $this->normalizeStateArray($field->getRawState());
+
+                if (! $this->autosaveRelationshipStateContains($current, $expected)) {
+                    $field->rawState($expected);
+                }
+            }
+        }
+    }
+
+    /**
+     * Check whether all request values are represented by a hook-rebuilt
+     * state. Repeater row keys are ignored because a saved new row changes
+     * from `new-row` to `record-{id}`.
+     */
+    protected function autosaveRelationshipStateContains(mixed $current, mixed $expected): bool
+    {
+        if (! is_array($expected)) {
+            return $current === $expected;
+        }
+
+        if (! is_array($current)) {
+            return false;
+        }
+
+        $isRowMap = $expected !== [] && collect(array_keys($expected))->every(
+            fn (mixed $key): bool => is_string($key) && (str_starts_with($key, 'record-') || str_starts_with($key, 'new-')),
+        );
+
+        if ($isRowMap) {
+            $remaining = array_values($current);
+
+            foreach (array_values($expected) as $expectedRow) {
+                $matched = false;
+
+                foreach ($remaining as $index => $currentRow) {
+                    if ($this->autosaveRelationshipStateContains($currentRow, $expectedRow)) {
+                        unset($remaining[$index]);
+                        $matched = true;
+                        break;
+                    }
+                }
+
+                if (! $matched) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        foreach ($expected as $key => $value) {
+            if (in_array($key, ['id', 'created_at', 'updated_at'], true)) {
+                continue;
+            }
+
+            if (! array_key_exists($key, $current) || ! $this->autosaveRelationshipStateContains($current[$key], $value)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

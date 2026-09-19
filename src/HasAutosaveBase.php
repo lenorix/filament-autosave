@@ -2,8 +2,6 @@
 
 namespace Lenorix\FilamentAutosave;
 
-use Filament\Resources\Events\RecordSaved;
-use Filament\Resources\Events\RecordUpdated;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
@@ -155,15 +153,24 @@ trait HasAutosaveBase
      */
     protected function dispatchAutosaveRecordEvents(object $record, array $data): void
     {
+        $updatedClass = 'Filament\\Resources\\Events\\RecordUpdated';
+        $savedClass = 'Filament\\Resources\\Events\\RecordSaved';
+
+        // Filament 4.0 did not expose these resource events. Record writes and
+        // package events still complete normally on that version.
+        if (! class_exists($updatedClass) || ! class_exists($savedClass)) {
+            return;
+        }
+
         if ($record instanceof Model && $this instanceof Page) {
-            Event::dispatch(new RecordUpdated($record, $data, $this));
-            Event::dispatch(new RecordSaved($record, $data, $this));
+            Event::dispatch(new $updatedClass($record, $data, $this));
+            Event::dispatch(new $savedClass($record, $data, $this));
 
             return;
         }
 
-        Event::dispatch(RecordUpdated::class, ['record' => $record, 'data' => $data, 'page' => $this]);
-        Event::dispatch(RecordSaved::class, ['record' => $record, 'data' => $data, 'page' => $this]);
+        Event::dispatch($updatedClass, ['record' => $record, 'data' => $data, 'page' => $this]);
+        Event::dispatch($savedClass, ['record' => $record, 'data' => $data, 'page' => $this]);
     }
 
     /**
