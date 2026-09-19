@@ -387,7 +387,10 @@ protected function autosavePollInterval(): ?int
 ```
 
 Polling applies to Edit pages and record-backed generic forms. Drafts and
-Create pages have no record to sync from and expose `autosavePollMs = 0`.
+Create pages have no record to sync from and expose `autosavePollMs = 0`. It
+is also off when `refresh_unchanged_fields` or `dirty_only` is off: a poll
+refills through the same refresh, and with `dirty_only` off every save writes
+the whole payload anyway (last-write-wins at record level).
 
 <details>
 <summary>Browser behaviour and cost</summary>

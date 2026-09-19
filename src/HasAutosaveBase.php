@@ -261,12 +261,18 @@ trait HasAutosaveBase
     }
 
     /**
-     * Resolved poll interval in milliseconds (page, then plugin, then config); 0 means off.
+     * Resolved poll interval in milliseconds (page, then plugin, then config);
+     * 0 means off. A poll can only refill through the unchanged-field refresh,
+     * so it is off whenever that is (`refresh_unchanged_fields`, `dirty_only`).
      *
      * @api
      */
     public function getAutosavePollInterval(): int
     {
+        if (! $this->autosaveRefreshEnabled()) {
+            return 0;
+        }
+
         $pageInterval = $this->autosavePollInterval();
 
         if ($pageInterval !== null) {
@@ -1627,7 +1633,7 @@ trait HasAutosaveBase
      */
     public function syncAutosave(array $mergeBaseHashes = []): void
     {
-        if (! $this->isAutosaveEnabled() || $this->isAutosaving || $this->autosaveCycleActive) {
+        if (! $this->isAutosaveEnabled() || ! $this->autosaveRefreshEnabled() || $this->isAutosaving || $this->autosaveCycleActive) {
             return;
         }
 
@@ -1645,9 +1651,10 @@ trait HasAutosaveBase
             }
 
             $changed = $this->autosaveChangedRecordAttributes($record);
-            $this->rememberAutosaveSyncedAttributes($record);
 
             if ($changed === []) {
+                $this->rememberAutosaveSyncedAttributes($record);
+
                 return;
             }
 
@@ -1666,6 +1673,9 @@ trait HasAutosaveBase
             );
 
             $refreshed = $this->refillAutosavePaths($record, $plan['refill']);
+            // Only now: a failed refill must leave the change visible to the
+            // next poll, or the timestamp fast path would hide it for good.
+            $this->rememberAutosaveSyncedAttributes($record);
         } catch (\Throwable $e) {
             $this->handleAutosaveFailure($e, 'sync');
 
