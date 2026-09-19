@@ -3,9 +3,11 @@
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Author;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveColumnsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveMixedRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosavePostForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\AutosaveTitleSlugRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Category;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Post;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -186,4 +188,27 @@ test('nothing is refreshed when refresh_unchanged_fields is disabled', function 
 
     expect($a->get('data.slug'))->toBe('original')
         ->and(refreshedPaths($a))->toBe([]);
+});
+
+test('the post-save refresh only reports declared form fields, not every record column', function () {
+    config(['filament-autosave.dirty_only' => true, 'filament-autosave.refresh_unchanged_fields' => true]);
+    $category = Category::create(['name' => 'News']);
+    $other = Category::create(['name' => 'Guides']);
+    $post = Post::create(['title' => 'Original', 'slug' => 'original', 'category_id' => $category->getKey()]);
+
+    $a = Livewire::test(AutosaveColumnsRecordForm::class, ['record' => $post]);
+    $before = $a->get('data');
+
+    // Another editor touches a declared field (slug) and an undeclared column (category_id).
+    Post::query()->whereKey($post->getKey())->update(['slug' => 'slug-by-b', 'category_id' => $other->getKey()]);
+
+    $a->set('data.title', 'Title by A')->call('autosave')
+        ->assertDispatched('autosave-status', fn (string $event, array $params): bool => $params['status'] === 'saved'
+            && ($params['refreshed'] ?? null) === ['slug' => 'slug-by-b']);
+
+    $after = $a->get('data');
+    unset($before['slug'], $before['title'], $after['slug'], $after['title']);
+
+    expect($a->get('data.slug'))->toBe('slug-by-b')
+        ->and($after)->toBe($before);
 });
