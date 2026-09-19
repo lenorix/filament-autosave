@@ -117,6 +117,16 @@ test('the controller queues a save requested mid-flight and replays it at most o
         ->toContain('JSON.stringify(this.stateValue()) === this.baselineJson');
 });
 
+test('a save asked for while a poll is in flight waits for the poll and is replayed by it', function () {
+    $markup = controllerMarkup();
+
+    // The browser suite (AutosaveControllerResilienceTest) drives the real
+    // timing; this pins the two halves of the hand-off in the markup.
+    expect($markup)
+        ->toContain("if (this.pollInFlight) {\n                this.saveQueued = true")
+        ->toContain('if (this.saveQueued && !this.savePending) {');
+});
+
 test('an unchanged reply never demotes a settled badge still inside its fade window', function () {
     $markup = controllerMarkup();
 
@@ -160,7 +170,30 @@ test('destroying the controller cancels timers and unregisters browser listeners
         ->toContain("'livewire-upload-finish'")
         ->toContain("'livewire-upload-error'")
         ->toContain("'livewire-upload-cancel'")
+        ->toContain("window.removeEventListener('beforeunload', this._unloadHandler)")
         ->toContain('this._offStatus?.()');
+});
+
+test('a save request that resolves without a status falls back to unsaved or idle', function () {
+    $markup = controllerMarkup();
+
+    expect($markup)
+        ->toContain("if (this.status === statuses.saving) {\n                    console.warn('[filament-autosave]")
+        ->toContain('this.status = JSON.stringify(this.stateValue()) !== this.baselineJson ? statuses.unsaved : statuses.idle');
+});
+
+test('an edit still inside the debounce is flushed when the tab is hidden or the page is left', function () {
+    $markup = controllerMarkup();
+
+    // beforeunload on purpose: Livewire sends a call a few milliseconds
+    // after it is queued, and by pagehide no timer runs any more.
+    expect($markup)
+        ->toContain("window.addEventListener('beforeunload', this._unloadHandler)")
+        ->not->toContain("'pagehide'")
+        ->toContain('this.flush()')
+        ->toContain('this.flush(true)')
+        ->toContain('options.keepalive = true')
+        ->toContain("window.Livewire.hook('request'");
 });
 
 test('every status key the views read from the Alpine scope exists in the status metadata', function () {

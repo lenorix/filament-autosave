@@ -1,4 +1,20 @@
 (function ({ debounce = 1500, mode = 'edit', statuses = {}, mergeFields = [] }) {
+    // Shared by every controller on the page: while a flush on unload is
+    // out, Livewire's request is sent with keepalive.
+    const keepalive = window.FilamentAutosaveKeepalive = window.FilamentAutosaveKeepalive || { pending: 0, hooked: false }
+    const installKeepaliveHook = () => {
+        if (keepalive.hooked || typeof window.Livewire?.hook !== 'function') {
+            return
+        }
+
+        keepalive.hooked = true
+        window.Livewire.hook('request', ({ options }) => {
+            if (keepalive.pending > 0 && options) {
+                options.keepalive = true
+            }
+        })
+    }
+
     return {
         // The indicator's x-show / x-if expressions evaluate in this data
         // scope, not inside the closure, so the metadata must be a property.
@@ -107,15 +123,23 @@
 
             this.pollMs = Number(this.$wire.autosavePollMs) || 0
 
-            if (this.pollMs > 0) {
-                this._visibilityHandler = () => {
-                    if (document.visibilityState === 'visible') {
-                        this.schedulePoll(0)
-                    } else {
-                        clearTimeout(this.pollTimer)
-                    }
+            // A tab going to the background, or the page being left, must
+            // not sit on an edit the debounce has not flushed yet.
+            this._visibilityHandler = () => {
+                if (document.visibilityState === 'visible') {
+                    this.schedulePoll(0)
+                } else {
+                    clearTimeout(this.pollTimer)
+                    this.flush()
                 }
-                document.addEventListener('visibilitychange', this._visibilityHandler)
+            }
+            document.addEventListener('visibilitychange', this._visibilityHandler)
+            // beforeunload, not pagehide: Livewire buffers a call behind a
+            // short timer, and by pagehide no timer runs any more.
+            this._unloadHandler = () => this.flush(true)
+            window.addEventListener('beforeunload', this._unloadHandler)
+
+            if (this.pollMs > 0) {
                 this.schedulePoll()
             }
 
@@ -173,6 +197,29 @@
             this.cancelled = true
         },
 
+        // Send an edit still waiting on its debounce right now. When the
+        // page is going away the request is marked keepalive so the browser
+        // lets it finish after unload. Best effort: Livewire only sends a
+        // few milliseconds later, and keepalive bodies are capped at 64 KB,
+        // so a page torn down instantly or a huge form may still lose it.
+        flush(unloading = false) {
+            if (this.status !== statuses.unsaved || this.savePending || this.destroyed) {
+                return
+            }
+
+            clearTimeout(this.timer)
+
+            if (unloading) {
+                installKeepaliveHook()
+                keepalive.pending++
+                this.save().finally(() => keepalive.pending--)
+
+                return
+            }
+
+            this.save()
+        },
+
         onDataChanged() {
             if (this.cancelled) {
                 return
@@ -196,6 +243,15 @@
             // Coalesce: one request at a time, replayed once afterwards if
             // the state moved meanwhile (see the finally block).
             if (this.savePending || this.status === statuses.saving) {
+                this.saveQueued = true
+                return
+            }
+
+            // A poll reply landing mid-save would be half applied: its
+            // synced status is dropped while the refill still reaches the
+            // state, and the watcher then reads that refill as a user edit.
+            // Let the poll finish first; it replays this save.
+            if (this.pollInFlight) {
                 this.saveQueued = true
                 return
             }
@@ -229,6 +285,14 @@
 
                 if (this.destroyed || this.cancelled || this.status === statuses.error) {
                     return
+                }
+
+                // The request came back without a status: the badge would
+                // stay on "saving" and every later save would be coalesced
+                // away. The form is still dirty, say so and carry on.
+                if (this.status === statuses.saving) {
+                    console.warn('[filament-autosave] the autosave request finished without a status; the form is still unsaved.')
+                    this.status = JSON.stringify(this.stateValue()) !== this.baselineJson ? statuses.unsaved : statuses.idle
                 }
 
                 // A queued or concurrent edit is replayed exactly once, and
@@ -319,6 +383,13 @@
             } finally {
                 this.pollInFlight = false
                 this.schedulePoll()
+
+                // A save asked for while the poll ran goes out now, on top
+                // of the state the poll left (its refill is in the baseline).
+                if (this.saveQueued && !this.savePending) {
+                    this.saveQueued = false
+                    this.save()
+                }
             }
         },
 
@@ -857,6 +928,9 @@
             clearTimeout(this.pollTimer)
             if (this._visibilityHandler) {
                 document.removeEventListener('visibilitychange', this._visibilityHandler)
+            }
+            if (this._unloadHandler) {
+                window.removeEventListener('beforeunload', this._unloadHandler)
             }
             document.removeEventListener('submit', this._submitHandler)
             document.removeEventListener('livewire-upload-start', this._uploadStart)
