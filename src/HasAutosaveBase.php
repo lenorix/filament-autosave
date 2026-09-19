@@ -12,9 +12,15 @@ use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Lenorix\FilamentAutosave\Events\AutosaveConflict;
+use Lenorix\FilamentAutosave\Events\AutosaveFailed;
+use Lenorix\FilamentAutosave\Events\AutosaveSaved;
+use Lenorix\FilamentAutosave\Events\AutosaveSkipped;
+use Lenorix\FilamentAutosave\Events\AutosaveUndone;
 use Livewire\Attributes\Locked;
 
 trait HasAutosaveBase
@@ -297,6 +303,7 @@ trait HasAutosaveBase
 
             if (! $this->hasPendingAutosavePersistence() && $this->autosaveStore()->snapshotHash($data) === $this->autosaveSnapshotHash) {
                 $this->dispatchAutosaveIdle();
+                Event::dispatch(new AutosaveSkipped($this, 'unchanged', [], []));
 
                 return;
             }
@@ -333,6 +340,13 @@ trait HasAutosaveBase
             $this->autosaveSnapshotHash = $this->autosaveSuccessSnapshotHash(is_array($written) ? $written : $data);
             $this->commitAutosaveStoredUploads();
             $this->autosaveCycleWrote = true;
+
+            Event::dispatch(new AutosaveSaved(
+                $this,
+                $this->autosaveEventRecord(),
+                is_array($written) ? $written : $data,
+                $this->autosavePendingFields,
+            ));
 
             $this->dispatchAutosaveStatus(
                 $this->autosaveValidationErrors === [] ? AutosaveStatus::Saved : AutosaveStatus::Validation,
@@ -409,6 +423,31 @@ trait HasAutosaveBase
     {
         $this->discardAutosaveStoredUploads();
         $this->dispatchAutosaveValidationOrIdle();
+
+        Event::dispatch(new AutosaveSkipped(
+            $this,
+            $this->autosaveValidationErrors === [] ? 'unchanged' : 'validation',
+            $this->autosavePendingFields,
+            $this->autosaveValidationErrors,
+        ));
+    }
+
+    /** The record an event should carry; overridden where the trait knows one. */
+    protected function autosaveEventRecord(): ?object
+    {
+        return null;
+    }
+
+    protected function dispatchAutosaveUndone(): void
+    {
+        $this->dispatchAutosaveStatus(AutosaveStatus::Undone);
+        Event::dispatch(new AutosaveUndone($this, $this->autosaveEventRecord()));
+    }
+
+    protected function dispatchAutosaveConflict(): void
+    {
+        $this->dispatchAutosaveStatus(AutosaveStatus::Conflict);
+        Event::dispatch(new AutosaveConflict($this, $this->autosaveEventRecord()));
     }
 
     /** Allow Edit pages to put hooks, writes, and events in one transaction. */
@@ -422,12 +461,20 @@ trait HasAutosaveBase
         return $cycle();
     }
 
-    /** Wrap the autosave write in the database transaction Filament owns. */
+    /**
+     * Wrap the autosave write in one database transaction.
+     *
+     * Filament's `beginDatabaseTransaction()` and friends are no-ops unless
+     * the host opted in with `Panel::databaseTransactions()`, which is off by
+     * default. An autosave writes columns, then relationship rows, then runs
+     * hooks; without a transaction a failure part-way through leaves the
+     * columns written and the rows not. When the panel owns transactions
+     * its methods are used so a page's own nesting stays intact; otherwise
+     * the package opens its own.
+     */
     protected function autosaveWithinDatabaseTransaction(callable $write): mixed
     {
-        if (! method_exists($this, 'beginDatabaseTransaction')
-            || ! method_exists($this, 'commitDatabaseTransaction')
-            || ! method_exists($this, 'rollBackDatabaseTransaction')) {
+        if (! $this->autosavePanelOwnsDatabaseTransactions()) {
             return $this->autosaveWithoutDatabaseTransaction($write);
         }
 
@@ -450,9 +497,33 @@ trait HasAutosaveBase
         }
     }
 
+    protected function autosavePanelOwnsDatabaseTransactions(): bool
+    {
+        return method_exists($this, 'beginDatabaseTransaction')
+            && method_exists($this, 'commitDatabaseTransaction')
+            && method_exists($this, 'rollBackDatabaseTransaction')
+            && (! method_exists($this, 'hasDatabaseTransactions') || $this->hasDatabaseTransactions());
+    }
+
+    /** The package's own transaction, honouring Halt's rollback flag like Filament does. */
     protected function autosaveWithoutDatabaseTransaction(callable $write): mixed
     {
-        return $write();
+        DB::beginTransaction();
+
+        try {
+            $result = $write();
+            DB::commit();
+
+            return $result;
+        } catch (Halt $exception) {
+            $exception->shouldRollbackDatabaseTransaction() ? DB::rollBack() : DB::commit();
+
+            throw $exception;
+        } catch (\Throwable $exception) {
+            DB::rollBack();
+
+            throw $exception;
+        }
     }
 
     protected function queueAutosaveSavedNotification(): void
@@ -733,6 +804,7 @@ trait HasAutosaveBase
         Log::warning("Autosave {$context} failed", ['exception' => $e::class]);
 
         $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Error->value);
+        Event::dispatch(new AutosaveFailed($this, $e, $context));
     }
 
     /**

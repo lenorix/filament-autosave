@@ -868,7 +868,7 @@ trait HasAutosave
                     $this->autosaveExternalUndoFields(),
                 )) {
                 $this->resetAutosaveUndo();
-                $this->dispatchAutosaveStatus(AutosaveStatus::Conflict);
+                $this->dispatchAutosaveConflict();
 
                 return;
             }
@@ -916,7 +916,7 @@ trait HasAutosave
 
             $this->sendAutosaveSavedNotification();
 
-            $this->dispatchAutosaveStatus(AutosaveStatus::Undone);
+            $this->dispatchAutosaveUndone();
         } catch (\Throwable $e) {
             $this->handleAutosaveFailure($e, 'undo');
         }
@@ -1193,5 +1193,10 @@ trait HasAutosave
     protected function autosaveWithinTransaction(callable $write): void
     {
         $this->autosaveWithinDatabaseTransaction($write);
+    }
+
+    protected function autosaveEventRecord(): ?object
+    {
+        return method_exists($this, 'getRecord') ? $this->getRecord() : null;
     }
 }

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add package events (`AutosaveSaved`, `AutosaveSkipped`, `AutosaveFailed`,
+  `AutosaveUndone`, `AutosaveConflict`) dispatched as objects from every trait,
+  so hosts can monitor autosave outcomes; failures previously only reached a
+  `Log::warning` with the exception class.
+- **Behaviour change:** every autosave write now runs inside a database
+  transaction. Filament's `beginDatabaseTransaction()` is a no-op unless the
+  panel opts in with `Panel::databaseTransactions()` (off by default), so a hook
+  failing after `handleRecordUpdate()` used to leave the columns written and the
+  relationship rows not. When the panel owns transactions its methods are still
+  used; otherwise the package opens its own, honouring `Halt`'s rollback flag.
+  Recordless drafts are unaffected.
 - Fix newly added relationship rows being created twice when the page's
   `handleRecordUpdate()` already runs Filament's own save path (any hook calling
   `$this->form->getState()`, such as translatable Edit-page concerns). That path
