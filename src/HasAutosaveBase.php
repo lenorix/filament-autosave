@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave;
 
+use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
 use Filament\Resources\Events\RecordSaved;
 use Filament\Resources\Events\RecordUpdated;
 use Filament\Resources\Pages\Page;
@@ -952,8 +953,8 @@ trait HasAutosaveBase
      */
     protected function dropIncompleteAutosaveContainers(array $data): array
     {
-        foreach (array_keys($this->getAutosaveFields()) as $path) {
-            if (! str_contains($path, '.')) {
+        foreach ($this->getAutosaveFields() as $path => $fields) {
+            if (! str_contains($path, '.') || $this->autosaveFieldsLiveOutsideColumns($fields)) {
                 continue;
             }
 
@@ -965,6 +966,28 @@ trait HasAutosaveBase
         }
 
         return $data;
+    }
+
+    /**
+     * Media-library fields persist through their own callback and dehydrate
+     * to nothing, so their absence from a container's column data does not
+     * make that container incomplete.
+     *
+     * @param  array<int, object>  $fields
+     */
+    protected function autosaveFieldsLiveOutsideColumns(array $fields): bool
+    {
+        if ($fields === []) {
+            return false;
+        }
+
+        foreach ($fields as $field) {
+            if (! $field instanceof SpatieMediaLibraryFileUpload) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param  array<string, mixed>  $draft */

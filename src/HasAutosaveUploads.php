@@ -567,8 +567,11 @@ trait HasAutosaveUploads
                 continue;
             }
 
-            // Media outside a pending relationship has no record lifecycle of its own.
-            if (($media && $nested && ! $related) || $field->isDisabled() || $field->isHidden()
+            // Media in a JSON (non-relationship) container hangs off the parent
+            // record: unless every row resolves its own collection, one row's
+            // deleteAbandonedFiles() would wipe the others' media.
+            if (($media && $nested && ! $related && ! $this->autosaveRowMediaCollectionsAreDistinct($path, $field))
+                || $field->isDisabled() || $field->isHidden()
                 || ! $field->shouldStoreFiles() || (! $media && ! $field->isDehydrated())
                 || (method_exists($field, 'isSaved') && ! $field->isSaved())) {
                 $this->autosaveBlockedUploadColumns[$top] = true;
@@ -755,12 +758,86 @@ trait HasAutosaveUploads
             // Media inside a relationship row stays in that row's state: the
             // relationship component later pushes this state back into the
             // form, and a missing key would read as "remove every file".
+            // Elsewhere it is persisted through its own callback, never as
+            // column data, so drop it by path (a JSON-repeater row keeps its
+            // other keys).
             if (! $this->autosaveUploadInRelationship($path)) {
-                unset($data[$path]);
+                $this->forgetAutosavePath($data, $path);
             }
         }
 
         return $uploads;
+    }
+
+    /**
+     * Whether every instance of a media field nested in a non-relationship
+     * container resolves a collection of its own on the parent record.
+     *
+     * A JSON repeater's rows have no record; their `SpatieMediaLibraryFileUpload`
+     * fields all attach to the parent, and saving one row deletes any media
+     * of that collection the row does not list. The supported pattern gives
+     * each row a persisted UUID and a `collection()` closure derived from it.
+     * The field is allowed only when all sibling instances resolve distinct,
+     * non-empty collections that no top-level media field on the same record
+     * uses; otherwise it stays blocked and its container is reported pending.
+     */
+    protected function autosaveRowMediaCollectionsAreDistinct(string $path, SpatieMediaLibraryFileUpload $field): bool
+    {
+        $siblings = [];
+
+        foreach ($this->getAutosaveFields() as $fields) {
+            if (in_array($field, $fields, true)) {
+                $siblings = $fields;
+
+                break;
+            }
+        }
+
+        if ($siblings === []) {
+            return false;
+        }
+
+        $collections = [];
+
+        foreach ($siblings as $sibling) {
+            if (! $sibling instanceof SpatieMediaLibraryFileUpload) {
+                return false;
+            }
+
+            $collection = $sibling->getCollection();
+
+            if (! is_string($collection) || $collection === '' || $collection === 'default') {
+                return false;
+            }
+
+            $collections[] = $collection;
+        }
+
+        if (count(array_unique($collections)) !== count($collections)) {
+            return false;
+        }
+
+        $record = $field->getRecord();
+        $recordKey = is_object($record) && method_exists($record, 'getKey')
+            ? $record::class.':'.$record->getKey()
+            : null;
+
+        foreach ($this->autosaveUploadFields() as $otherPath => $other) {
+            if (str_contains($otherPath, '.') || ! $other instanceof SpatieMediaLibraryFileUpload) {
+                continue;
+            }
+
+            $otherRecord = $other->getRecord();
+            $otherKey = is_object($otherRecord) && method_exists($otherRecord, 'getKey')
+                ? $otherRecord::class.':'.$otherRecord->getKey()
+                : null;
+
+            if ($otherKey === $recordKey && in_array($other->getCollection() ?? 'default', $collections, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
