@@ -198,7 +198,9 @@ schema partially itself; drafts are never refreshed). Set `dirty_only` to
 Polling (`poll_interval`, default 5000 ms, `0` off; plugin `pollInterval()`;
 page `autosavePollInterval()`) makes the browser call the public
 `syncAutosave()` on a timer so other editors' writes reach the fields this
-user is not editing without waiting for a save. Same eligibility rule as the
+user is not editing without waiting for a save. Polling is off whenever the
+post-save refresh is (`refresh_unchanged_fields` false or `dirty_only` false):
+it relies on the same refill. Same eligibility rule as the
 post-save refresh, shared in `HasAutosaveBase` (`autosaveRefreshablePaths`,
 `refillAutosavePaths`): never relationships, uploads, excluded or dirty fields.
 A dirty field that also changed remotely is reported as `stale` and left
