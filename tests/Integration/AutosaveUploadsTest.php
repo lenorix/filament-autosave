@@ -430,7 +430,7 @@ test('a Halt that keeps the transaction keeps the stored files and acknowledges 
     $page->call('autosave');
     expect($post->fresh()->title)->toBe('Someone else')
         ->and(Storage::disk('public')->allFiles())->toHaveCount(1);
-})->with([HaltingAfterSaveUploadPost::class, HaltingAfterSaveRecordForm::class]);
+})->with([[HaltingAfterSaveUploadPost::class], [HaltingAfterSaveRecordForm::class]]);
 
 test('a spatie file is removed through its ledger token when the media snapshot itself fails', function () {
     $post = UploadPost::create(['title' => 'Original']);

@@ -152,7 +152,11 @@ trait HasAutosave
         $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
     }
 
-    /** A relation a poll re-read is not pending: its hash is the new baseline. */
+    /**
+     * A relation a poll re-read is not pending: its hash is the new baseline.
+     *
+     * @param  array<int, object>  $components
+     */
     protected function acknowledgeAutosaveRefreshedRelation(string $path, array $components): void
     {
         $this->autosaveRelationshipHashes[$path] = $this->autosaveRelationshipHash($components);

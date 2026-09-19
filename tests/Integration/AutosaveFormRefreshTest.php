@@ -87,4 +87,4 @@ test('a field a mutator transforms is acknowledged as the form shows it, not as 
 
     expect($post->fresh()->slug)->toBe('by-someone-else')
         ->and($a->get('data.slug'))->toBe('by-someone-else');
-})->with([SlugifyingRecordForm::class, SlugifyingEditPost::class]);
+})->with([[SlugifyingRecordForm::class], [SlugifyingEditPost::class]]);

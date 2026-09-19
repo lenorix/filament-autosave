@@ -1970,7 +1970,11 @@ trait HasAutosaveBase
         Event::dispatch(new AutosaveSynced($this, $record, $refreshed, $stale, $plan['patches']));
     }
 
-    /** The live form's prepared payload, for the poll's eligibility checks. */
+    /**
+     * The live form's prepared payload, for the poll's eligibility checks.
+     *
+     * @return array<string, mixed>
+     */
     protected function autosaveDehydrateForPoll(): array
     {
         $this->autosaveFieldsCache = null;
@@ -2015,7 +2019,7 @@ trait HasAutosaveBase
      * not excluded, not nested in a repeater row (those refresh with their
      * parent).
      *
-     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation}>
+     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>}>
      */
     protected function autosavePolledRelationFields(object $record): array
     {
@@ -2127,7 +2131,10 @@ trait HasAutosaveBase
         return ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted];
     }
 
-    /** The related row's key (the related key on a pivot), qualified. */
+    /** The related row's key (the related key on a pivot), qualified.
+     *
+     * @param  Relation<Model, Model, *>  $relation
+     */
     protected function autosaveRelationKeyColumn(Relation $relation): string
     {
         if ($relation instanceof BelongsToMany) {
@@ -2137,7 +2144,10 @@ trait HasAutosaveBase
         return $relation->getRelated()->getQualifiedKeyName();
     }
 
-    /** The column whose maximum tells a row edit apart, or null when the relation has no timestamps. */
+    /** The column whose maximum tells a row edit apart, or null when the relation has no timestamps.
+     *
+     * @param  Relation<Model, Model, *>  $relation
+     */
     protected function autosaveRelationStampColumn(Relation $relation): ?string
     {
         if ($relation instanceof BelongsToMany) {
@@ -2289,7 +2299,11 @@ trait HasAutosaveBase
         return array_key_exists($path, $current);
     }
 
-    /** Record a refilled relation's state as its new acknowledged state; traits with a relationship hash override. */
+    /**
+     * Record a refilled relation's state as its new acknowledged state; traits with a relationship hash override.
+     *
+     * @param  array<int, object>  $components
+     */
     protected function acknowledgeAutosaveRefreshedRelation(string $path, array $components): void {}
 
     /** @param array<int, object> $components */
