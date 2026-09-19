@@ -62,9 +62,15 @@ class AutosaveStore
         return self::CACHE_PREFIX.':'.$this->currentScope().':'.$pageClass;
     }
 
-    public function undoCacheKey(string $pageClass, int|string|null $recordKey = null): string
+    /**
+     * An Undo target belongs to one live component: two tabs of the same
+     * user on the same record must not share a slot, or one tab's autosave
+     * overwrites the other's snapshot and its Undo restores the wrong value.
+     */
+    public function undoCacheKey(string $pageClass, int|string|null $recordKey = null, ?string $instanceId = null): string
     {
-        return self::CACHE_PREFIX.':undo:'.$this->currentScope().':'.$pageClass.':'.($recordKey ?? 'default');
+        return self::CACHE_PREFIX.':undo:'.$this->currentScope().':'.$pageClass.':'.($recordKey ?? 'default')
+            .(filled($instanceId) ? ':'.$instanceId : '');
     }
 
     /** Scope drafts and undo snapshots by tenant and owner. */
