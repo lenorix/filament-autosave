@@ -46,8 +46,31 @@ test('the controller watches the server-side snapshot hash', function () {
 
     expect($markup)
         ->toContain('this.$wire.autosaveObservedHash')
-        ->toContain('JSON.stringify(this.stateValue()) !== this.baselineJson')
+        ->toContain('current !== this.baselineJson && current !== this.lastSyncedStateJson')
         ->toContain('this.onDataChanged()');
+});
+
+test('the controller polls for other editors\' changes only while idle and visible, and backs off on errors', function () {
+    $markup = controllerMarkup();
+
+    expect($markup)
+        ->toContain('this.pollMs = Number(this.$wire.autosavePollMs) || 0')
+        ->toContain('await this.$wire.syncAutosave()')
+        // Never race a pending or in-flight save.
+        ->toContain('|| this.savePending')
+        ->toContain('|| this.status === statuses.unsaved')
+        ->toContain('|| this.status === statuses.saving')
+        // Pause in background tabs, sync at once when they come back.
+        ->toContain("document.visibilityState !== 'visible'")
+        ->toContain("document.addEventListener('visibilitychange', this._visibilityHandler)")
+        ->toContain('this.schedulePoll(0)')
+        // Exponential backoff after three consecutive failures, capped at a minute.
+        ->toContain('if (this.pollErrors < 3)')
+        ->toContain('Math.min(this.pollMs * Math.pow(2, this.pollErrors - 2), 60000)')
+        // A refill is the server's mutation, never a user edit.
+        ->toContain('if (newVal === this.lastSyncedStateJson)')
+        ->toContain('this.absorbRefreshedIntoBaseline()')
+        ->toContain("document.removeEventListener('visibilitychange', this._visibilityHandler)");
 });
 
 test('the controller waits for uploads belonging to this component', function () {
@@ -97,7 +120,7 @@ test('status events update the indicator and reset settled states after a delay'
 
     expect($markup)
         ->toContain('this.$wire.$on(statuses.event')
-        ->toContain('this.setStatus(data.status, data.timestamp || null, data.errors || {}, data.refreshed || {}, data.pending || [])')
+        ->toContain('this.setStatus(data.status, data.timestamp || null, data.errors || {}, data.refreshed || {}, data.pending || [], data.stale || [])')
         ->toContain('this.serverBaselineJson')
         ->toContain('this.setStatePath(baseline, path, value)')
         ->toContain('this.isSettled(newStatus)')

@@ -14,12 +14,23 @@
         savePending: false,
         uploadsPending: 0,
         refreshedState: {},
+        staleFields: [],
         serverBaselineJson: null,
         destroyed: false,
         cancelled: false,
         mode: mode,
         debounceMs: debounce,
         statePath: 'data',
+        // Polling for other editors' changes. Runs only when this component
+        // is idle (no debounce pending, no save in flight) and the tab is
+        // visible, and backs off after repeated failures.
+        pollMs: 0,
+        pollTimer: null,
+        pollInFlight: false,
+        pollErrors: 0,
+        // Live state as the last poll left it (dirty fields included), so the
+        // watchers can tell the poll's own refill from a user edit.
+        lastSyncedStateJson: null,
 
         init() {
             if (this.$wire.autosaveEnabled === false) {
@@ -44,6 +55,13 @@
                         return
                     }
 
+                    // A poll just refilled clean fields: that mutation is the
+                    // server's, not the user's, so it must not re-mark the
+                    // form unsaved or kick off a save.
+                    if (newVal === this.lastSyncedStateJson) {
+                        return
+                    }
+
                     this.cancelled = false
                     this.onDataChanged()
                 },
@@ -51,12 +69,30 @@
 
             this._offStatus = this.$wire.$on(statuses.event, (params) => {
                 const data = Array.isArray(params) ? params[0] : params
-                this.setStatus(data.status, data.timestamp || null, data.errors || {}, data.refreshed || {}, data.pending || [])
+                this.setStatus(data.status, data.timestamp || null, data.errors || {}, data.refreshed || {}, data.pending || [], data.stale || [])
             })
+
+            this.pollMs = Number(this.$wire.autosavePollMs) || 0
+
+            if (this.pollMs > 0) {
+                this._visibilityHandler = () => {
+                    if (document.visibilityState === 'visible') {
+                        this.schedulePoll(0)
+                    } else {
+                        clearTimeout(this.pollTimer)
+                    }
+                }
+                document.addEventListener('visibilitychange', this._visibilityHandler)
+                this.schedulePoll()
+            }
 
             if (mode === 'edit') {
                 this.$watch(() => this.$wire.autosaveObservedHash, () => {
-                    if (!this.savePending && JSON.stringify(this.stateValue()) !== this.baselineJson) {
+                    const current = JSON.stringify(this.stateValue())
+
+                    // The server hash also moves when a poll refills fields;
+                    // only a state the user produced should reopen a save.
+                    if (!this.savePending && current !== this.baselineJson && current !== this.lastSyncedStateJson) {
                         this.onDataChanged()
                     }
                 })
@@ -142,6 +178,61 @@
             }
         },
 
+        // Delay until the next poll: the configured interval, doubled per
+        // failure once three have happened in a row, never above a minute.
+        pollDelay() {
+            if (this.pollErrors < 3) {
+                return this.pollMs
+            }
+
+            return Math.min(this.pollMs * Math.pow(2, this.pollErrors - 2), 60000)
+        },
+
+        schedulePoll(delay = null) {
+            clearTimeout(this.pollTimer)
+
+            if (this.destroyed || this.pollMs <= 0) {
+                return
+            }
+
+            this.pollTimer = setTimeout(() => this.poll(), delay ?? this.pollDelay())
+        },
+
+        // A save in progress or a debounce still pending means the wire state
+        // is ahead of the server; polling then would race the write. Skip the
+        // tick and try again after the next interval.
+        pollBlocked() {
+            return this.pollInFlight
+                || this.savePending
+                || this.uploadsPending > 0
+                || this.status === statuses.unsaved
+                || this.status === statuses.saving
+                || document.visibilityState !== 'visible'
+        },
+
+        async poll() {
+            if (this.destroyed) {
+                return
+            }
+
+            if (this.pollBlocked()) {
+                this.schedulePoll()
+                return
+            }
+
+            this.pollInFlight = true
+
+            try {
+                await this.$wire.syncAutosave()
+                this.pollErrors = 0
+            } catch (e) {
+                this.pollErrors++
+            } finally {
+                this.pollInFlight = false
+                this.schedulePoll()
+            }
+        },
+
         stateValue() {
             return this.statePath.split('.').filter(Boolean).reduce(
                 (value, key) => value?.[key],
@@ -188,8 +279,13 @@
             }
         },
 
-        setStatus(newStatus, newTimestamp = null, newErrors = {}, newRefreshedState = {}, newPendingFields = []) {
+        setStatus(newStatus, newTimestamp = null, newErrors = {}, newRefreshedState = {}, newPendingFields = [], newStaleFields = []) {
             if (this.destroyed) {
+                return
+            }
+
+            // A poll result must not clobber an in-progress save's status.
+            if (newStatus === statuses.synced && (this.savePending || this.status === statuses.saving)) {
                 return
             }
 
@@ -200,6 +296,7 @@
             this.validationErrors = newErrors || {}
             this.refreshedState = newRefreshedState || {}
             this.pendingFields = newPendingFields || []
+            this.staleFields = newStaleFields || []
 
             const fadeMs = this.fadeMsByStatus[newStatus]
 
@@ -209,9 +306,46 @@
                 }, fadeMs)
             }
 
+            if (newStatus === statuses.synced) {
+                this.absorbRefreshedIntoBaseline()
+
+                return
+            }
+
             if (this.isSettled(newStatus)) {
                 this.rememberBaseline()
             }
+        },
+
+        // A poll refilled clean fields from the server: fold only those paths
+        // into the baseline so they do not read as local edits, and leave any
+        // genuinely dirty field exactly as dirty as it was.
+        absorbRefreshedIntoBaseline() {
+            let baseline
+
+            try {
+                baseline = JSON.parse(this.baselineJson)
+            } catch (e) {
+                baseline = this.stateValue()
+            }
+
+            for (const [path, value] of Object.entries(this.refreshedState)) {
+                this.setStatePath(baseline, path, value)
+            }
+
+            this.baselineJson = JSON.stringify(baseline)
+
+            // What the live state looks like once Livewire has applied the
+            // refill: the current state (dirty fields included) with the
+            // refreshed paths overlaid. Both watchers treat exactly that
+            // value as "not a user edit".
+            const expected = JSON.parse(JSON.stringify(this.stateValue()))
+
+            for (const [path, value] of Object.entries(this.refreshedState)) {
+                this.setStatePath(expected, path, value)
+            }
+
+            this.lastSyncedStateJson = JSON.stringify(expected)
         },
 
         // The server state is the baseline: which Wire state counts as already saved.
@@ -274,6 +408,10 @@
             this.destroyed = true
             clearTimeout(this.timer)
             clearTimeout(this.fadeTimer)
+            clearTimeout(this.pollTimer)
+            if (this._visibilityHandler) {
+                document.removeEventListener('visibilitychange', this._visibilityHandler)
+            }
             document.removeEventListener('submit', this._submitHandler)
             document.removeEventListener('livewire-upload-start', this._uploadStart)
             for (const event of ['livewire-upload-finish', 'livewire-upload-error', 'livewire-upload-cancel']) {
