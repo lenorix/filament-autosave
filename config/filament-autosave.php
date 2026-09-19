@@ -22,10 +22,13 @@ return [
     // refresh_unchanged_fields; the poll never overwrites a dirty field.
     'poll_interval' => 5000,
 
-    // Top-level plain-text fields (TextInput, Textarea, MarkdownEditor) whose
-    // concurrent edits are merged word by word instead of last-write-wins.
-    // The browser sends a patch of its own change; the server plays it on the
-    // current value. Other listed field types are ignored with a warning.
+    // Top-level text fields whose concurrent edits are merged instead of
+    // last-write-wins: TextInput, Textarea and MarkdownEditor word by word
+    // (the browser sends a patch of its own change; the server plays it on
+    // the current value), RichEditor block by block over its document (the
+    // browser sends the document it started from; images, custom blocks and
+    // other atomic nodes are never split). Other listed field types are
+    // ignored with a warning.
     'merge_fields' => [],
 
     // Conditional writes a merged field retries when another editor commits

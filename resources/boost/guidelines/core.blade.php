@@ -6,9 +6,10 @@ status indicator; untouched fields pick up other editors' changes.
 - Edit pages persist eligible fields to the record.
 - Create/custom pages store drafts in Laravel Cache until explicit submit.
 - Other editors' changes reach untouched fields after a save and by polling;
-  listed plain-text fields are merged word by word, in the browser and on
-  the server, and the other editor's discarded words can be recovered from
-  the indicator. There is no WebSocket/SSE transport. Undo detects a
+  listed plain-text fields are merged word by word and listed RichEditors
+  block by block (structurally, over the Tiptap document), in the browser
+  and on the server, and the other editor's discarded words or blocks can
+  be recovered from the indicator. There is no WebSocket/SSE transport. Undo detects a
   concurrent change and reports a conflict instead of restoring over it.
 
 ## Install
@@ -208,20 +209,44 @@ pending/in flight or the tab is hidden and backs off after 3 failures (max
 60 s). Idle cost: one query (`updated_at` only on timestamped models).
 
 Merging (`merge_fields`, plugin `mergeFields()`, page `autosaveMergeFields()`;
-top-level TextInput/Textarea/MarkdownEditor only, others ignored with a
-warning) lives in `HasAutosaveMerge` + `AutosaveTextMerge` (word-level diff3
-and a diff-match-patch `apply()` port, no dependencies) + `AutosaveSync`
-(versioned payloads, `v: 1`). The server keeps no base: `autosave(array
-$mergePatches)` takes `path => patch text` (or `['base' => …, 'ours' => …]`),
-plays it on the column's current value and writes with a per-column
-compare-and-swap, retrying with backoff (5→100 ms) up to `merge_retries`
-(default 10). Exhausted: column unwritten, user's text stays dirty, reported as
+top-level TextInput/Textarea/MarkdownEditor/RichEditor only, others ignored
+with a warning) lives in `HasAutosaveMerge` + `AutosaveTextMerge` (word-level
+diff3 and a diff-match-patch `apply()` port, no dependencies) +
+`AutosaveRichMerge` (structural diff3 over the ProseMirror document via
+`ueberdosis/tiptap-php`, a filament/forms dependency; block alignment by
+`attrs.id` or content similarity, inline runs through the text tokenizer with
+marks, image/customBlock/mention/mergeTag atomic; HTML and JSON columns are
+two serialisations of the same document) + `AutosaveSync` (versioned
+payloads, `v: 1`). The server keeps no base: `autosave(array $mergePatches)`
+takes `path => patch text` (or `['base' => …, 'ours' => …]`) for plain text
+and `path => ['base' => <document>]` for a RichEditor, plays it on the
+column's current value and writes with a per-column compare-and-swap,
+retrying with backoff (5→100 ms) up to `merge_retries` (default 10). Exhausted: column unwritten, user's text stays dirty, reported as
 pending + `conflicts[path][].reason = 'contended'` with `merged` (merge against
 the latest value) and `patches[path].theirs`; `AutosaveConflict` fires; status
 is `validation`. Overlapping ranges: last save wins there only, `reason =
 'overlap'`. `syncAutosave(array $mergeBaseHashes)` adds `patches` for stale
 mergeable fields unless the browser's hash matches. Without a patch a field
 stays last-write-wins.
+
+RichEditor specifics: the form (and the browser) always holds the Tiptap
+document, whatever the column stores, so `merged`, `patches.theirs` and the
+values the browser sends are documents; conflict fragments (`ours`/`theirs`)
+are lists of nodes, with `kind` (`inline`|`block`), `block` (child-index path
+in the merged document) and `position` (code-point offset into the plain
+text). A rich field is pre-merged in `autosavePreparePhase()`
+(`premergeAutosaveRichFields()`: one SELECT of the rich columns, merge into
+the form state) *before* the form dehydrates, because the RichEditor's own
+`beforeStateDehydrated` cleanup deletes every attachment the submitted
+document no longer references — merging first is what keeps an image the
+other editor still uses (rule: files to delete = ids stored before minus ids
+in the merged document). The conditional write then rebases on the value the
+pre-merge read (that value is the base, the pre-merged document is ours) so
+nothing is applied twice; only what landed in between is merged in. The
+written value is always canonical (`AutosaveRichMerge::canonical()`); a
+seeded non-canonical column is rewritten once and acknowledged. A text patch
+string for a rich field is no patch. Undo stays disabled for a RichEditor
+with an attachment provider, like any file operation.
 
 Browser side: `resources/js/autosave-merge.js` (inlined by the indicator view
 through Livewire's `@assets`, so it loads once into the head and never rides
