@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser;
 
+use Closure;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
@@ -39,7 +40,14 @@ class BrowserRichMergePostResource extends Resource
             ->fileAttachmentsVisibility('public')
             ->getFileAttachmentUrlUsing(fn (): string => static::IMAGE_SRC)
             ->preventFileAttachmentPathTampering(false)
-            ->customBlocks([BrowserCalloutBlock::class]);
+            ->customBlocks([BrowserCalloutBlock::class])
+            // A body mentioning PENDING never validates, so a browser test
+            // can keep the field dirty while polling runs.
+            ->rules([fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                if (str_contains(is_array($value) ? (string) json_encode($value) : (string) $value, 'PENDING')) {
+                    $fail('The body is pending.');
+                }
+            }]);
     }
 
     public static function table(Table $table): Table

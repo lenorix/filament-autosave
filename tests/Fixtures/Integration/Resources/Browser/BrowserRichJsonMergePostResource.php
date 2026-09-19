@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Browser;
 
+use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\RichJsonPost;
 
@@ -15,7 +16,7 @@ class BrowserRichJsonMergePostResource extends BrowserRichMergePostResource
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
-            \Filament\Forms\Components\TextInput::make('title')->required(),
+            TextInput::make('title')->required(),
             static::editor()->json(),
         ]);
     }
