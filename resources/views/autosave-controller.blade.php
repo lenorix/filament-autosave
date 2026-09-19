@@ -200,6 +200,15 @@
                 return
             }
 
+            // A poll reply landing mid-save would be half applied: its
+            // synced status is dropped while the refill still reaches the
+            // state, and the watcher then reads that refill as a user edit.
+            // Let the poll finish first; it replays this save.
+            if (this.pollInFlight) {
+                this.saveQueued = true
+                return
+            }
+
             // Nothing to send: the state already matches the last settled
             // baseline (typically the server's own refill after an upload or
             // a save). Skip the round trip and keep the badge that is showing.
@@ -319,6 +328,13 @@
             } finally {
                 this.pollInFlight = false
                 this.schedulePoll()
+
+                // A save asked for while the poll ran goes out now, on top
+                // of the state the poll left (its refill is in the baseline).
+                if (this.saveQueued && !this.savePending) {
+                    this.saveQueued = false
+                    this.save()
+                }
             }
         },
 

@@ -117,6 +117,16 @@ test('the controller queues a save requested mid-flight and replays it at most o
         ->toContain('JSON.stringify(this.stateValue()) === this.baselineJson');
 });
 
+test('a save asked for while a poll is in flight waits for the poll and is replayed by it', function () {
+    $markup = controllerMarkup();
+
+    // The browser suite (AutosaveControllerResilienceTest) drives the real
+    // timing; this pins the two halves of the hand-off in the markup.
+    expect($markup)
+        ->toContain("if (this.pollInFlight) {\n                this.saveQueued = true")
+        ->toContain('if (this.saveQueued && !this.savePending) {');
+});
+
 test('an unchanged reply never demotes a settled badge still inside its fade window', function () {
     $markup = controllerMarkup();
 
