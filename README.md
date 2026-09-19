@@ -209,14 +209,15 @@ autosave.
 ### Explicit saves with `flushAutosave()`
 
 `autosave()` is designed for the background loop: it reports failures through
-the indicator and never throws. Explicit actions — a "Round prices" button, an
-"Add from catalogue" modal — usually need the opposite: the same dirty-only
-write, refresh, and Undo behaviour, but with errors reaching the caller.
+the indicator and never throws. Explicit actions — a "Generate slug" button, a
+"Publish" toggle, an "Apply template" modal — usually need the opposite: the
+same dirty-only write, refresh, and Undo behaviour, but with errors reaching
+the caller so the action can report them.
 
 ```php
-Action::make('roundPrices')
+Action::make('generateSlug')
     ->action(function (): void {
-        $this->data['price'] = round($this->data['price']);
+        $this->data['slug'] = Str::slug($this->data['title']);
 
         $written = $this->flushAutosave();
     });

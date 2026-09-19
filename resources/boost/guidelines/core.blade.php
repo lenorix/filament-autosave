@@ -114,8 +114,8 @@ test, README and CHANGELOG together.
 ## Explicit saves
 
 `autosave()` is the background entry point: it never throws and reports
-failures through the indicator. For explicit actions (a "Round prices" button,
-an "Add from catalogue" modal) call `flushAutosave(): bool` instead. It runs
+failures through the indicator. For explicit actions (a "Generate slug" button,
+a "Publish" toggle, an "Apply template" modal) call `flushAutosave(): bool` instead. It runs
 the same dirty-only cycle synchronously, throws `ValidationException` keyed by
 state path (`data.title`) before writing anything, propagates exceptions from
 `beforeAutosave()`, custom rules, hooks and persistence, lets Filament's
