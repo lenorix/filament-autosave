@@ -188,6 +188,13 @@ test('autosave persists multiple Builder blocks in one request', function () {
     ]);
 });
 
+// This case uses a hand-built component instead of a real Filament form on
+// purpose: no Filament form component writes through a HasManyThrough.
+// Repeater::getRelationship() only accepts HasOneOrMany|BelongsToMany, and
+// Select reads HasOneOrManyThrough for display but its
+// saveStateToRelationship() returns early for it without touching the
+// database. The package's capture/restore path for these relations can
+// therefore only be exercised by calling it directly.
 test('undo restores a HasManyThrough graph without nulling its intermediate key', function () {
     $post = Post::create(['title' => 'Post']);
     $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item', 'position' => 1]);
