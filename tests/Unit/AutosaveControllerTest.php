@@ -116,3 +116,22 @@ test('destroying the controller cancels timers and unregisters browser listeners
         ->toContain("'livewire-upload-cancel'")
         ->toContain('this._offStatus?.()');
 });
+
+test('every status key the views read from the Alpine scope exists in the status metadata', function () {
+    $views = [
+        file_get_contents(__DIR__.'/../../resources/views/autosave-indicator.blade.php'),
+        file_get_contents(__DIR__.'/../../resources/views/autosave-controller.blade.php'),
+    ];
+
+    preg_match_all('/statuses\.([a-zA-Z]+)/', implode("\n", $views), $matches);
+    $used = array_values(array_unique($matches[1]));
+
+    expect($used)->not->toBeEmpty()
+        ->and(array_values(array_diff($used, array_keys(AutosaveStatus::statusMeta()))))->toBe([]);
+});
+
+test('the controller exposes the status metadata on the Alpine data object', function () {
+    // The indicator's x-show / x-if expressions evaluate in Alpine's data
+    // scope, not inside the IIFE closure, so `statuses` must be a property.
+    expect(controllerMarkup())->toContain('statuses: statuses,');
+});
