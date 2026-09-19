@@ -1,5 +1,8 @@
 (function ({ debounce = 1500, mode = 'edit', statuses = {} }) {
     return {
+        // The indicator's x-show / x-if expressions evaluate in this data
+        // scope, not inside the closure, so the metadata must be a property.
+        statuses: statuses,
         status: statuses.idle,
         timestamp: null,
         validationErrors: {},
