@@ -528,9 +528,10 @@ trait HasAutosaveForForm
                 if ($record instanceof Model) {
                     return $record;
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Action and modal schemas may not have a record while they
                 // are being mounted or detached.
+                $this->autosaveLookupFailed('the schema record', $e);
             }
         }
 
@@ -539,8 +540,9 @@ trait HasAutosaveForForm
                 $record = $this->getRecord();
 
                 return $record instanceof Model ? $record : null;
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Standalone forms do not necessarily own a record.
+                $this->autosaveLookupFailed('the component record', $e);
             }
         }
 
@@ -847,13 +849,15 @@ trait HasAutosaveForForm
                             if ($actionRecord instanceof Model && $actionRecord->getKey() !== null) {
                                 $context[] = 'action-record:'.get_class($actionRecord).':'.$actionRecord->getKey();
                             }
-                        } catch (\Throwable) {
+                        } catch (\Throwable $e) {
                             // A mounted action may not have resolved its row yet.
+                            $this->autosaveLookupFailed('the mounted action record', $e);
                         }
                     }
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // There is no active modal during the initial render.
+                $this->autosaveLookupFailed('the mounted action', $e);
             }
         }
 
@@ -863,8 +867,9 @@ trait HasAutosaveForForm
             if (method_exists($this, $method)) {
                 try {
                     $record = $this->{$method}();
-                } catch (\Throwable) {
+                } catch (\Throwable $e) {
                     // Standalone forms may not have an owner or record yet.
+                    $this->autosaveLookupFailed("{$method}()", $e);
                 }
             } elseif ($method === 'getOwnerRecord' && isset($this->ownerRecord)) {
                 $record = $this->ownerRecord;

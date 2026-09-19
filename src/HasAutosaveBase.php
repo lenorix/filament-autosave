@@ -1210,11 +1210,32 @@ trait HasAutosaveBase
     }
 
     /**
+     * A lookup that may legitimately fail while a component mounts or renders
+     * (no mounted action yet, no record yet). Not a failure, but a
+     * misconfigured host is undiagnosable without a trace of it.
+     */
+    protected function autosaveLookupFailed(string $what, \Throwable $e): void
+    {
+        Log::debug("Autosave could not resolve {$what}", [
+            'component' => static::class,
+            'exception' => $e::class,
+        ]);
+    }
+
+    /**
      * Surface a failed autosave operation without leaking field values.
      */
     protected function handleAutosaveFailure(\Throwable $e, string $context): void
     {
-        Log::warning("Autosave {$context} failed", ['exception' => $e::class]);
+        $record = $this->autosaveEventRecord();
+
+        // The message stays out on purpose: a database error quotes the
+        // statement, values included.
+        Log::warning("Autosave {$context} failed", [
+            'component' => static::class,
+            'record' => $record instanceof Model ? $record->getKey() : null,
+            'exception' => $e::class,
+        ]);
 
         $this->dispatchAutosaveStatus(AutosaveStatus::Error);
         Event::dispatch(new AutosaveFailed($this, $e, $context));
@@ -1455,8 +1476,9 @@ trait HasAutosaveBase
                 if (is_object($form) && method_exists($form, 'getRawState') && method_exists($form, 'fill')) {
                     return $form;
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // A component may have no mounted action during mount/render.
+                $this->autosaveLookupFailed('mounted action schema', $e);
             }
 
             // A table or relation manager's generic `form` schema can be a
@@ -1477,8 +1499,9 @@ trait HasAutosaveBase
                 if (is_object($form) && method_exists($form, 'getRawState') && method_exists($form, 'fill')) {
                     return $form;
                 }
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Some components only register action schemas lazily.
+                $this->autosaveLookupFailed('form schema', $e);
             }
         }
 

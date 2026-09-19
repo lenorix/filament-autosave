@@ -11,6 +11,10 @@
 - The rich merge no longer builds an O(n·m) table over a paragraph's words
   (a 2 000-word paragraph exhausted 512 MB); text and rich merges share one
   capped Myers diff. `isCanonical()` recognises a document parsed from HTML.
+- `clearAutosaveDraft()` checks `authorizeAccess()` like the other public
+  entry points; failed schema/record lookups while a component mounts are
+  logged at `debug` (component and exception class) and a failed cycle's
+  warning names the component and record key — never the exception message.
 - phpstan now analyses the trait bodies through analysis-only hosts; the
   findings (array value types, relation generics, a `void` transaction
   wrapper whose result was read) are fixed.
