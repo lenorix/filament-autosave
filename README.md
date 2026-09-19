@@ -477,9 +477,11 @@ survive Livewire requests, while the original values do not need to be kept in
 memory. Manual saves and Undo reset the baseline.
 
 `refresh_unchanged_fields` can refresh untouched model-backed fields after a
-successful autosave. Local dirty values remain in the form. This is a
-response-time refresh, not polling, and concurrent edits to the same column are
-still last-write-wins. Set `dirty_only` to `false` to send the complete eligible
+successful autosave, on Edit pages and on record-backed generic forms
+(`HasAutosaveForForm`); recordless drafts have nothing to refresh from. Local
+dirty values remain in the form, and relationship, upload, and excluded fields
+are never refreshed. This is a response-time refresh, not polling, and
+concurrent edits to the same column are still last-write-wins. Set `dirty_only` to `false` to send the complete eligible
 column payload instead. File operations remain limited to changed upload fields
 in either mode.
 

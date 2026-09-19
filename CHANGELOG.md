@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `refresh_unchanged_fields` now also applies to record-backed generic forms
+  (`HasAutosaveForForm`): after a successful save, clean model-backed columns
+  are re-read from the record and reported in the status event's `refreshed`
+  payload, so another editor's changes to untouched fields show up in the same
+  response. Dirty, relationship, upload, and excluded fields are never touched;
+  drafts are unaffected.
 - Add package events (`AutosaveSaved`, `AutosaveSkipped`, `AutosaveFailed`,
   `AutosaveUndone`, `AutosaveConflict`) dispatched as objects from every trait,
   so hosts can monitor autosave outcomes; failures previously only reached a
