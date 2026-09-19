@@ -5,10 +5,10 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/lenorix/filament-autosave/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/lenorix/filament-autosave/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg?style=flat-square)](LICENSE.md)
 
-Autosave for Filament forms. Every field is written to the database as soon
-as the user pauses, column by column, so a closed tab loses nothing and two
-people can edit different fields of the same record at once. Each save can be
-undone in one step.
+Autosave for Filament forms. Stop typing for a moment and what you changed is
+already in the database, column by column. Close the tab and nothing is lost.
+Two people can work on the same record without stepping on each other. And if
+a save was a mistake, one click undoes it.
 
 ```php
 class EditArticle extends EditRecord
@@ -19,19 +19,21 @@ class EditArticle extends EditRecord
 
 **What you get**
 
-- Dirty-only writes per column; untouched fields pick up other editors'
-  changes after your save and on a configurable poll.
-- One-step Undo that backs off, never overwrites, when the record changed elsewhere.
-- Drafts on Create pages, restorable or discardable.
-- Nested relationship repeaters at any depth, uploads, and Spatie Media
-  Library, with cleanup on failure and a recovery ledger.
+- Only the columns you touched are written. The fields you didn't touch pick
+  up other people's changes after each save and on a periodic poll.
+- One-step Undo that steps aside instead of overwriting when someone else
+  changed the record in the meantime.
+- Drafts on Create pages that the user can restore or throw away.
+- Relationship repeaters at any depth, file uploads and Spatie Media Library,
+  with cleanup when something fails and a ledger to recover from crashes.
 - Works on Edit and Create pages, relation managers, actions, modals, table
-  forms, and standalone Livewire components.
-- Stable `@api` surface, lifecycle events, 490+ tests including real-browser flows.
+  forms and plain Livewire components.
+- A stable `@api` surface, lifecycle events, and 580+ tests including real
+  browser flows.
 
 **Works with** Filament 4 and 5, Laravel 12 and 13, PHP 8.4 and 8.5,
-`filament/spatie-laravel-media-library-plugin`, and translatable Edit pages
-(`lara-zeus/spatie-translatable`); no Node build, no custom stylesheet.
+`filament/spatie-laravel-media-library-plugin` and translatable Edit pages
+(`lara-zeus/spatie-translatable`). No Node build and no stylesheet of its own.
 
 ## Contents
 
@@ -58,12 +60,13 @@ class EditArticle extends EditRecord
 - Filament 4 or 5
 - Livewire 3 with Filament 4, or Livewire 4 with Filament 5
 
-The test suite covers both PHP versions, both Filament versions, and both
+The test suite runs against every combination of those PHP, Filament and
 Laravel versions.
 
-Two Spatie integrations are optional and installed by the host application:
-`SpatieMediaLibraryFileUpload` through `filament/spatie-laravel-media-library-plugin`,
-and translatable Edit pages through `lara-zeus/spatie-translatable`.
+Two Spatie integrations are optional. If your app installs
+`filament/spatie-laravel-media-library-plugin`, `SpatieMediaLibraryFileUpload`
+fields are autosaved too; if it installs `lara-zeus/spatie-translatable`,
+translatable Edit pages work as expected.
 
 ## Installation
 
@@ -82,11 +85,10 @@ public function panel(Panel $panel): Panel
 }
 ```
 
-That is all a resource page needs. The status indicator is injected
-automatically; see [The indicator](#the-indicator) for how it is built.
+That's all a resource page needs. The status indicator is added for you; see
+[The indicator](#the-indicator) if you're curious how it's built.
 
-Publish configuration, translations, or views only when you need to customise
-them:
+Publish the config, translations or views only if you want to change them:
 
 ```bash
 php artisan vendor:publish --tag="filament-autosave-config"
@@ -112,12 +114,12 @@ class EditArticle extends EditRecord
 }
 ```
 
-The browser watches the form's state path automatically. After 1.5 seconds
-without changes, the page saves the eligible state and updates the indicator.
-After a successful save, users can undo it for a short time.
+The browser watches the form for you. After 1.5 seconds without changes it
+saves whatever is safe to save and updates the indicator. Right after a save
+the user gets a few seconds to undo it.
 
-The locked `autosaveDataPath` property contains the resolved state path when it
-is useful to integrate with custom frontend code.
+If you need to hook custom frontend code into this, the locked
+`autosaveDataPath` property holds the resolved state path.
 
 ### Create pages
 
@@ -135,11 +137,12 @@ class CreateArticle extends CreateRecord
 }
 ```
 
-Drafts can be restored or discarded when the user returns. They are removed
-after a successful create, including “Create and create another”, and remain
-available when validation fails.
+When the user comes back they can restore the draft or discard it. Drafts are
+removed after a successful create (also with "Create and create another") and
+survive a failed validation.
 
-The same trait works on custom pages that use the default `data` state path:
+The same trait works on a custom page that keeps its form in the default
+`data` property:
 
 ```php
 use Filament\Pages\Page;
@@ -159,12 +162,12 @@ class UserPreferences extends Page
 }
 ```
 
-Create and custom-page drafts do not create records, store permanent uploads,
-or attach Spatie media before the user explicitly submits the form.
+A draft is just a draft: it never creates a record, stores a permanent file or
+attaches Spatie media. That only happens when the user actually submits.
 
 ### Any other form
 
-Relation managers, action and modal forms, table forms, and standalone Livewire
+Relation managers, action and modal forms, table forms and standalone Livewire
 components use `HasAutosaveForForm`:
 
 ```php
@@ -183,8 +186,8 @@ class EditCommentAction extends RelationManager
 }
 ```
 
-Call `mountHasAutosaveForForm()` from `mount()` and include the indicator in the
-component view:
+Call `mountHasAutosaveForForm()` from `mount()` and drop the indicator into the
+component's view:
 
 ```blade
 @include('filament-autosave::autosave-indicator', [
@@ -193,19 +196,18 @@ component view:
 ])
 ```
 
-Without an existing record, the trait stores drafts. When the resolved schema is
-bound to an Eloquent record — an Edit action or modal, for example — it persists
-columns, invokes relationship callbacks, runs the standard save lifecycle, and
-offers one-step Undo for changed columns and supported relationships with
-optimistic conflict detection.
+What happens next depends on whether there is a record behind the form. Without
+one, the trait stores drafts. With one (an Edit action or modal, say) it writes
+columns, runs relationship callbacks and the normal save lifecycle, and offers
+the same one-step Undo as an Edit page, with the same conflict check.
 
-Use a context that identifies the owner, record, or action so unrelated forms
-never share a draft. Set `require_form_context` to `true` to turn a missing
-context into a `LogicException`; this is recommended for reusable relation
-manager, action, modal, and table-form components.
+Pick a context that names the owner, record or action, so two unrelated forms
+never share a draft. If you're writing a reusable relation manager, action,
+modal or table form, set `require_form_context` to `true`: a missing context
+then throws a `LogicException` instead of silently sharing drafts.
 
 Action and table forms often keep their state under `mountedActions.*.data`.
-Point the trait to the active schema and state path when necessary:
+When that's the case, point the trait at the right schema and path:
 
 ```php
 protected function resolveAutosaveForm(): ?object
@@ -219,33 +221,31 @@ protected function getAutosaveStatePath(): string
 }
 ```
 
-Override `persistAutosaveForm()` when the component has a custom action
-lifecycle or side effects beyond the form schema.
+If the component has its own action lifecycle or side effects beyond the
+schema, override `persistAutosaveForm()`.
 
 <details>
 <summary>Differences from Edit pages</summary>
 
-- Filament's `RecordUpdated`/`RecordSaved` events are Edit-page only: they
-  require a real `Filament\Resources\Pages\Page`, which a relation manager,
-  action, or other generic component is not, so `HasAutosaveForForm` does not
-  dispatch them at all. Use `afterAutosave()` or the package's own events for
-  work that needs to run after a generic form save.
-- Record-backed generic forms use the same upload lifecycle as Edit pages,
-  while recordless drafts never store permanent files or media. Generic Undo
-  snapshots cover model columns and supported relationship state; file, media,
-  and RichEditor attachment operations remain outside Undo unless a reversible
-  external adapter is registered, and host actions still own any additional
-  side effects.
-- With `dirty_only` enabled, each partial autosave of a recordless form is
-  merged into its existing draft so earlier field changes remain available.
-  Empty and `null` values are retained as explicit deletions.
+- Filament's `RecordUpdated` and `RecordSaved` events are only fired on real
+  `Filament\Resources\Pages\Page` instances. A relation manager or action isn't
+  one, so `HasAutosaveForForm` doesn't dispatch them. Use `afterAutosave()` or
+  the package's own events instead.
+- Record-backed generic forms get the same upload lifecycle as Edit pages;
+  recordless drafts never store permanent files or media. Undo on a generic
+  form covers model columns and supported relationships. Files, media and
+  RichEditor attachments stay outside Undo unless you register a reversible
+  external adapter, and any extra side effects of the host action are yours.
+- With `dirty_only` on, each partial autosave of a recordless form is merged
+  into the existing draft, so earlier changes are kept. Empty and `null`
+  values are stored as explicit deletions.
 
 </details>
 
 ## How autosave decides what to write
 
-Autosave works with Filament's dehydrated form state. Dehydration transforms are
-applied, while fields marked `dehydrated(false)` are left out.
+Autosave works from Filament's dehydrated form state: dehydration transforms
+are applied and fields marked `dehydrated(false)` are left out.
 
 ### What gets saved
 
@@ -259,39 +259,38 @@ applied, while fields marked `dehydrated(false)` are left out.
 | Top-level `SpatieMediaLibraryFileUpload` | Yes, changed collections only |
 | `FileUpload` or `SpatieMediaLibraryFileUpload` inside a relationship `Repeater` row | Yes, with the row's relationship write |
 | `SpatieMediaLibraryFileUpload` inside a JSON (non-relationship) repeater | Yes, when every row resolves its own collection; otherwise pending |
-| Relationships inside groups, repeaters, and builders | Yes, when the relationship changes |
+| Relationships inside groups, repeaters and builders | Yes, when the relationship changes |
 | Relationship `Repeater` nested inside another relationship `Repeater` (any depth) | Yes; each nested repeater saves its own rows, innermost first |
 | Other `dehydrated(false)` fields | No |
 
-Groups, sections, repeaters, and builders stored in one column are treated as a
-single value. The container is written only when all of its children pass the
-safety checks; if one child is invalid or incomplete, the existing column is
-left untouched. This also prevents a container containing a password field from
-being saved, while unrelated fields can continue to autosave.
+A group, section, repeater or builder that lives in one column is treated as a
+single value. It's written only when every child passes the safety checks; if
+one child is invalid or half-filled, the column is left as it was. This is also
+what stops a container with a password field inside from being saved, while
+the rest of the form keeps autosaving.
 
 ### Dirty-only writes
 
-With `dirty_only` enabled, Edit autosave tracks a hash for each top-level field
-and writes only fields that’ve changed since the last successful save. Hashes
-survive Livewire requests, while the original values do not need to be kept in
-memory. Manual saves and Undo reset the baseline.
+With `dirty_only` on, autosave keeps a hash per top-level field and writes only
+the fields that changed since the last successful save. The hashes travel with
+the Livewire state, so the original values don't have to be kept around. A
+manual save or an Undo resets the baseline.
 
-Set `dirty_only` to `false` to send the complete eligible column payload
-instead. File operations remain limited to changed upload fields in either
-mode. Nested groups and repeaters are compared as one value when they are
-stored in a single database column.
+Set `dirty_only` to `false` and every eligible column is sent each time. File
+operations are still limited to the upload fields that changed. Nested groups
+and repeaters stored in one column are compared as a single value.
 
 ### Validation and safety checks
 
-Autosave uses Filament's form state and validation pipeline, then applies the
-package's additional safety checks and any rules returned by
-`getAutosaveValidationRules()`:
+Autosave runs Filament's own validation, then a few extra checks of its own,
+plus whatever `getAutosaveValidationRules()` returns:
 
-- blank required values are skipped, so `NOT NULL` columns are not overwritten;
-- `Select`, `CheckboxList`, and `ToggleButtons` values must be allowed values,
-  including tenant- or team-specific options;
-- invalid fields are skipped, so valid unrelated fields can still be saved;
-- nested rules such as `items.*.qty` discard the affected top-level container.
+- A blank required value is skipped, so a `NOT NULL` column is never wiped.
+- A `Select`, `CheckboxList` or `ToggleButtons` value has to be one of the
+  allowed options, including tenant- or team-specific ones.
+- An invalid field is skipped on its own; the valid fields around it still
+  save.
+- A nested rule such as `items.*.qty` drops the whole top-level container.
 
 ```php
 protected function beforeAutosave(array $data): array
@@ -310,72 +309,72 @@ protected function afterAutosave(object $record): void
 }
 ```
 
-`beforeAutosave()` runs with the complete eligible state, so cross-field rules
-can inspect unchanged siblings. `mutateFormDataBeforeSave()` receives the
+`beforeAutosave()` sees the complete eligible state, so a cross-field rule can
+look at siblings that didn't change. `mutateFormDataBeforeSave()` gets the
 column and relationship state after pending Spatie media fields have been
-removed. `dirty_only` is applied immediately before the column write.
+removed. `dirty_only` is applied right before the column write.
 
-On Edit pages, a successful autosave runs Filament's save lifecycle, including
-`beforeValidate`, `afterValidate`, `beforeSave`, and `afterSave`, dispatches
-`RecordUpdated` and `RecordSaved`, and sends the standard saved notification.
-Use `afterAutosave()` for package-specific work that should run after each
+On an Edit page a successful autosave runs the full Filament save lifecycle
+(`beforeValidate`, `afterValidate`, `beforeSave`, `afterSave`), dispatches
+`RecordUpdated` and `RecordSaved`, and shows the usual saved notification.
+`afterAutosave()` is the place for work that should run only after an
 autosave.
 
 ### Sensitive data and authorization
 
-Autosave removes or skips:
+Autosave leaves out:
 
-- temporary uploads in Create/custom-page drafts;
-- password fields marked with `password()` or `type('password')`, at any depth;
+- temporary uploads in Create and custom-page drafts;
+- password fields (`password()` or `type('password')`), at any depth;
 - fields listed in `except`;
-- client keys that are not declared form fields, at any depth.
+- keys the browser sends that aren't declared form fields, at any depth.
 
-The `except` list matches top-level names. For nested secrets, use a password
-field or `dehydrated(false)`. Create drafts read raw form state before autosave
-validation and dehydration transforms, so explicitly exclude any secret that
-must never be cached.
+`except` matches top-level names. For a nested secret use a password field or
+`dehydrated(false)`. Create drafts read the raw form state before validation
+and dehydration transforms, so exclude explicitly anything that must never be
+cached.
 
-`autosave()`, `flushAutosave()`, `syncAutosave()`, `undoAutosave()`, and the
-draft actions call the component's `authorizeAccess()` when it exists, so the
-policies that guard an Edit page apply to autosave as well.
+`autosave()`, `flushAutosave()`, `syncAutosave()`, `undoAutosave()` and the
+draft actions all call the component's `authorizeAccess()` when it exists. The
+policies that guard an Edit page guard its autosave too.
 
 ## Keeping editors in sync
 
 Two people editing different fields of the same record never overwrite each
-other, because only changed columns are written. Concurrent edits to the same
-column are last-write-wins, unless the field is listed for
+other, because only changed columns are written. If they edit the same column,
+the last save wins, unless that field is listed for
 [merging](#merging-text-edits-from-other-editors).
 
 ### Refresh after your own save
 
-`refresh_unchanged_fields` refreshes untouched model-backed fields after a
-successful autosave, on Edit pages and on record-backed generic forms
-(`HasAutosaveForForm`); recordless drafts have nothing to refresh from. Local
-dirty values remain in the form, and relationship, upload, and excluded fields
-are never refreshed. This is a response-time refresh, not polling.
+With `refresh_unchanged_fields` on, every successful autosave also refreshes the
+fields you haven't touched from the record, on Edit pages and on record-backed
+generic forms (drafts have nothing to refresh from). Your dirty values stay
+put; relationship, upload and excluded fields are never refreshed. This
+happens in the save response, it isn't polling.
 
 ### Live updates by polling
 
-`refresh_unchanged_fields` only runs when *this* user saves. With
-`poll_interval` (default 5000 ms; `0` disables it) the browser also asks the
-server every few seconds, through `syncAutosave()`, whether another editor has
-written to the record, and pulls those changes into the fields this user is
-not touching. It is the closest thing to live collaboration without
-WebSockets, and the same field rules a future push transport will use.
+That refresh only runs when *you* save. `poll_interval` (default 5000 ms; `0`
+turns it off) makes the browser ask the server every few seconds, through
+`syncAutosave()`, whether someone else wrote to the record, and pulls those
+changes into the fields you aren't touching. It's the closest thing to live
+collaboration without WebSockets, and it uses the same field rules a push
+transport will use later.
 
-What a poll does:
+A poll:
 
-- refills clean, model-backed columns whose value changed on the record, using
+- refills clean, model-backed columns whose value changed on the record, with
   the same eligibility rule as the post-save refresh (never relationships,
-  uploads, excluded fields, or anything not in `attributesToArray()`);
-- lists fields that are dirty locally **and** changed remotely as `stale` in the
-  indicator, without touching the local value — the user keeps what they typed;
+  uploads, excluded fields or anything outside `attributesToArray()`);
+- marks as `stale` the fields that are dirty locally **and** changed remotely,
+  without touching what you typed;
 - reports both in the `autosave-status` Livewire event (`status: synced`,
   `refreshed`, `stale`) and in the `AutosaveSynced` package event;
-- stays silent when nothing changed, so an idle page never flickers.
+- stays quiet when nothing changed, so an idle page never flickers.
 
-What it never does: write to the database, touch Undo snapshots, or overwrite a
-field the user is editing.
+A poll never writes to the database, never touches Undo snapshots and never
+overwrites a field you're editing.
 
 ```php
 AutosavePlugin::make()->pollInterval(10_000);
@@ -387,30 +386,30 @@ protected function autosavePollInterval(): ?int
 }
 ```
 
-Polling applies to Edit pages and record-backed generic forms; drafts and
+Polling applies to Edit pages and record-backed generic forms. Drafts and
 Create pages have no record to sync from and expose `autosavePollMs = 0`.
 
 <details>
 <summary>Browser behaviour and cost</summary>
 
-The browser pauses polling while a save is pending or in flight, while the tab
-is hidden (and syncs immediately when it becomes visible again), and backs off
-exponentially after three consecutive failed polls, up to one minute.
+The browser pauses polling while a save is pending or in flight and while the
+tab is hidden (it syncs as soon as the tab comes back). After three failed
+polls in a row it backs off exponentially, up to one minute.
 
-An idle poll adds a single query that reads the record's own columns — one
-`updated_at` read when the model has timestamps — whatever the form looks
-like. Only when another editor did write does it dehydrate the form to refill
-fields, which costs about one query per relationship field, the same as the
-post-save refresh. `tests/Integration/AutosaveSyncQueryBudgetTest.php` pins
-those ceilings.
+An idle poll costs one query that reads the record's own columns, or just
+`updated_at` when the model has timestamps, no matter how big the form is.
+Only when someone else did write does it dehydrate the form to refill fields,
+which is about one query per relationship field, the same as the post-save
+refresh. `tests/Integration/AutosaveSyncQueryBudgetTest.php` pins those
+ceilings.
 
 </details>
 
 ### Merging text edits from other editors
 
-For plain-text fields two people may type in at once — a title, a summary, a
-Markdown body — list them as mergeable and their concurrent edits are combined
-word by word instead of the last save winning whole:
+Some plain-text fields are the kind two people end up typing in at once: a
+title, a summary, a Markdown body. List them as mergeable and concurrent edits
+are combined word by word, instead of the last save replacing the whole thing:
 
 ```php
 AutosavePlugin::make()->mergeFields(['title', 'body']);
@@ -422,51 +421,50 @@ protected function autosaveMergeFields(): ?array
 }
 ```
 
-Only top-level `TextInput`, `Textarea` and `MarkdownEditor` fields qualify;
-anything else listed is ignored with one warning in the log and stays
-last-write-wins. `RichEditor` is not merged.
+Only top-level `TextInput`, `Textarea` and `MarkdownEditor` fields qualify.
+Anything else you list is ignored with one warning in the log and stays
+last-write-wins. `RichEditor` isn't merged.
 
-How it works, without WebSockets and without the server keeping any state:
+Here's how it works, with no WebSockets and no state kept on the server:
 
-- The browser sends, with its autosave, a *patch* of its own change for each
-  dirty mergeable field (`diff(base, ours)` in diff-match-patch's text format,
-  or the base it started from) — `autosave(array $mergePatches)`. The server
-  plays the patch on the column's **current** value, so changes to different
-  parts of the text from both editors are kept; where both changed the same
-  words, the last save wins in that range only and the discarded text is
-  reported.
+- Along with the autosave, the browser sends a *patch* of its own change for
+  each dirty mergeable field (`diff(base, ours)` in diff-match-patch's text
+  format, or the base it started from): `autosave(array $mergePatches)`. The
+  server replays that patch on the column's **current** value. Changes to
+  different parts of the text from both sides are kept. Where both changed the
+  same words, the last save wins in that range only, and the discarded text is
+  reported back.
 - The merged column is written with a compare-and-swap on that column alone:
   `UPDATE … SET col = merged WHERE id = ? AND col = <the value it was merged
-  on>`. If another editor committed in between, the column is re-read, merged
-  again and retried after a short wait (5 ms doubling to 100 ms), up to
-  `merge_retries` times (default 10, 655 ms of waiting in total). Comparing the
-  column rather than a row version means a concurrent write to *another*
-  column never causes a retry, and no row lock is held while the user types.
-- A field still contended after every retry is not written and nothing is
-  lost: the user's text stays in the form and dirty, the field is reported as
-  pending with `reason: contended`, `AutosaveConflict` fires, one warning is
-  logged, and the payload carries the merge computed against the latest value
-  for the browser to adopt. The other columns of the same cycle are saved and
-  acknowledged normally.
+  on>`. If someone else committed in between, the column is read again, merged
+  again and retried after a short wait (5 ms, doubling up to 100 ms), up to
+  `merge_retries` times (10 by default, 655 ms of waiting in total). Comparing
+  the column instead of a row version means a concurrent write to *another*
+  column never causes a retry, and no row lock is held while people type.
+- If a field is still contended after every retry, it isn't written, and
+  nothing is lost: the text stays in the form and dirty, the field is
+  reported as pending with `reason: contended`, `AutosaveConflict` fires, one
+  warning is logged, and the payload carries the merge computed against the
+  latest value so the browser can adopt it. The other columns in the same
+  cycle are saved and acknowledged as usual.
 - A poll (`syncAutosave(array $mergeBaseHashes)`) that finds a dirty mergeable
   field changed remotely still reports it as `stale`, and adds the other
-  editor's current value in `patches` unless the browser already holds it
-  (it sends back the `hash` it last received).
+  editor's current value in `patches`, unless the browser already has it (it
+  sends back the `hash` it last received).
 
-The guarantee: **no other editor's change to a mergeable field is ever
-overwritten without being reported**, either merged in or listed in
-`conflicts`. Fields not listed keep the column-level last-write-wins rule.
-A save that arrives without a patch (an older browser session, or a field not
-listed) behaves exactly as before.
+The guarantee is simple: **no other editor's change to a mergeable field is
+ever overwritten without being reported**. It's either merged in or listed in
+`conflicts`. Fields you don't list keep the column-level last-write-wins rule,
+and a save that arrives without a patch (an older browser session, an unlisted
+field) behaves exactly as before.
 
-Undo after a merge restores the value the other editor had written (the one
-the merge was applied on), never a stale copy. A contended field is left out
-of the Undo snapshot, since it was not written.
+Undo after a merge restores the value the other editor had written, the one
+the merge was applied on, never a stale copy. A contended field is left out of
+the Undo snapshot, since it was never written.
 
-Cost: nothing on the server beyond the one conditional `UPDATE` per merged
-column (plus one column read per retry). Livewire already sends every form
-value with each request because it lives in `$data`; the patch is small and
-travels alongside it.
+The cost on the server is one conditional `UPDATE` per merged column, plus one
+column read per retry. Livewire already sends every form value with each
+request because it lives in `$data`; the patch is small and rides along.
 
 <details>
 <summary>Payload contract (version 1)</summary>
@@ -474,9 +472,9 @@ travels alongside it.
 The `autosave-status` event carries `v: 1` and, on `saved`/`validation`:
 
 - `merged`: `{path: value}` for mergeable fields whose merged value differs
-  from what the browser sent (stored, or — when contended — computed against
-  the latest value so the browser can adopt it);
-- `conflicts`: `{path: [{ours, theirs, position, reason}]}` where `reason` is
+  from what the browser sent (the stored value, or, when contended, the merge
+  computed against the latest value so the browser can adopt it);
+- `conflicts`: `{path: [{ours, theirs, position, reason}]}`, where `reason` is
   `overlap` (resolved last-write-wins in that range; `position` is the
   code-point offset in the merged value) or `contended` (left unwritten);
 - `patches`: `{path: {theirs, hash}}` for contended fields, the latest value
@@ -489,8 +487,8 @@ Parameters: `autosave(['title' => '<patch text>'])` or
 `autosave(['title' => ['base' => '…', 'ours' => '…']])`;
 `syncAutosave(['title' => '<xxh128 of the value the browser holds>'])`.
 `AutosaveSaved` gains `merged` and `conflicts`, `AutosaveSynced` gains
-`patches`, `AutosaveConflict` gains `conflicts`. Phase 2 (a browser that
-builds patches and applies `merged` without losing the cursor) is not shipped
+`patches`, `AutosaveConflict` gains `conflicts`. Phase 2, a browser that
+builds patches and applies `merged` without losing the cursor, isn't shipped
 yet; today's controller sends no patches, so listed fields stay
 last-write-wins until it does.
 
@@ -498,88 +496,89 @@ last-write-wins until it does.
 
 ## Undo
 
-Undo is available for five seconds after a successful Edit save. The snapshot
-itself is kept for 90 minutes by default; configure that period with
+For five seconds after a successful Edit save the user can undo it. The
+snapshot itself lives for 90 minutes by default; change that with
 `getUndoTtlMinutes()` or `undo_ttl`.
 
-Undo restores the previous values for:
+Undo restores the previous values of:
 
 - model columns, including `BelongsTo` and `MorphTo` keys;
 - `BelongsToMany` pivot data;
 - `HasOne` and `HasMany` child records;
-- supported `HasManyThrough` graphs, including rows that must be restored,
-  updated, or removed.
+- supported `HasManyThrough` graphs, including rows that have to be restored,
+  updated or removed.
 
-Before restoring anything, Undo checks that the current value still matches the
-value written by the autosave. If another user changed that same value, Undo is
-cancelled with a conflict status so their update is preserved. Changes to other
-columns do not block the one-step Undo.
+Before restoring anything, Undo checks that the current value is still the one
+the autosave wrote. If another user changed that same value in the meantime,
+Undo backs off with a conflict status so their change survives. Changes to
+other columns don't get in the way.
 
-Undo also runs the relevant Filament save hooks and events and sends the normal
-saved notification. It is limited to the current live page instance.
+Undo runs the relevant Filament save hooks and events and shows the normal
+saved notification. It's tied to the live page instance that made the save.
 
-File operations and RichEditor attachment operations keep Undo disabled by
-default because a database transaction cannot roll back filesystem or external
-storage changes. Register a reversible `AutosaveExternalUndoAdapter` in
-`external_undo_adapters` when the provider can snapshot, compare, and restore
-its state; the adapter implements `supports`, `snapshot`, `matches`, and
-`restore`. If any changed external field lacks an adapter, the whole Undo
-operation remains disabled for safety.
+File operations and RichEditor attachments keep Undo disabled by default,
+because a database transaction can't roll back the filesystem or an external
+store. If your provider can snapshot, compare and restore its state, register a
+reversible `AutosaveExternalUndoAdapter` in `external_undo_adapters` (it
+implements `supports`, `snapshot`, `matches` and `restore`). If any changed
+external field has no adapter, Undo stays off for the whole cycle rather than
+restoring half of it.
 
 <details>
 <summary>Limits</summary>
 
-Nested relationship snapshots are bounded by `relationship_undo_depth` (eight
-levels by default). If a pending graph exceeds that limit, Undo is disabled for
-the cycle instead of restoring only part of the graph.
+Nested relationship snapshots go as deep as `relationship_undo_depth` (eight
+levels by default). If a pending graph is deeper than that, Undo is disabled
+for that cycle instead of restoring only part of the graph.
 
 </details>
 
 ## Uploads and media
 
-Edit pages get upload support automatically through `HasAutosave`; they do not
-need to use `HasAutosaveUploads` directly.
+Edit pages get upload support through `HasAutosave`; there's no need to add
+`HasAutosaveUploads` yourself.
 
 ### `FileUpload`
 
-`FileUpload` supports new files, removal, and reordering. Upload validation runs
-before permanent storage, including file size and type rules. An invalid upload
-leaves its entire column untouched, while unrelated fields can still save.
+`FileUpload` handles new files, removals and reordering. Upload validation runs
+before anything is stored permanently, including size and type rules. An
+invalid upload leaves its whole column alone, while the rest of the form still
+saves.
 
-The following are skipped:
+Skipped:
 
 - `storeFiles(false)` uploads;
 - disabled or hidden upload fields;
 - excluded fields;
-- incomplete nested containers.
+- half-filled nested containers.
 
-Removing a normal `FileUpload` path updates the column, and physical deletion
-follows the component's configured behaviour.
+Removing a path from a normal `FileUpload` updates the column; whether the file
+is physically deleted follows the component's own configuration.
 
 ### Spatie Media Library
 
 `SpatieMediaLibraryFileUpload` uses its relationship callback for additions,
-removals, and ordering. Unchanged collections are not synchronised. Install
-Filament's Spatie plugin in the host application to use it; the plugin is only a
-development dependency of this package.
+removals and ordering. Collections that didn't change aren't touched. Install
+Filament's Spatie plugin in your app to use this; for this package it's only a
+development dependency.
 
-Upload fields inside a `Repeater` bound to a relationship are persisted
-together with that relationship, on Edit pages and record-backed generic forms.
-Media in an existing row is attached to the row's own record; media in a new
-row is attached once the relationship component has created the row. If any
-field in the repeater fails validation, the whole relationship write is skipped
-and no file is stored.
+Upload fields inside a `Repeater` bound to a relationship are saved together
+with that relationship, on Edit pages and record-backed generic forms. Media in
+an existing row is attached to that row's record; media in a new row is
+attached once the relationship component has created the row. If any field in
+the repeater fails validation, the whole relationship write is skipped and no
+file is stored.
 
 ### Media inside a JSON repeater
 
-A `Repeater` stored in a JSON column has no record per row: every
-`SpatieMediaLibraryFileUpload` inside it hangs off the parent record. When the
-rows share one collection, saving one row's component deletes every file the
-other rows own (Filament's `deleteAbandonedFiles()`), so the package keeps that
-case blocked: the repeater column is reported as `pending` in the status event
+A `Repeater` stored in a JSON column has no record per row, so every
+`SpatieMediaLibraryFileUpload` inside it hangs off the parent record. If the
+rows share one collection, saving one row's component would delete the files
+the other rows own (that's Filament's `deleteAbandonedFiles()`). So that case
+stays blocked: the repeater column shows up as `pending` in the status event
 and nothing is written until you save explicitly.
 
-Give each row its own collection and the rows are autosaved independently:
+Give each row its own collection and the rows autosave independently:
 
 ```php
 Repeater::make('settings')->schema([
@@ -591,30 +590,28 @@ Repeater::make('settings')->schema([
 ]),
 ```
 
-The rule is exact: the media field is autosaved when every row's component
-resolves a non-empty collection other than `default`, all of those collections
-are distinct, and none of them is also used by a top-level media field of the
-same record. Any other configuration is blocked and reported as pending. The
-`Hidden` uuid must be persisted in the row JSON so a reordered row keeps its
-collection and a new row gets a fresh one.
+The rule is exact: the media field is autosaved when every row resolves a
+non-empty collection other than `default`, all those collections are
+different, and none of them is also used by a top-level media field of the
+same record. Anything else is blocked and reported as pending. The `Hidden`
+uuid has to be stored in the row JSON, so a reordered row keeps its collection
+and a new row gets a fresh one.
 
-The host application remains responsible for cleaning up: deleting a row does
-not delete its collection, so remove the orphaned media yourself (for example
-in a model observer that compares the stored uuids with the record's
-collections).
+Cleanup is yours: deleting a row doesn't delete its collection. Remove the
+orphaned media yourself, for example in a model observer that compares the
+stored uuids with the record's collections.
 
-### Failure cleanup, ledger, and transactions
+### Failure cleanup, ledger and transactions
 
-Autosaves involving files keep Undo disabled by default. A registered external
-adapter can opt a provider into reversible Undo; without one, a later
-validation, hook, relationship, or database write failure still triggers
-cleanup of new paths and tracked media where the provider supports it.
-Additional side effects performed by a custom storage callback remain the
-application's responsibility.
+Autosaves that involve files keep Undo disabled by default. A registered
+external adapter can make a provider reversible; without one, a later
+validation, hook, relationship or database failure still cleans up the new
+paths and tracked media where the provider allows it. Side effects of a custom
+storage callback are the app's responsibility.
 
-Newly stored paths are also recorded in a short-lived cleanup ledger. Register
-the pruning command in the host scheduler so an interrupted PHP process cannot
-leave those paths indefinitely:
+Newly stored paths are also written to a short-lived cleanup ledger. Register
+the pruning command in your scheduler so a PHP process that dies mid-save
+can't leave those paths behind forever:
 
 ```php
 $schedule->command('filament-autosave:prune-uploads')->everyThirtyMinutes();
@@ -624,33 +621,32 @@ Every autosave write runs inside a database transaction: Filament's own when
 the panel has `databaseTransactions()` enabled, the package's own otherwise.
 
 <details>
-<summary>How staging, the ledger, and the transaction fit together</summary>
+<summary>How staging, the ledger and the transaction fit together</summary>
 
-The controller waits for active uploads to finish, and its request-end hash also
-detects server-side actions such as removing a row or reordering files.
-Livewire's temporary upload is used as the staging area until validation
-passes. Permanent paths are tracked until the owning database transaction has
-run its `afterCommit` callbacks, so a rollback can remove every path created by
-the cycle.
+The controller waits for in-flight uploads to finish, and its request-end hash
+also catches server-side actions such as removing a row or reordering files.
+Livewire's temporary upload is the staging area until validation passes.
+Permanent paths are tracked until the owning transaction has run its
+`afterCommit` callbacks, so a rollback can remove every path the cycle
+created.
 
-The ledger is a recovery net for storage providers; database and filesystem
-transactions still cannot commit as one distributed transaction. A Spatie
-Media Library file is journaled the moment its `media` row is created,
-through a `created` listener the package registers at boot: Spatie saves the
-row before copying the file, so the ledger entry exists before the file
-reaches disk and a process killed at any later point still leaves a trail for
-pruning. The only remaining gap is the row insert itself, which the
-surrounding transaction covers.
+The ledger is a safety net for storage providers; a database and a filesystem
+still can't commit as one distributed transaction. A Spatie Media Library file
+is journaled the moment its `media` row is created, through a `created`
+listener the package registers at boot. Spatie saves the row before copying
+the file, so the ledger entry exists before the file reaches disk, and a
+process killed at any later point still leaves a trail for pruning. The only
+gap left is the row insert itself, which the surrounding transaction covers.
 
 </details>
 
 ## Explicit saves with `flushAutosave()`
 
-`autosave()` is designed for the background loop: it reports failures through
-the indicator and never throws. Explicit actions — a "Generate slug" button, a
-"Publish" toggle, an "Apply template" modal — usually need the opposite: the
-same dirty-only write, refresh, and Undo behaviour, but with errors reaching
-the caller so the action can report them.
+`autosave()` is built for the background loop: it reports failures through the
+indicator and never throws. Explicit actions, a "Generate slug" button, a
+"Publish" toggle, an "Apply template" modal, usually want the opposite. The
+same dirty-only write, refresh and Undo, but with errors reaching the caller
+so the action can report them.
 
 ```php
 Action::make('generateSlug')
@@ -661,24 +657,24 @@ Action::make('generateSlug')
     });
 ```
 
-`flushAutosave()` runs one cycle synchronously and returns whether anything was
-written. Validation errors abort the cycle before any write and are thrown as a
-`ValidationException` keyed by state path (`data.title`), so Filament shows
-them inline. Exceptions thrown by `beforeAutosave()`, custom rules, hooks, or
-persistence propagate unchanged, and Filament's `Halt` propagates so the
-surrounding action can stop cleanly. It is available on every autosave trait.
+`flushAutosave()` runs one cycle synchronously and returns whether anything
+was written. Validation errors stop the cycle before any write and are thrown
+as a `ValidationException` keyed by state path (`data.title`), so Filament
+shows them inline. Exceptions from `beforeAutosave()`, custom rules, hooks or
+persistence propagate untouched, and so does Filament's `Halt`, so the
+surrounding action can stop cleanly. It's available on every autosave trait.
 
 ## Events
 
-Every trait dispatches plain Laravel events so the host can observe autosave
-without touching the indicator. They are dispatched as objects, so type-hinted
+Every trait dispatches plain Laravel events, so you can observe autosave
+without touching the indicator. They're dispatched as objects, so type-hinted
 listeners work. `record` is `null` for drafts and Create pages.
 
 | Event (`Lenorix\FilamentAutosave\Events\…`) | Payload | When |
 | --- | --- | --- |
 | `AutosaveSaved` | `page`, `record`, `data`, `pending`, `merged`, `conflicts` | A cycle wrote something |
 | `AutosaveSkipped` | `page`, `reason` (`validation` or `unchanged`), `pending`, `errors` | Nothing was written |
-| `AutosaveFailed` | `page`, `exception`, `context` (`save`, `sync`, `undo`, or `restore`) | An exception was swallowed |
+| `AutosaveFailed` | `page`, `exception`, `context` (`save`, `sync`, `undo` or `restore`) | An exception was swallowed |
 | `AutosaveUndone` | `page`, `record` | Undo restored the snapshot |
 | `AutosaveConflict` | `page`, `record`, `conflicts` | Undo backed off because the record changed elsewhere, or a mergeable field stayed contended |
 | `AutosaveSynced` | `page`, `record`, `refreshed`, `stale`, `patches` | A poll pulled another editor's changes |
@@ -691,19 +687,20 @@ Event::listen(AutosaveFailed::class, function (AutosaveFailed $event): void {
 
 ## Extension points and stability
 
-Only the members tagged `@api` in the traits are stable extension points; a
-test (`tests/Unit/ExtensionContractTest.php`) pins that list, so it changes
-only with a deliberate, documented decision. Everything else in the traits is
-internal and may be renamed or reshaped in a minor release, even when it is
-`protected`. Overriding an internal method works today but is not supported.
+Only the members tagged `@api` in the traits are stable extension points. A
+test (`tests/Unit/ExtensionContractTest.php`) pins that list, so it only
+changes on purpose and with a changelog entry. Everything else in the traits is
+internal and may be renamed or reshaped in a minor release, even when it's
+`protected`. Overriding an internal method works today, but it isn't
+supported.
 
 | Override (`protected`) | Purpose |
 | --- | --- |
-| `shouldAutosave()` | Enable or disable autosave for this component |
+| `shouldAutosave()` | Turn autosave on or off for this component |
 | `autosaveDebounce()` / `autosaveExcept()` | Per-page debounce and excluded fields |
 | `autosavePollInterval()` | Per-page poll interval for other editors' changes; `0` disables |
 | `autosaveMergeFields()` | Per-page plain-text fields merged word by word; `null` uses the plugin/config |
-| `beforeAutosave(array $data): array` | Inspect or mutate the eligible state before validation |
+| `beforeAutosave(array $data): array` | Inspect or change the eligible state before validation |
 | `getAutosaveValidationRules()` | Extra rules; failing fields are skipped |
 | `afterAutosave(object $record)` | Work after each successful Edit-page save |
 | `getUndoTtlMinutes()` | Undo snapshot lifetime |
@@ -722,12 +719,12 @@ internal and may be renamed or reshaped in a minor release, even when it is
 | `isAutosaveEnabled()` / `getAutosaveDebounce()` / `getAutosaveExcept()` | Resolved settings |
 
 The package's own events (`Lenorix\FilamentAutosave\Events\*`) are the
-supported way to observe the lifecycle without overriding anything.
+supported way to watch the lifecycle without overriding anything.
 
 ## Configuration
 
-Values are resolved in this order: config, plugin, then page. The last value
-wins, while `except` entries are merged across levels.
+Settings are resolved in this order: config, then plugin, then page. The last
+one wins, except `except`, whose entries are merged across all three.
 
 | Option | Config | Plugin | Page |
 | --- | :---: | :---: | :---: |
@@ -773,8 +770,8 @@ AutosavePlugin::make()
     ->indicatorPosition('after');
 ```
 
-Page settings are methods; do not redeclare properties supplied by either
-trait, because conflicting trait properties cause a PHP fatal error.
+On a page, settings are methods. Don't redeclare properties that a trait
+already supplies: conflicting trait properties are a PHP fatal error.
 
 ```php
 protected function autosaveDebounce(): ?int
@@ -793,8 +790,7 @@ protected function shouldAutosave(): bool
 }
 ```
 
-`shouldAutosave()` is evaluated server-side and cannot be changed from the
-browser.
+`shouldAutosave()` is evaluated on the server; the browser can't change it.
 
 ## Translations
 
@@ -802,11 +798,11 @@ browser.
 php artisan vendor:publish --tag="filament-autosave-translations"
 ```
 
-English and Spanish ship with the package; a test keeps every shipped locale in
-key parity with English. Labels include `unsaved`, `saving`, `saved`,
-`saved_at`, `undo`, `undone`, `conflict`, `error`, `draft_available`,
-`restore`, `discard`, `restored`, `synced`, and `stale`. Validation messages use
-the `validation` key and the indicator lists their `pending` field paths.
+English and Spanish ship with the package, and a test keeps every shipped
+locale in key parity with English. The labels are `unsaved`, `saving`,
+`saved`, `saved_at`, `undo`, `undone`, `conflict`, `error`, `draft_available`,
+`restore`, `discard`, `restored`, `synced` and `stale`. Validation messages use
+the `validation` key, and the indicator lists the `pending` field paths.
 
 ## The indicator
 
@@ -815,17 +811,17 @@ link, callout), so it follows the panel's light and dark themes and typography
 with no stylesheet or Tailwind build of its own.
 
 - **Position**: `before` or `after` the page header (`position` /
-  `indicatorPosition()`); when a page has no usable header, it is rendered at
-  the end of the page.
+  `indicatorPosition()`). On a page without a usable header it goes at the
+  end of the page.
 - **Timestamp**: `show_saved_at` / `showTimestamp()` toggles the "Stored at"
   time on the saved badge.
 - **Pending fields**: after a save that skipped something, the indicator lists
-  the skipped field paths — validation failures, blank required values, invalid
-  uploads, or incomplete containers.
-- **Stale fields**: after a poll, fields that are dirty locally and changed
-  remotely are listed without touching the local value.
-- **Undo**: shown for the Undo window whenever `autosaveCanUndo` is true, on
-  Edit pages and record-backed generic forms alike.
+  the skipped field paths: validation failures, blank required values, invalid
+  uploads or half-filled containers.
+- **Stale fields**: after a poll, the fields that are dirty locally and changed
+  remotely are listed, without touching the local value.
+- **Undo**: shown during the Undo window whenever `autosaveCanUndo` is true,
+  on Edit pages and record-backed generic forms alike.
 
 Generic components include it themselves with
 `@include('filament-autosave::autosave-indicator', ['mode' => 'form'])`; see
@@ -843,7 +839,7 @@ CI runs the suite on PHP 8.4 and 8.5, Filament `^4.0` and `^5.0`, and Laravel
 12 and 13 (Testbench `^10.0` and `^11.0`), plus one prefer-lowest job.
 
 `tests/Browser` drives the real panel in Chromium through Pest's browser
-plugin and is excluded from `composer test`. It needs Node only for the
+plugin and is left out of `composer test`. It needs Node only for the
 Playwright browser driver (`npm ci && npx playwright install chromium`), then:
 
 ```bash
