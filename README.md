@@ -5,10 +5,13 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/lenorix/filament-autosave/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/lenorix/filament-autosave/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg?style=flat-square)](LICENSE.md)
 
-Filament Autosave saves each field after the user pauses, column by column.
-Changes survive closed tabs and expired sessions, while different users can
-edit separate fields without overwriting one another. One-step Undo detects
-and preserves changes made by someone else.
+A closed tab, an expired session, a colleague saving over your work: on a
+long Filament form, the Save button is where changes go to die. Filament
+Autosave writes each field to the database as soon as the user pauses, so
+nothing is lost, and it does so column by column, so two people can edit
+different parts of the same record without overwriting each other. Every
+autosave can be undone in one step, and Undo refuses to clobber a change
+someone else made in the meantime.
 
 - **Dirty-only writes, field by field.** Autosave writes only changed fields.
   Clean fields keep other editors' updates after each save or configurable poll.
