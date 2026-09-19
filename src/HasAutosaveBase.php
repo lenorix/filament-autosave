@@ -360,7 +360,18 @@ trait HasAutosaveBase
 
     protected function performAutosave(callable $persist): void
     {
-        if (! $this->isAutosaveEnabled() || $this->isAutosaving) {
+        // The browser is waiting for a status: answer a page that turned
+        // autosave off with idle rather than leaving it at "saving". A
+        // re-entrant call stays silent — the running cycle answers.
+        if (! $this->isAutosaveEnabled()) {
+            if (! $this->isAutosaving && ! $this->autosaveCycleActive) {
+                $this->dispatchAutosaveIdle();
+            }
+
+            return;
+        }
+
+        if ($this->isAutosaving) {
             return;
         }
 
@@ -1040,7 +1051,7 @@ trait HasAutosaveBase
     {
         Log::warning("Autosave {$context} failed", ['exception' => $e::class]);
 
-        $this->dispatch(AutosaveStatus::EVENT, status: AutosaveStatus::Error->value);
+        $this->dispatchAutosaveStatus(AutosaveStatus::Error);
         Event::dispatch(new AutosaveFailed($this, $e, $context));
     }
 
