@@ -110,4 +110,18 @@
             </template>
         </div>
     </template>
+
+    <template x-if="status === statuses.synced">
+        <div class="flex flex-col gap-1" data-autosave-synced>
+            <x-filament::badge color="info" icon="heroicon-m-arrow-path">
+                {{ __('filament-autosave::autosave.synced') }}
+            </x-filament::badge>
+            <template x-if="staleFields.length">
+                <p class="text-xs text-gray-600 dark:text-gray-400" data-autosave-stale>
+                    {{ __('filament-autosave::autosave.stale') }}
+                    <span x-text="staleFields.join(', ')"></span>
+                </p>
+            </template>
+        </div>
+    </template>
 </div>

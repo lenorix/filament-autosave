@@ -17,6 +17,11 @@ return [
     // from the database while preserving local edits. Requires dirty_only.
     'refresh_unchanged_fields' => true,
 
+    // Milliseconds between polls that pull other editors' changes into the
+    // fields this user is not editing. 0 disables polling. Requires
+    // refresh_unchanged_fields; the poll never overwrites a dirty field.
+    'poll_interval' => 5000,
+
     // Generic forms may require an explicit owner/record/action context to
     // prevent two instances of the same component sharing a draft.
     'require_form_context' => false,

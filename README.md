@@ -215,9 +215,10 @@ Every trait dispatches plain Laravel events so the host can observe autosave
 without touching the indicator: `Lenorix\FilamentAutosave\Events\AutosaveSaved`
 (`page`, `record`, `data`, `pending`), `AutosaveSkipped` (`reason` is
 `validation` or `unchanged`, plus `pending` and `errors`), `AutosaveFailed`
-(`exception`, `context` of `save`, `undo` or `restore`), `AutosaveUndone` and
-`AutosaveConflict` (`page`, `record`). `record` is `null` for drafts and Create
-pages. They are dispatched as objects, so type-hinted listeners work:
+(`exception`, `context` of `save`, `sync`, `undo` or `restore`), `AutosaveUndone`
+and `AutosaveConflict` (`page`, `record`), and `AutosaveSynced` (`page`,
+`record`, `refreshed`, `stale`) when a poll pulled another editor's changes.
+`record` is `null` for drafts and Create pages. They are dispatched as objects, so type-hinted listeners work:
 
 ```php
 Event::listen(AutosaveFailed::class, function (AutosaveFailed $event): void {
@@ -237,6 +238,7 @@ internal and may be renamed or reshaped in a minor release, even when it is
 | --- | --- |
 | `shouldAutosave()` | Enable or disable autosave for this component |
 | `autosaveDebounce()` / `autosaveExcept()` | Per-page debounce and excluded fields |
+| `autosavePollInterval()` | Per-page poll interval for other editors' changes; `0` disables |
 | `beforeAutosave(array $data): array` | Inspect or mutate the eligible state before validation |
 | `getAutosaveValidationRules()` | Extra rules; failing fields are skipped |
 | `afterAutosave(object $record)` | Work after each successful Edit-page save |
@@ -250,6 +252,8 @@ internal and may be renamed or reshaped in a minor release, even when it is
 | `autosave()` | Background save; never throws |
 | `flushAutosave(): bool` | Synchronous save that throws |
 | `undoAutosave()` | Restore the last autosave |
+| `syncAutosave()` | Pull other editors' changes into untouched fields (what the poll calls) |
+| `getAutosavePollInterval()` | Resolved poll interval |
 | `restoreDraft()` / `discardDraft()` / `clearAutosaveDraft()` | Draft lifecycle |
 | `isAutosaveEnabled()` / `getAutosaveDebounce()` / `getAutosaveExcept()` | Resolved settings |
 
@@ -441,6 +445,7 @@ wins, while `except` entries are merged across levels.
 | `undo_ttl` (minutes) | Yes | Yes | No |
 | `dirty_only` | Yes | No | No |
 | `refresh_unchanged_fields` | Yes | No | No |
+| `poll_interval` (milliseconds, 0 = off) | Yes | Yes | Yes |
 | `require_form_context` | Yes | No | No |
 | `relationship_undo_depth` | Yes | No | No |
 | `external_undo_adapters` | Yes | No | No |
@@ -518,6 +523,53 @@ in either mode.
 
 Nested groups and repeaters are compared as one value when they are stored in a
 single database column.
+
+### Live updates by polling
+
+`refresh_unchanged_fields` only runs when *this* user saves. With
+`poll_interval` (default 5000 ms; `0` disables it) the browser also asks the
+server every few seconds, through `syncAutosave()`, whether another editor has
+written to the record, and pulls those changes into the fields this user is
+not touching. It is the closest thing to live collaboration without
+WebSockets, and the same field rules a future push transport will use.
+
+What a poll does:
+
+- refills clean, model-backed columns whose value changed on the record, using
+  the same eligibility rule as the post-save refresh (never relationships,
+  uploads, excluded fields, or anything not in `attributesToArray()`);
+- lists fields that are dirty locally **and** changed remotely as `stale` in the
+  indicator, without touching the local value — the user keeps what they typed;
+- reports both in the `autosave-status` Livewire event (`status: synced`,
+  `refreshed`, `stale`) and in the `AutosaveSynced` package event;
+- stays silent when nothing changed, so an idle page never flickers.
+
+What it never does: write to the database, touch Undo snapshots, or overwrite a
+field the user is editing.
+
+The browser pauses polling while a save is pending or in flight, while the tab
+is hidden (and syncs immediately when it becomes visible again), and backs off
+exponentially after three consecutive failed polls, up to one minute.
+
+Cost: an idle poll adds a single query that reads the record's own columns —
+one `updated_at` read when the model has timestamps — whatever the form looks
+like. Only when another editor did write does it dehydrate the form to refill
+fields, which costs about one query per relationship field, the same as the
+post-save refresh. `tests/Integration/AutosaveSyncQueryBudgetTest.php` pins
+those ceilings.
+
+```php
+AutosavePlugin::make()->pollInterval(10_000);
+
+// or per page / component
+protected function autosavePollInterval(): ?int
+{
+    return 0; // this form never polls
+}
+```
+
+Polling applies to Edit pages and record-backed generic forms; drafts and
+Create pages have no record to sync from and expose `autosavePollMs = 0`.
 
 ## Sensitive data
 

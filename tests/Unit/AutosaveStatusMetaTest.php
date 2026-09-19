@@ -38,6 +38,7 @@ test('transient statuses fade back to idle after a readable delay', function () 
         AutosaveStatus::Saved->value => 5000,
         AutosaveStatus::Restored->value => 3000,
         AutosaveStatus::Undone->value => 3000,
+        AutosaveStatus::Synced->value => 5000,
     ]);
 });
 
@@ -54,6 +55,7 @@ test('statusMeta bundles everything the Alpine controller needs from PHP', funct
         'validation' => AutosaveStatus::Validation->value,
         'restored' => AutosaveStatus::Restored->value,
         'undone' => AutosaveStatus::Undone->value,
+        'synced' => AutosaveStatus::Synced->value,
         'settled' => AutosaveStatus::settledStatuses(),
         'saveResults' => AutosaveStatus::saveResultStatuses(),
         'fadeMs' => AutosaveStatus::fadeMsByStatus(),
