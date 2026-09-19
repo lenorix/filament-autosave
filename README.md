@@ -35,24 +35,6 @@ class EditArticle extends EditRecord
 `filament/spatie-laravel-media-library-plugin` and translatable Edit pages
 (`lara-zeus/spatie-translatable`). No Node build and no stylesheet of its own.
 
-## Contents
-
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Quick start](#quick-start)
-- [How autosave decides what to write](#how-autosave-decides-what-to-write)
-- [Keeping editors in sync](#keeping-editors-in-sync)
-- [Undo](#undo)
-- [Uploads and media](#uploads-and-media)
-- [Explicit saves with `flushAutosave()`](#explicit-saves-with-flushautosave)
-- [Events](#events)
-- [Extension points and stability](#extension-points-and-stability)
-- [Configuration](#configuration)
-- [Translations](#translations)
-- [The indicator](#the-indicator)
-- [Testing](#testing)
-- [License](#license)
-
 ## Requirements
 
 - PHP 8.4 or 8.5
