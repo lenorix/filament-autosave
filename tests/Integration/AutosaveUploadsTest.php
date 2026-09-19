@@ -606,3 +606,27 @@ test('a failure after spatie media is written removes the file and forgets its l
     expect($post->fresh()->getMedia())->toHaveCount(0);
     expect(Cache::get('filament-autosave:upload-ledger'))->toBeNull();
 });
+
+test('an untouched FileUpload does not disable undo for a column-only edit page autosave', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+
+    Livewire::test(EditUploadPost::class, ['record' => $post->getKey()])
+        ->set('data.title', 'Changed')
+        ->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', true)
+        ->call('undoAutosave');
+
+    expect($post->fresh()->title)->toBe('Original');
+});
+
+test('a changed FileUpload still withholds undo even when a column changes alongside it', function () {
+    $post = UploadPost::create(['title' => 'Original']);
+
+    Livewire::test(EditUploadPost::class, ['record' => $post->getKey()])
+        ->set('data.title', 'Changed')
+        ->set('data.settings', [UploadedFile::fake()->create('document.txt', 1)])
+        ->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved')
+        ->assertSet('autosaveCanUndo', false);
+});
