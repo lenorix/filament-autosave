@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Refactor: one-step Undo storage and its optimistic conflict checks now live in
+  a single `AutosaveUndo` engine shared by Edit pages and generic forms, and
+  both use the same per-field hash. **Upgrade note:** generic forms
+  (`HasAutosaveForForm`) previously hashed with sha256/serialize; the first
+  request after deploying re-baselines their field hashes, and any generic-form
+  Undo target cached before the deploy is no longer restorable (Edit-page
+  targets are unaffected). No other behaviour change.
 - Restructure the README into a guided walkthrough with a table of contents;
   no facts removed, internal details folded into collapsible blocks.
 - The indicator is now built only from Filament components: skipped and stale

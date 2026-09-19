@@ -7,7 +7,6 @@ use Filament\Forms\Components\RichEditor;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Locked;
 
 trait HasAutosave
@@ -88,11 +87,6 @@ trait HasAutosave
         if (($record = $this->autosaveSyncRecord()) !== null) {
             $this->rememberAutosaveSyncedAttributes($record);
         }
-    }
-
-    protected function autosaveDirtyOnly(): bool
-    {
-        return (bool) config('filament-autosave.dirty_only', true);
     }
 
     /** @param array<string, mixed> $data */
@@ -276,18 +270,6 @@ trait HasAutosave
     protected function hasPendingAutosavePersistence(): bool
     {
         return $this->hasPendingAutosaveUploadsPersistence() || $this->autosavePendingRelationships !== [];
-    }
-
-    /** @return array<string, string> */
-    protected function hashAutosaveFields(array $data): array
-    {
-        return array_map($this->hashAutosaveValue(...), $data);
-    }
-
-    /** Hash one value the same way autosave field hashes are built. */
-    protected function hashAutosaveValue(mixed $value): string
-    {
-        return $this->autosaveStore()->snapshotHash(['value' => $value]);
     }
 
     /** Only acknowledge fields the persistence callback actually wrote. */
@@ -882,9 +864,9 @@ trait HasAutosave
             $this->authorizeAutosaveAccess();
 
             // The locked flag prevents undo from an older page load.
-            $snapshot = $this->autosaveUndoCached($this->getUndoCacheKey());
-            $relationshipSnapshot = $this->autosaveUndoCached($this->getUndoRelationshipCacheKey());
-            $externalSnapshot = $this->autosaveUndoCached($this->getUndoExternalCacheKey());
+            $snapshot = $this->autosaveUndoCached(AutosaveUndo::VALUES);
+            $relationshipSnapshot = $this->autosaveUndoCached(AutosaveUndo::RELATIONSHIPS);
+            $externalSnapshot = $this->autosaveUndoCached(AutosaveUndo::EXTERNAL);
 
             if ((! is_array($snapshot) || empty($snapshot))
                 && (! is_array($relationshipSnapshot) || empty($relationshipSnapshot))
@@ -895,9 +877,9 @@ trait HasAutosave
                 return;
             }
 
-            $expected = $this->autosaveUndoCached($this->getUndoExpectedCacheKey());
-            $expectedRelationships = $this->autosaveUndoCached($this->getUndoExpectedRelationshipCacheKey());
-            $expectedExternal = $this->autosaveUndoCached($this->getUndoExpectedExternalCacheKey());
+            $expected = $this->autosaveUndoCached(AutosaveUndo::EXPECTED);
+            $expectedRelationships = $this->autosaveUndoCached(AutosaveUndo::EXPECTED_RELATIONSHIPS);
+            $expectedExternal = $this->autosaveUndoCached(AutosaveUndo::EXPECTED_EXTERNAL);
 
             if ($this->undoHasConflict($expected, $expectedRelationships)
                 || ! $this->autosaveExternalUndoMatches(
@@ -986,9 +968,7 @@ trait HasAutosave
             return false;
         }
 
-        $this->putUndoSnapshot($this->getUndoCacheKey(), $previous);
-
-        return true;
+        return $this->autosaveUndo()->put(AutosaveUndo::VALUES, $previous);
     }
 
     /** Store the values written by this autosave for optimistic Undo checks. */
@@ -1000,7 +980,7 @@ trait HasAutosave
             return;
         }
 
-        $this->putUndoSnapshot($this->getUndoExpectedCacheKey(), $this->normalizeUndoSnapshot($record->only($fieldKeys)));
+        $this->autosaveUndo()->put(AutosaveUndo::EXPECTED, $this->normalizeUndoSnapshot($record->only($fieldKeys)));
     }
 
     /** @param array<string, mixed> $expected */
@@ -1012,7 +992,7 @@ trait HasAutosave
             return true;
         }
 
-        return $this->normalizeUndoSnapshot($record->only(array_keys($expected))) === $expected;
+        return AutosaveUndo::columnsMatch($expected, $this->normalizeUndoSnapshot($record->only(array_keys($expected))));
     }
 
     /**
@@ -1024,8 +1004,8 @@ trait HasAutosave
      */
     protected function undoHasConflict(?array $expected, ?array $expectedRelationships): bool
     {
-        return (is_array($expected) && ! $this->undoMatchesExpectedState($expected))
-            || (is_array($expectedRelationships) && ! $this->undoMatchesExpectedRelationships($expectedRelationships));
+        return ! ($expected === null || $this->undoMatchesExpectedState($expected))
+            || ! ($expectedRelationships === null || $this->undoMatchesExpectedRelationships($expectedRelationships));
     }
 
     /** @param array<string, array<object>> $relationships */
@@ -1035,15 +1015,16 @@ trait HasAutosave
             return;
         }
 
-        $this->putUndoSnapshot($this->getUndoExpectedRelationshipCacheKey(), $this->captureAutosaveRelationshipUndo($relationships));
+        $this->autosaveUndo()->put(AutosaveUndo::EXPECTED_RELATIONSHIPS, $this->captureAutosaveRelationshipUndo($relationships));
     }
 
     /** @param array<string, array<string, mixed>> $expected */
     protected function undoMatchesExpectedRelationships(array $expected): bool
     {
-        $captured = $this->captureAutosaveRelationshipUndo($this->autosaveRelationshipFields());
-
-        return array_intersect_key($captured, $expected) === $expected;
+        return AutosaveUndo::relationshipsMatch(
+            $expected,
+            $this->captureAutosaveRelationshipUndo($this->autosaveRelationshipFields()),
+        );
     }
 
     /**
@@ -1090,42 +1071,24 @@ trait HasAutosave
     /** @param  array<string, array<string, mixed>>  $snapshot */
     protected function storeUndoRelationshipSnapshot(array $snapshot): bool
     {
-        if ($snapshot === []) {
-            return false;
-        }
-
-        $this->putUndoSnapshot($this->getUndoRelationshipCacheKey(), $snapshot);
-
-        return true;
+        return $this->autosaveUndo()->put(AutosaveUndo::RELATIONSHIPS, $snapshot);
     }
 
     /** @param array<string, array<string, mixed>> $snapshot */
     protected function storeUndoExternalSnapshot(array $snapshot): bool
     {
-        if ($snapshot === []) {
-            return false;
-        }
-
-        $this->putUndoSnapshot($this->getUndoExternalCacheKey(), $snapshot);
-
-        return true;
+        return $this->autosaveUndo()->put(AutosaveUndo::EXTERNAL, $snapshot);
     }
 
     /** @param array<string, object> $fields */
     protected function storeUndoExpectedExternalSnapshot(array $fields): void
     {
-        $snapshot = $this->autosaveExternalUndoManager()->snapshot($fields);
-
-        if ($snapshot !== []) {
-            $this->putUndoSnapshot($this->getUndoExpectedExternalCacheKey(), $snapshot);
-        }
+        $this->autosaveUndo()->put(AutosaveUndo::EXPECTED_EXTERNAL, $this->autosaveExternalUndoManager()->snapshot($fields));
     }
 
     protected function clearUndoSnapshots(): void
     {
-        foreach ($this->getUndoCacheKeys() as $key) {
-            Cache::forget($key);
-        }
+        $this->autosaveUndo()->clear();
     }
 
     /** Wipe the Undo target; the underlying state can no longer be restored. */
@@ -1142,63 +1105,16 @@ trait HasAutosave
             .($suffix ? ":{$suffix}" : '');
     }
 
-    /** Every key in this page's Undo snapshot cluster. */
-    protected function getUndoCacheKeys(): array
-    {
-        return [
-            $this->getUndoCacheKey(),
-            $this->getUndoCacheKey('relationships'),
-            $this->getUndoCacheKey('expected'),
-            $this->getUndoCacheKey('expected-relationships'),
-            $this->getUndoCacheKey('external'),
-            $this->getUndoCacheKey('expected-external'),
-        ];
-    }
-
-    protected function getUndoRelationshipCacheKey(): string
-    {
-        return $this->getUndoCacheKey('relationships');
-    }
-
-    protected function getUndoExpectedCacheKey(): string
-    {
-        return $this->getUndoCacheKey('expected');
-    }
-
-    protected function getUndoExpectedRelationshipCacheKey(): string
-    {
-        return $this->getUndoCacheKey('expected-relationships');
-    }
-
-    protected function getUndoExternalCacheKey(): string
-    {
-        return $this->getUndoCacheKey('external');
-    }
-
-    protected function getUndoExpectedExternalCacheKey(): string
-    {
-        return $this->getUndoCacheKey('expected-external');
-    }
-
     /** Read an undo snapshot only when this page load still owns the feature. */
-    protected function autosaveUndoCached(string $key): ?array
+    protected function autosaveUndoCached(string $part): ?array
     {
-        return $this->autosaveCanUndo ? Cache::get($key) : null;
+        return $this->autosaveCanUndo ? $this->autosaveUndo()->get($part) : null;
     }
 
-    /**
-     * How long an Undo snapshot stays available.
-     *
-     * @api
-     */
-    protected function getUndoTtlMinutes(): int
+    /** The Undo target for this page, record and live instance. */
+    protected function autosaveUndo(): AutosaveUndo
     {
-        return AutosavePlugin::resolve()->getUndoCacheTtl();
-    }
-
-    protected function putUndoSnapshot(string $key, array $value): void
-    {
-        Cache::put($key, $value, now()->addMinutes($this->getUndoTtlMinutes()));
+        return new AutosaveUndo($this->getUndoCacheKey(), $this->getUndoTtlMinutes(), bareValuesKey: true);
     }
 
     /**

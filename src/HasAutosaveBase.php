@@ -1674,9 +1674,52 @@ trait HasAutosaveBase
      */
     protected function refillAutosaveFieldsFromRecord(object $record, array $paths): void {}
 
+    /**
+     * Per-field hashes, the same for Edit pages and generic forms so a snapshot
+     * written by one reads back correctly in the other.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, string>
+     */
+    protected function hashAutosaveFields(array $data): array
+    {
+        $hashes = [];
+
+        foreach ($data as $key => $value) {
+            $hashes[(string) $key] = $this->hashAutosaveValue($value);
+        }
+
+        return $hashes;
+    }
+
+    /** Hash one value the same way autosave field hashes are built. */
+    protected function hashAutosaveValue(mixed $value): string
+    {
+        return $this->autosaveStore()->snapshotHash(['value' => $value]);
+    }
+
+    /**
+     * Single source of truth for `dirty_only`; every trait reads it here so the
+     * fallback cannot drift between Edit pages and generic forms.
+     */
+    protected function autosaveDirtyOnly(): bool
+    {
+        return (bool) config('filament-autosave.dirty_only', true);
+    }
+
+    /**
+     * How long an Undo snapshot stays available.
+     *
+     * @api
+     */
+    protected function getUndoTtlMinutes(): int
+    {
+        return AutosavePlugin::resolve()->getUndoCacheTtl();
+    }
+
     protected function autosaveRefreshEnabled(): bool
     {
-        return (bool) config('filament-autosave.dirty_only', true)
+        return $this->autosaveDirtyOnly()
             && (bool) config('filament-autosave.refresh_unchanged_fields', true);
     }
 

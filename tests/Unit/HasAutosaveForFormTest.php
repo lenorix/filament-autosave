@@ -445,7 +445,7 @@ test('generic form saves acknowledge changed relationship state', function () {
     (fn () => $this->persistAutosaveFormRecord($this->record, ['tags' => [2]]))->call($component);
 
     expect($component->form->relationshipSaves)->toBe(1)
-        ->and($component->autosaveFieldHashes['tags'])->toBe(hash('sha256', serialize([2])));
+        ->and($component->autosaveFieldHashes['tags'])->toBe((fn (): string => $this->hashAutosaveValue([2]))->call($component));
 });
 
 test('generic undo re-establishes field hashes for the restored values', function () {
@@ -502,7 +502,7 @@ test('generic undo re-establishes field hashes for the restored values', functio
     $component->undoAutosave();
 
     expect($component->form->getRawState())->toBe(['title' => 'Old'])
-        ->and($component->autosaveFieldHashes['title'])->toBe(hash('sha256', serialize('Old')));
+        ->and($component->autosaveFieldHashes['title'])->toBe((fn (): string => $this->hashAutosaveValue('Old'))->call($component));
 });
 
 test('generic forms resolve mounted action and modal schemas', function () {

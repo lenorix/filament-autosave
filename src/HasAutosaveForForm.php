@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Locked;
 
 /**
@@ -65,7 +64,7 @@ trait HasAutosaveForForm
         $this->autosaveHasDraft = $this->autosaveDraftAvailable();
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->autosaveObservedHash = $this->autosaveSnapshotHash;
-        $this->autosaveFieldHashes = $this->hashAutosaveFormFields($this->prepareAutosavePayload($this->getAutosaveData()));
+        $this->autosaveFieldHashes = $this->hashAutosaveFields($this->prepareAutosavePayload($this->getAutosaveData()));
         $this->resetAutosaveUploadHashes();
 
         $record = $this->getAutosaveFormRecord();
@@ -269,7 +268,7 @@ trait HasAutosaveForForm
             // A dirty-only request can be a no-op after an earlier draft was
             // written. Keep that draft available for restore instead of
             // deleting it merely because this request has no new fields.
-            if (! (bool) config('filament-autosave.dirty_only', false)
+            if (! $this->autosaveDirtyOnly()
                 || $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey()) === null) {
                 $this->clearAutosaveDraft();
             }
@@ -283,7 +282,7 @@ trait HasAutosaveForForm
 
         $draft = $payload;
 
-        if ((bool) config('filament-autosave.dirty_only', false)) {
+        if ($this->autosaveDirtyOnly()) {
             $draft = array_replace(
                 $this->autosaveStore()->restoreDraft($this->getAutosaveCacheKey()) ?? [],
                 $payload,
@@ -297,7 +296,7 @@ trait HasAutosaveForForm
         );
 
         $this->autosaveHasDraft = true;
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFormFields($payload));
+        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($payload));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
 
         return true;
@@ -361,7 +360,7 @@ trait HasAutosaveForForm
         // A relationship callback may have persisted state that is not a
         // model column. Acknowledge every top-level value supplied to the
         // form, otherwise the same relation is considered dirty forever.
-        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFormFields($data));
+        $this->autosaveFieldHashes = array_replace($this->autosaveFieldHashes, $this->hashAutosaveFields($data));
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->queueAutosaveSavedNotification();
 
@@ -410,12 +409,12 @@ trait HasAutosaveForForm
 
     protected function autosaveFieldIsClean(string $path, mixed $value): bool
     {
-        return ($this->autosaveFieldHashes[$path] ?? null) === $this->hashAutosaveFormValue($value);
+        return ($this->autosaveFieldHashes[$path] ?? null) === $this->hashAutosaveValue($value);
     }
 
     protected function acknowledgeAutosaveRefreshedField(string $path, mixed $value): void
     {
-        $this->autosaveFieldHashes[$path] = $this->hashAutosaveFormValue($value);
+        $this->autosaveFieldHashes[$path] = $this->hashAutosaveValue($value);
     }
 
     /** Generic components have no refreshFormData(); fill the schema partially. */
@@ -517,27 +516,28 @@ trait HasAutosaveForForm
                 return;
             }
 
-            $snapshot = $this->autosaveFormUndo('values');
-            $relationshipSnapshot = $this->autosaveFormUndo('relationships');
-            $externalSnapshot = $this->autosaveFormUndo('external');
-            $expected = $this->autosaveFormUndo('expected');
-            $expectedRelationships = $this->autosaveFormUndo('expected-relationships');
-            $expectedExternal = $this->autosaveFormUndo('expected-external');
+            // Empty parts are not stored, so a missing part reads as "nothing".
+            $snapshot = $this->autosaveFormUndo(AutosaveUndo::VALUES) ?? [];
+            $relationshipSnapshot = $this->autosaveFormUndo(AutosaveUndo::RELATIONSHIPS) ?? [];
+            $externalSnapshot = $this->autosaveFormUndo(AutosaveUndo::EXTERNAL) ?? [];
+            $expected = $this->autosaveFormUndo(AutosaveUndo::EXPECTED) ?? [];
+            $expectedRelationships = $this->autosaveFormUndo(AutosaveUndo::EXPECTED_RELATIONSHIPS);
+            $expectedExternal = $this->autosaveFormUndo(AutosaveUndo::EXPECTED_EXTERNAL);
             $record = $this->getAutosaveFormRecord();
 
-            if ($record === null
-                || (($snapshot === null || $snapshot === [])
-                    && ($relationshipSnapshot === null || $relationshipSnapshot === [])
-                    && ($externalSnapshot === null || $externalSnapshot === []))
-                || $expected === null) {
+            if ($record === null || ! $this->autosaveUndo()->hasSnapshot()) {
                 $this->autosaveCanUndo = false;
                 $this->dispatchAutosaveIdle();
 
                 return;
             }
 
-            if ((method_exists($record, 'only') && AutosaveStore::normalizeScalars($record->only(array_keys($expected))) !== $expected)
-                || ($expectedRelationships !== null && $this->autosaveFormRelationshipHasConflict($expectedRelationships))) {
+            $currentColumns = method_exists($record, 'only')
+                ? AutosaveStore::normalizeScalars($record->only(array_keys($expected)))
+                : $expected;
+
+            if (! AutosaveUndo::columnsMatch($expected, $currentColumns)
+                || $this->autosaveFormRelationshipHasConflict($expectedRelationships)) {
                 $this->resetAutosaveFormUndo();
                 $this->dispatchAutosaveConflict();
 
@@ -580,7 +580,7 @@ trait HasAutosaveForForm
 
             $record->refresh();
             $this->fillAutosaveFormFromRecord($record, $snapshot);
-            $this->rehashAutosaveFormFields();
+            $this->rehashAutosaveFields();
             $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
             $this->resetAutosaveFormUndo();
 
@@ -598,42 +598,40 @@ trait HasAutosaveForForm
         }
     }
 
-    protected function getAutosaveFormUndoKey(string $part): string
+    /** The Undo target for this form's context, record and live instance. */
+    protected function autosaveUndo(): AutosaveUndo
     {
         $record = $this->getAutosaveFormRecord();
-        $recordKey = $record?->getKey() ?? 'default';
 
-        return $this->autosaveStore()->undoCacheKey(
-            static::class.':'.$this->getAutosaveFormContext(),
-            $recordKey,
-            $this->autosaveUndoInstanceId(),
-        ).':'.$part;
+        return new AutosaveUndo(
+            $this->autosaveStore()->undoCacheKey(
+                static::class.':'.$this->getAutosaveFormContext(),
+                $record?->getKey() ?? 'default',
+                $this->autosaveUndoInstanceId(),
+            ),
+            $this->getUndoTtlMinutes(),
+        );
+    }
+
+    protected function getAutosaveFormUndoKey(string $part): string
+    {
+        return $this->autosaveUndo()->key($part);
     }
 
     protected function putAutosaveFormUndo(string $part, array $value): void
     {
-        Cache::put($this->getAutosaveFormUndoKey($part), $value, now()->addMinutes(AutosavePlugin::resolve()->getUndoCacheTtl()));
+        $this->autosaveUndo()->put($part, $value);
     }
 
     /** @return array<string, mixed>|null */
     protected function autosaveFormUndo(string $part): ?array
     {
-        $value = Cache::get($this->getAutosaveFormUndoKey($part));
-
-        return is_array($value) ? $value : null;
+        return $this->autosaveUndo()->get($part);
     }
 
     protected function clearAutosaveFormUndo(): void
     {
-        foreach ($this->autosaveFormUndoParts() as $part) {
-            Cache::forget($this->getAutosaveFormUndoKey($part));
-        }
-    }
-
-    /** The six snapshot parts that make up a generic Undo target. */
-    protected function autosaveFormUndoParts(): array
-    {
-        return ['values', 'relationships', 'expected', 'expected-relationships', 'external', 'expected-external'];
+        $this->autosaveUndo()->clear();
     }
 
     /** Wipe the generic Undo target; the underlying state can no longer be restored. */
@@ -705,18 +703,13 @@ trait HasAutosaveForForm
         return $fieldsByPath;
     }
 
-    /** @param array<string, array<string, mixed>> $expected */
-    protected function autosaveFormRelationshipHasConflict(array $expected): bool
+    /** @param array<string, array<string, mixed>>|null $expected */
+    protected function autosaveFormRelationshipHasConflict(?array $expected): bool
     {
-        $current = $this->captureAutosaveRelationshipUndoFields($this->autosaveFormRelationshipFields());
-
-        foreach ($expected as $path => $state) {
-            if (($current[$path] ?? null) !== $state) {
-                return true;
-            }
-        }
-
-        return false;
+        return ! AutosaveUndo::relationshipsMatch(
+            $expected,
+            $this->captureAutosaveRelationshipUndoFields($this->autosaveFormRelationshipFields()),
+        );
     }
 
     protected function fillAutosaveFormFromRecord(Model $record, array $fallback): void
@@ -735,13 +728,13 @@ trait HasAutosaveForForm
     /** Rebuild the acknowledged field hashes after a draft has been filled in. */
     protected function autosaveDraftRestored(): void
     {
-        $this->rehashAutosaveFormFields();
+        $this->rehashAutosaveFields();
     }
 
     /** Rebuild the field hashes so local edits are compared against disk state. */
-    protected function rehashAutosaveFormFields(): void
+    protected function rehashAutosaveFields(): void
     {
-        $this->autosaveFieldHashes = $this->hashAutosaveFormFields(
+        $this->autosaveFieldHashes = $this->hashAutosaveFields(
             $this->prepareAutosavePayload($this->getAutosaveData()),
         );
     }
@@ -831,14 +824,14 @@ trait HasAutosaveForForm
     /** @param array<string, mixed> $data */
     protected function filterAutosaveFormPayload(array $data): array
     {
-        if (! (bool) config('filament-autosave.dirty_only', false) || $this->autosaveFieldHashes === []) {
+        if (! $this->autosaveDirtyOnly() || $this->autosaveFieldHashes === []) {
             return $data;
         }
 
         return array_filter(
             $data,
             fn (mixed $value, string|int $key): bool => ($this->autosaveFieldHashes[(string) $key] ?? null)
-                !== $this->hashAutosaveFormValue($value),
+                !== $this->hashAutosaveValue($value),
             ARRAY_FILTER_USE_BOTH,
         );
     }
@@ -866,27 +859,10 @@ trait HasAutosaveForForm
         return $payload;
     }
 
-    /** @param array<string, mixed> $data @return array<string, string> */
-    protected function hashAutosaveFormFields(array $data): array
-    {
-        $hashes = [];
-
-        foreach ($data as $key => $value) {
-            $hashes[(string) $key] = $this->hashAutosaveFormValue($value);
-        }
-
-        return $hashes;
-    }
-
-    protected function hashAutosaveFormValue(mixed $value): string
-    {
-        return hash('sha256', serialize($value));
-    }
-
     /** @param array<string, mixed> $data */
     protected function shouldSaveAutosaveFormRelationships(array $data): bool
     {
-        if (! (bool) config('filament-autosave.dirty_only', false)) {
+        if (! $this->autosaveDirtyOnly()) {
             return true;
         }
 
