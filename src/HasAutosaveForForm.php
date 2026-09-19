@@ -373,11 +373,7 @@ trait HasAutosaveForForm
             $this->markAutosavePendingFields($this->autosaveContendedPaths());
         }
 
-        if (($form = $this->resolveAutosaveForm()) !== null
-            && method_exists($form, 'saveRelationships')
-            && ($this->shouldSaveAutosaveFormRelationships($data) || $uploads !== [])) {
-            $form->saveRelationships();
-        }
+        $this->saveAutosaveFormRelationships($data, $uploads);
 
         $this->callAutosaveHook('afterSave');
         $this->dispatchAutosaveRecordEvents($record, $columns);
@@ -962,32 +958,84 @@ trait HasAutosaveForForm
         return $payload;
     }
 
-    /** @param array<string, mixed> $data */
-    protected function shouldSaveAutosaveFormRelationships(array $data): bool
+    /**
+     * Persist the relationship components this cycle touched — those whose
+     * top-level field is in the dirty payload, plus the owners of pending
+     * uploads — each the way `Schema::saveRelationships()` would (before
+     * children, its child schemas, then itself). Never the whole schema: an
+     * untouched repeater would be rewritten from this tab's stale copy over
+     * what another editor saved since, and Undo, which snapshots only
+     * touched relationships, could not bring it back.
+     *
+     * Without dirty-only every field is in the payload, so the whole schema
+     * is saved as before.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, object>  $uploads
+     */
+    protected function saveAutosaveFormRelationships(array $data, array $uploads): void
     {
+        $form = $this->resolveAutosaveForm();
+
+        if ($form === null || ! method_exists($form, 'saveRelationships')) {
+            return;
+        }
+
         if (! $this->autosaveDirtyOnly()) {
-            return true;
+            $form->saveRelationships();
+
+            return;
         }
 
-        $fields = $this->getAutosaveFields();
+        $touched = array_flip(array_map(AutosaveFieldTree::topLevelKey(...), [...array_keys($data), ...array_keys($uploads)]));
 
-        if ($fields === []) {
-            return true;
+        if ($touched !== []) {
+            $this->saveAutosaveTouchedRelationships($form, $touched);
+        }
+    }
+
+    /**
+     * Walk a schema like `Schema::saveRelationships()`, descending through
+     * layout components and saving only the fields whose top-level state key
+     * was touched — with their whole subtree, so a row's nested upload or
+     * repeater is persisted with its parent.
+     *
+     * @param  array<string, true>  $touched
+     */
+    protected function saveAutosaveTouchedRelationships(object $schema, array $touched): void
+    {
+        if (! method_exists($schema, 'getComponents')) {
+            return;
         }
 
-        foreach ($fields as $path => $fieldSet) {
-            foreach ($fieldSet as $field) {
-                $relationship = method_exists($field, 'getRelationship')
-                    ? $field->getRelationship()
-                    : null;
+        foreach ($schema->getComponents(withActions: false, withHidden: true) as $component) {
+            $path = $this->autosaveRelativeFieldPath($component);
 
-                if ($relationship !== null && array_key_exists(AutosaveFieldTree::topLevelKey($path), $data)) {
-                    return true;
+            if ($path === null || $path === '') {
+                foreach ($component->getChildSchemas(withHidden: true) as $child) {
+                    $this->saveAutosaveTouchedRelationships($child, $touched);
                 }
-            }
-        }
 
-        return false;
+                continue;
+            }
+
+            if (! isset($touched[AutosaveFieldTree::topLevelKey($path)])) {
+                continue;
+            }
+
+            $component->saveRelationshipsBeforeChildren();
+            $whenDisabled = $component->shouldSaveRelationshipsWhenDisabled();
+
+            foreach ($component->getChildSchemas(withHidden: $component->shouldSaveRelationshipsWhenHidden()) as $child) {
+                if (! $whenDisabled && $child->isDisabled()) {
+                    continue;
+                }
+
+                $child->saveRelationships();
+            }
+
+            $component->saveRelationships();
+        }
     }
 
     protected function getAutosaveCacheKey(): string
