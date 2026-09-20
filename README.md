@@ -28,7 +28,7 @@ class EditArticle extends EditRecord
   with cleanup when something fails and a ledger to recover from crashes.
 - Works on Edit and Create pages, relation managers, actions, modals, table
   forms, and plain Livewire components.
-- A stable `@api` surface, lifecycle events, and 740+ tests including real
+- A stable `@api` surface, lifecycle events, and 770+ tests including real
   browser flows.
 
 **Works with** Filament 4 and 5, Laravel 12 and 13, PHP 8.4 and 8.5,
