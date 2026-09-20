@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Clarified compatibility skip messages for supported Filament versions and
+  covered the bounded fallback used by large timestamp-free relations.
+
 - Run upload and Relation Manager browser tests by default, with test-only
   multipart decoding and isolated Livewire hook registration. Browser CI now
   fails on skipped tests.

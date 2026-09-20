@@ -106,7 +106,7 @@ test('autosave respects Filament field validation limits', function () {
 
         protected function getAutosaveFields(): array
         {
-            // Bare components have no container; Filament 4.0.x reads it
+            // Bare components have no container; older Filament releases read it
             // eagerly in isDisabled()/isHidden().
             $schema = Schema::make();
 
@@ -229,7 +229,7 @@ test('edit autosave runs the standard lifecycle hooks and events', function () {
     // for real pages only (see AutosaveRecordEventsTest for the real objects).
     Event::assertNotDispatched(RecordUpdated::class);
     Event::assertNotDispatched(RecordSaved::class);
-})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament resource events are unavailable in this installed version');
 
 test('edit save mutation runs inside the page transaction', function () {
     $page = new class extends AutosaveEditFormComponent

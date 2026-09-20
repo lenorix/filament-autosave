@@ -161,6 +161,20 @@ test('timestamp-free relation fingerprints cap hydrated rows', function () {
         ->and(collect($noteQueries)->contains(static fn (string $sql): bool => str_contains(strtolower($sql), 'limit 2')))->toBeTrue();
 });
 
+test('the large timestamp-free fallback still detects relation cardinality changes', function () {
+    config(['filament-autosave.poll_relationships' => true, 'filament-autosave.poll_relationship_max_rows' => 1]);
+    $post = PollPost::create(['title' => 'Post']);
+    PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'First']);
+    PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'Second']);
+    $page = Livewire::test(PollRelationsRecordForm::class, ['record' => $post]);
+
+    $page->call('syncAutosave');
+    PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'Third']);
+    $page->call('syncAutosave');
+
+    expect($page->get('data.notes'))->toHaveCount(3);
+});
+
 test('a poll that refills a changed relation reads that relation, not the others', function () {
     config(['filament-autosave.poll_relationships' => true]);
     $migration = require __DIR__.'/../../vendor/spatie/laravel-medialibrary/database/migrations/create_media_table.php.stub';

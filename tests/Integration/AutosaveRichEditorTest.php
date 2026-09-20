@@ -13,10 +13,10 @@ beforeEach(function () {
     $migration->up();
 });
 
-/** Filament 4.0.x typed RichEditor's dehydration hook as `?array`, rejecting HTML string state. */
+/** Some older Filament 4 releases typed RichEditor's dehydration hook as `?array`, rejecting HTML string state. */
 function filamentRichEditorRejectsHtmlState(): bool
 {
-    // Filament 4.0.x typed the dehydration hook's state as `?array`, so an
+    // Older Filament 4 releases typed the dehydration hook's state as `?array`, so an
     // HTML-string editor crashes inside Filament itself. Read the signature
     // rather than a version number.
     $method = new ReflectionMethod(RichEditor::class, 'setUp');
@@ -54,7 +54,7 @@ test('a plain rich editor without attachments autosaves its content as a column'
 
     $page->call('undoAutosave');
     expect($post->fresh()->body)->toContain('old');
-})->skip(fn (): bool => filamentRichEditorRejectsHtmlState(), 'Filament\'s RichEditor rejects HTML string state on this version (4.0.x)');
+})->skip(fn (): bool => filamentRichEditorRejectsHtmlState(), 'This Filament version rejects HTML string state in RichEditor');
 
 test('a rich editor with an attachment provider keeps its content while cleaning attachments', function () {
     $post = RichUploadPost::create(['title' => 'Post', 'body' => ['type' => 'doc', 'content' => []]]);

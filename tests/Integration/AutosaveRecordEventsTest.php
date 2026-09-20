@@ -27,7 +27,7 @@ test('a real listener typed against RecordUpdated receives the actual event obje
     expect($received)->toBeInstanceOf(RecordUpdated::class)
         ->and($received->getRecord()->is($post->fresh()))->toBeTrue()
         ->and($received->getData())->toHaveKey('title', 'Changed');
-})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament resource events are unavailable in this installed version');
 
 test('a real listener typed against RecordSaved receives the actual event object', function () {
     $post = Post::create(['title' => 'Original']);
@@ -43,7 +43,7 @@ test('a real listener typed against RecordSaved receives the actual event object
 
     expect($received)->toBeInstanceOf(RecordSaved::class)
         ->and($received->getPage())->toBeInstanceOf(EditPost::class);
-})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament resource events are unavailable in this installed version');
 
 test('a typed RecordUpdated listener does not crash a generic record form autosave', function () {
     Event::listen(RecordUpdated::class, function (RecordUpdated $event) {
@@ -57,7 +57,7 @@ test('a typed RecordUpdated listener does not crash a generic record form autosa
         ->call('autosave')->assertDispatched('autosave-status', status: 'saved');
 
     expect($post->fresh()->title)->toBe('Changed');
-})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament resource events are unavailable in this installed version');
 
 test('a generic form hosted on a resource page dispatches real RecordUpdated and RecordSaved objects', function () {
     $post = Post::create(['title' => 'Original']);
@@ -79,7 +79,7 @@ test('a generic form hosted on a resource page dispatches real RecordUpdated and
         ->and($received['updated']->getData())->toHaveKey('title', 'Changed')
         ->and($received['saved'] ?? null)->toBeInstanceOf(RecordSaved::class)
         ->and($received['saved']->getPage())->toBeInstanceOf(EditPostSettingsPage::class);
-})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament resource events are unavailable in this installed version');
 
 test('a relation manager action autosave dispatches no Filament record events and swallows no exception', function () {
     $post = Post::create(['title' => 'Post']);
@@ -113,4 +113,4 @@ test('a relation manager action autosave dispatches no Filament record events an
     expect($comment->fresh()->body)->toBe('Changed')
         ->and($dispatched)->toBe(0)
         ->and($failed)->toBe(0);
-})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament resource events are unavailable in this installed version');

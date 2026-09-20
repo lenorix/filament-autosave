@@ -17,7 +17,7 @@ beforeEach(function () {
 });
 
 /**
- * Filament 4.0.x's Select::getOptionLabels() iterates a null state without
+ * Some older Filament 4 releases' Select::getOptionLabels() iterated a null state without
  * wrapping it (fixed upstream), so a multiple Select whose key is absent from
  * the state crashes inside Filament, not in the package. Probe the behaviour
  * instead of a version number.
@@ -25,7 +25,7 @@ beforeEach(function () {
 function filamentSelectRejectsNullMultipleState(): bool
 {
     // Read Filament's own guard rather than a version number: releases after
-    // 4.0.x wrap the state (`$state ?? []`) before iterating it.
+    // newer releases wrap the state (`$state ?? []`) before iterating it.
     $method = new ReflectionMethod(Select::class, 'getOptionLabels');
     $lines = array_slice(file($method->getFileName()), $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1);
     $source = implode('', $lines);
@@ -223,7 +223,7 @@ test('create autosave still saves drafts whose option fields are empty', functio
     $draft = Cache::get(AutosaveManager::cacheKey(AutosaveMultiOptionCreateFormComponent::class));
 
     expect($draft)->toBe(['title' => 'Hello']);
-})->skip(fn (): bool => filamentSelectRejectsNullMultipleState(), 'Filament\'s Select cannot label a null multiple state on this version (4.0.x)');
+})->skip(fn (): bool => filamentSelectRejectsNullMultipleState(), 'This Filament version cannot label a null multiple Select state');
 
 test('create autosave skips an option array that holds an invalid entry', function () {
     $component = new AutosaveMultiOptionCreateFormComponent;
@@ -240,4 +240,4 @@ test('create autosave skips an option array that holds an invalid entry', functi
 
     expect($draft)->toHaveKey('title', 'Hello');
     expect($draft)->not->toHaveKey('tags');
-})->skip(fn (): bool => filamentSelectRejectsNullMultipleState(), 'Filament\'s Select cannot label a null multiple state on this version (4.0.x)');
+})->skip(fn (): bool => filamentSelectRejectsNullMultipleState(), 'This Filament version cannot label a null multiple Select state');

@@ -711,4 +711,4 @@ test('record events are dispatched only as real objects, so a host that is not a
     expect($page->autosaveCanUndo)->toBeTrue();
     Event::assertNotDispatched(RecordUpdated::class);
     Event::assertNotDispatched(RecordSaved::class);
-})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament\\Resources\\Events does not exist on this Filament version (4.0.x)');
+})->skip(fn (): bool => ! class_exists(RecordUpdated::class), 'Filament resource events are unavailable in this installed version');
