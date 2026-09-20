@@ -27,8 +27,8 @@ return [
     // Refresh untouched relationship, upload and media fields during polling.
     // Dirty fields changed remotely are reported as stale instead. Timestamped
     // relations share one detector query; timestamp-free relations read and
-    // hash their rows on each poll. Nested repeaters refresh with their parent:
-    // deep child edits still need $touches to update the parent's timestamp.
+    // hash their rows on each poll. Nested relationship components are tracked
+    // independently up to poll_relationship_depth.
     // Set false to poll model columns only.
     'poll_relationships' => true,
 

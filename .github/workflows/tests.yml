@@ -46,7 +46,7 @@ jobs:
         run: vendor/bin/pint --test
 
       - name: Run static analysis
-        run: vendor/bin/phpstan analyse --no-progress --debug
+        run: vendor/bin/phpstan analyse --no-progress --debug --memory-limit=1G
 
   # One Filament cell only: pestphp/pest-plugin-browser requires Livewire ^4.3,
   # which Filament 4 (Livewire 3) cannot satisfy. Filament 4 is covered by the

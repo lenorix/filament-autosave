@@ -7,6 +7,9 @@
   fails on skipped tests.
 - Detect remote changes to locally edited relations without timestamps using
   persisted row and pivot fingerprints; preserve local state and report stale.
+- Poll rendered nested relationships independently up to a configurable depth,
+  bound timestamp-free fingerprint reads by row count, and align CI PHPStan
+  memory with the Composer script.
 
 - Raised the minimum supported Filament 4 release to 4.13 (previously any
   `^4.0`). The `filament::callout` component the indicator relies on for

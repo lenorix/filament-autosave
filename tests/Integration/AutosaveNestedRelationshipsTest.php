@@ -142,6 +142,26 @@ test('autosave and undo restore a deeply nested relationship graph', function ()
     expect($subitem->fresh()->label)->toBe('Original');
 });
 
+test('edit pages poll a changed nested relationship without parent timestamps', function () {
+    config(['filament-autosave.poll_relationships' => true, 'filament-autosave.poll_relationship_depth' => 3]);
+    $post = Post::create(['title' => 'Post']);
+    $item = PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item', 'position' => 1]);
+    $subitem = PostSubItem::create(['post_item_id' => $item->getKey(), 'label' => 'Original']);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $page->call('syncAutosave');
+    $subitem->update(['label' => 'Edited elsewhere']);
+    $page->call('syncAutosave');
+
+    $items = $page->get('data.items');
+    $itemKey = array_key_first($items);
+    $subitems = $items[$itemKey]['subitems'];
+    $subKey = array_key_first($subitems);
+
+    expect($subitems[$subKey]['label'])->toBe('Edited elsewhere')
+        ->and($page->get('autosaveCanUndo'))->toBeFalse();
+});
+
 test('autosave processes belongsTo fields in every repeated row', function () {
     $firstCategory = Category::create(['name' => 'First']);
     $secondCategory = Category::create(['name' => 'Second']);

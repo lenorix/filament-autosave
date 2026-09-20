@@ -844,7 +844,9 @@ trait HasAutosaveForForm
             $path = method_exists($field, 'getStatePath')
                 ? (string) ($field->getStatePath() ?? '')
                 : (string) $index;
-            $states[$path !== '' ? $path : (string) $index] = $field->getRawState();
+            $states[$path !== '' ? $path : (string) $index] = method_exists($field, 'getRawState')
+                ? $field->getRawState()
+                : null;
         }
 
         return $this->hashAutosaveValue($states);

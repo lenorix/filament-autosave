@@ -2032,8 +2032,8 @@ trait HasAutosaveBase
      * selects and checkbox lists bound to a real relation (`relation`), and
      * Spatie media fields, which hang off the record's `media()` relation
      * (`media`). Not a RichEditor nor a BelongsTo select (both are columns),
-     * not excluded, not nested in a repeater row (those refresh with their
-     * parent).
+     * and not excluded. Nested relationship fields use their concrete row path
+     * and refresh independently up to the configured depth.
      *
      * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>, refresh: string}>
      */
@@ -2164,12 +2164,29 @@ trait HasAutosaveBase
                     continue;
                 }
 
-                $rows = $rows->map(function (Model $row): string {
-                    $state = $row->getAttributes();
+                $rowHashes = [];
+
+                foreach ($rows as $row) {
+                    if (! is_object($row) || ! method_exists($row, 'getAttributes') || ! method_exists($row, 'getRelations')) {
+                        continue;
+                    }
+
+                    $state = call_user_func([$row, 'getAttributes']);
+
+                    if (! is_array($state)) {
+                        continue;
+                    }
+
                     ksort($state);
 
                     $pivots = [];
-                    foreach ($row->getRelations() as $name => $related) {
+                    $relations = call_user_func([$row, 'getRelations']);
+
+                    if (! is_array($relations)) {
+                        continue;
+                    }
+
+                    foreach ($relations as $name => $related) {
                         if ($related instanceof Pivot) {
                             $pivots[$name] = $related->getAttributes();
                             ksort($pivots[$name]);
@@ -2177,8 +2194,11 @@ trait HasAutosaveBase
                     }
                     ksort($pivots);
 
-                    return $this->autosaveStore()->snapshotHash(['attributes' => $state, 'pivots' => $pivots]);
-                })->sort()->values()->all();
+                    $rowHashes[] = $this->autosaveStore()->snapshotHash(['attributes' => $state, 'pivots' => $pivots]);
+                }
+
+                sort($rowHashes);
+                $rows = $rowHashes;
                 $fingerprints[$path] = $this->autosaveStore()->snapshotHash(['rows' => $rows]);
 
                 continue;
