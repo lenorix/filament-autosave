@@ -2,6 +2,6 @@
     "private": true,
     "description": "Playwright is only the browser driver for tests/Browser; Pest remains the test runner.",
     "devDependencies": {
-        "playwright": "1.62.1"
+        "playwright": "1.63.0"
     }
 }
