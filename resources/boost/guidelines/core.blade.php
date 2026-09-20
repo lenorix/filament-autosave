@@ -112,8 +112,11 @@ not refresh relationships or uploads.
 dirty-only writes and post-save refresh. It pulls untouched columns and, when
 `poll_relationships` is true, untouched relationship, upload, and media state.
 Relations without timestamps compare persisted row/pivot content hashes, adding
-reads per relation. Deep child changes still require `$touches` on the parent;
-independent nested fingerprints are not implemented.
+reads per relation. Nested relationship components are fingerprinted up to
+`poll_relationship_depth` (3 by default); set it to 0 for direct relations
+only. Timestamp-free relations hash at most `poll_relationship_max_rows` rows
+(500 by default); larger collections use key/count detection, so timestamps are
+recommended at scale.
 A locally dirty field changed remotely is reported as `stale` and remains
 untouched. Polling never writes to the database and never creates an Undo
 snapshot. The browser pauses polling while a save is pending or the tab is

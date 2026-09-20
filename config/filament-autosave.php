@@ -32,6 +32,16 @@ return [
     // Set false to poll model columns only.
     'poll_relationships' => true,
 
+    // Maximum relationship depth inspected by polling. A depth of 1 covers
+    // direct children; deeper levels use the concrete relationship components
+    // rendered by the form. Set to 0 to keep direct relationships only.
+    'poll_relationship_depth' => 3,
+
+    // Exact fingerprints for timestamp-free relations hydrate this many rows
+    // at most per relation. Larger relations use a cheap key/count fallback;
+    // add timestamps when exact remote edits must be detected at scale.
+    'poll_relationship_max_rows' => 500,
+
     // Top-level text fields whose concurrent edits are merged instead of
     // last-write-wins: TextInput, Textarea and MarkdownEditor word by word
     // (the browser sends a patch of its own change; the server plays it on

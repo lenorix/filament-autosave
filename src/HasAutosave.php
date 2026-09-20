@@ -250,6 +250,14 @@ trait HasAutosave
 
         foreach ($this->autosaveRelationshipFields() as $path => $fields) {
             $this->autosaveRelationshipHashes[$path] = $this->autosaveRelationshipHash($fields);
+
+            foreach ($fields as $field) {
+                $concrete = $this->autosaveRelativeFieldPath($field);
+
+                if ($concrete !== null && $concrete !== $path) {
+                    $this->autosaveRelationshipHashes[$concrete] = $this->autosaveRelationshipHash($field);
+                }
+            }
         }
     }
 

@@ -2035,7 +2035,7 @@ trait HasAutosaveBase
      * not excluded, not nested in a repeater row (those refresh with their
      * parent).
      *
-     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>}>
+     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>, refresh: string}>
      */
     protected function autosavePolledRelationFields(object $record): array
     {
@@ -2048,18 +2048,33 @@ trait HasAutosaveBase
         if (method_exists($this, 'autosaveRelationshipFields')) {
             foreach ($this->autosaveRelationshipFields() as $path => $fields) {
                 $path = (string) $path;
+                $refresh = AutosaveFieldTree::topLevelKey($path);
 
-                if (str_contains($path, '*') || str_contains($path, '.') || $this->autosavePathExcluded($path)) {
-                    continue;
+                foreach ($fields as $field) {
+                    $relation = method_exists($field, 'getRelationship') ? $field->getRelationship() : null;
+
+                    if (! $relation instanceof Relation || $relation instanceof BelongsTo || $field instanceof RichEditor) {
+                        continue;
+                    }
+
+                    $concretePath = $this->autosaveRelativeFieldPath($field) ?? $path;
+                    $depth = $this->autosaveRelationPathDepth($concretePath);
+
+                    if ($this->autosavePathExcluded($concretePath)
+                        || $depth > $this->autosavePollRelationshipDepth()
+                        || str_contains($concretePath, '*')) {
+                        continue;
+                    }
+
+                    $key = $concretePath === $path ? $path : $concretePath;
+                    $polled[$key] ??= [
+                        'kind' => 'relation',
+                        'components' => [],
+                        'relation' => $relation,
+                        'refresh' => $refresh,
+                    ];
+                    $polled[$key]['components'][] = $field;
                 }
-
-                $relation = method_exists($fields[0], 'getRelationship') ? $fields[0]->getRelationship() : null;
-
-                if (! $relation instanceof Relation || $relation instanceof BelongsTo || $fields[0] instanceof RichEditor) {
-                    continue;
-                }
-
-                $polled[$path] = ['kind' => 'relation', 'components' => array_values($fields), 'relation' => $relation];
             }
         }
 
@@ -2067,7 +2082,7 @@ trait HasAutosaveBase
             foreach ($this->autosaveUploadFields() as $path => $field) {
                 $path = (string) $path;
 
-                if (! $field instanceof SpatieMediaLibraryFileUpload || str_contains($path, '*') || str_contains($path, '.')
+                if (! $field instanceof SpatieMediaLibraryFileUpload || str_contains($path, '*')
                     || $this->autosavePathExcluded($path) || isset($polled[$path])) {
                     continue;
                 }
@@ -2075,7 +2090,7 @@ trait HasAutosaveBase
                 $relation = $record->media();
 
                 if ($relation instanceof Relation) {
-                    $polled[$path] = ['kind' => 'media', 'components' => [$field], 'relation' => $relation];
+                    $polled[$path] = ['kind' => 'media', 'components' => [$field], 'relation' => $relation, 'refresh' => $path];
                 }
             }
         }
@@ -2083,11 +2098,30 @@ trait HasAutosaveBase
         return $polled;
     }
 
+    /** Count relationship segments in a concrete form path (`items.id.children` => 2). */
+    protected function autosaveRelationPathDepth(string $path): int
+    {
+        $segments = array_values(array_filter(explode('.', $path), static fn (string $segment): bool => $segment !== ''));
+
+        return (int) ceil(count($segments) / 2);
+    }
+
+    protected function autosavePollRelationshipDepth(): int
+    {
+        return max(1, (int) config('filament-autosave.poll_relationship_depth', 3));
+    }
+
+    protected function autosavePollRelationshipRowLimit(): int
+    {
+        return max(1, (int) config('filament-autosave.poll_relationship_max_rows', 500));
+    }
+
     /**
      * One query for every polled relation: `count(*)` and the latest
      * `updated_at` of its rows (the pivot's for a BelongsToMany), compared
      * against what the last poll saw. Relations without timestamps hash
-     * their persisted rows and pivot attributes on every poll instead.
+     * their persisted rows and pivot attributes on every poll instead, up to
+     * the configured row limit.
      *
      * @return array{fingerprints: array<string, string>, unfingerprinted: list<string>}
      */
@@ -2109,7 +2143,28 @@ trait HasAutosaveBase
             if ($stamp === null) {
                 // Without timestamps, compare persisted contents rather than
                 // silently ignoring remote changes while the field is dirty.
-                $rows = (clone $relation)->get()->map(function (Model $row): string {
+                $rows = (clone $relation)->limit($this->autosavePollRelationshipRowLimit() + 1)->get();
+
+                if ($rows->count() > $this->autosavePollRelationshipRowLimit()) {
+                    $query = (clone $relation->getQuery())->toBase();
+                    $query->columns = null;
+                    $query->orders = null;
+                    $query->limit = null;
+                    $query->offset = null;
+                    $grammar = $query->getGrammar();
+                    $key = $grammar->wrap($this->autosaveRelationKeyColumn($relation));
+                    $aggregate = $query->selectRaw("count(*) as autosave_count, min({$key}) as autosave_min_key, max({$key}) as autosave_max_key")->first();
+                    $fingerprints[$path] = $this->autosaveStore()->snapshotHash([
+                        'overflow' => true,
+                        'count' => (int) ($aggregate->autosave_count ?? 0),
+                        'min' => $aggregate->autosave_min_key ?? null,
+                        'max' => $aggregate->autosave_max_key ?? null,
+                    ]);
+
+                    continue;
+                }
+
+                $rows = $rows->map(function (Model $row): string {
                     $state = $row->getAttributes();
                     ksort($state);
 
@@ -2248,11 +2303,11 @@ trait HasAutosaveBase
                 continue;
             }
 
-            ['kind' => $kind, 'components' => $components] = $entry;
+            ['kind' => $kind, 'components' => $components, 'refresh' => $refresh] = $entry;
 
             if (! $this->autosaveRelationFieldIsClean($kind, $path, $components, $current)) {
                 if ($certain) {
-                    $stale[] = $path;
+                    $stale[] = $refresh;
                 }
 
                 continue;
@@ -2298,7 +2353,7 @@ trait HasAutosaveBase
 
             // The raw state is what the browser holds under this path; the
             // controller folds it into its baseline as-is.
-            $refreshed[$path] = method_exists($components[0], 'getRawState') ? $components[0]->getRawState() : ($after[$path] ?? null);
+            $refreshed[$path] = method_exists($components[0], 'getRawState') ? $components[0]->getRawState() : data_get($after, $path);
         }
 
         return ['refreshed' => $refreshed, 'stale' => $stale];

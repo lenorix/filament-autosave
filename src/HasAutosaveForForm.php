@@ -49,6 +49,10 @@ trait HasAutosaveForForm
     #[Locked]
     public array $autosaveFieldHashes = [];
 
+    /** @var array<string, string> Raw hashes for relationship components. */
+    #[Locked]
+    public array $autosaveRelationshipHashes = [];
+
     /**
      * Call from mount(); Livewire lifecycle, not an extension point.
      *
@@ -65,6 +69,7 @@ trait HasAutosaveForForm
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->autosaveObservedHash = $this->autosaveSnapshotHash;
         $this->autosaveFieldHashes = $this->hashAutosaveFields($this->prepareAutosavePayload($this->getAutosaveData()));
+        $this->resetAutosaveFormRelationshipHashes();
         $this->resetAutosaveUploadHashes();
 
         $record = $this->getAutosaveFormRecord();
@@ -409,6 +414,7 @@ trait HasAutosaveForForm
         // model column. Acknowledge every top-level value supplied to the
         // form, otherwise the same relation is considered dirty forever.
         $this->acknowledgeAutosaveFormFields(array_keys($data));
+        $this->resetAutosaveFormRelationshipHashes();
         $this->autosaveSnapshotHash = $this->currentAutosaveSnapshotHash();
         $this->queueAutosaveSavedNotification();
 
@@ -808,6 +814,40 @@ trait HasAutosaveForForm
         $this->autosaveFieldHashes = $this->hashAutosaveFields(
             $this->prepareAutosavePayload($this->getAutosaveData()),
         );
+        $this->resetAutosaveFormRelationshipHashes();
+    }
+
+    protected function resetAutosaveFormRelationshipHashes(): void
+    {
+        $this->autosaveRelationshipHashes = [];
+
+        foreach ($this->autosaveRelationshipFields() as $path => $fields) {
+            $this->autosaveRelationshipHashes[$path] = $this->autosaveRelationshipHash($fields);
+
+            foreach ($fields as $field) {
+                $concrete = $this->autosaveRelativeFieldPath($field);
+
+                if ($concrete !== null && $concrete !== $path) {
+                    $this->autosaveRelationshipHashes[$concrete] = $this->autosaveRelationshipHash($field);
+                }
+            }
+        }
+    }
+
+    /** @param object|array<int, object> $fields */
+    protected function autosaveRelationshipHash(object|array $fields): string
+    {
+        $fields = is_array($fields) ? $fields : [$fields];
+        $states = [];
+
+        foreach ($fields as $index => $field) {
+            $path = method_exists($field, 'getStatePath')
+                ? (string) ($field->getStatePath() ?? '')
+                : (string) $index;
+            $states[$path !== '' ? $path : (string) $index] = $field->getRawState();
+        }
+
+        return $this->hashAutosaveValue($states);
     }
 
     /**

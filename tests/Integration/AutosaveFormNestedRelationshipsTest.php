@@ -38,6 +38,23 @@ test('a generic record form persists a change three relationship levels deep on 
         ->and($item->fresh()->label)->toBe('Service');
 })->with(['dirty_only on' => true, 'dirty_only off' => false]);
 
+test('polling refreshes a changed nested relationship without parent timestamps', function () {
+    config(['filament-autosave.poll_relationships' => true, 'filament-autosave.poll_relationship_depth' => 3]);
+    [$post, , $subitem, $leaf] = seedDeepGraph();
+    $page = Livewire::test(DeepRelationshipRecordForm::class, ['record' => $post]);
+    // Establish the acknowledged nested fingerprints before the remote edit.
+    $page->call('syncAutosave');
+    $leaf->update(['label' => 'Edited elsewhere']);
+    $page->call('syncAutosave');
+
+    expect(visibleLeafLabels($page->get('data')))->toBe(['Edited elsewhere'])
+        ->and($subitem->fresh()->label)->toBe('Group');
+
+    $page->assertDispatched('autosave-status', function (string $event, array $params): bool {
+        return ($params['status'] ?? null) === 'synced' && ($params['refreshed'] ?? []) !== [];
+    });
+});
+
 test('a generic record form creates a new parent row with nested children once', function () {
     $post = Post::create(['title' => 'Post']);
 

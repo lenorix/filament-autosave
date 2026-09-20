@@ -37,7 +37,7 @@ public function panel(Panel $panel): Panel
 }
 ```
 
-Edits pages now autosave with the default settings. Publish the config, translations, or views only when you need to
+Edit pages now autosave with the default settings. Publish the config, translations, or views only when you need to
 change them. No Node build step is required:
 
 ```bash
@@ -186,7 +186,10 @@ Set `poll_interval` to check for remote changes in the background. It defaults t
 Polling requires `refresh_unchanged_fields` and is available on Edit pages and record-backed forms.
 
 Polling updates untouched columns, repeaters, uploads, and media. Locally edited fields are marked `stale` instead of
-being overwritten. Deep child changes require the parent model to update its timestamp (for example with `$touches`).
+being overwritten. Nested relationship fields are fingerprinted up to `poll_relationship_depth` (3 by default), so
+deep child changes no longer require `$touches` on the parent. Set the depth to `0` for direct relationships only.
+Timestamp-free relations hash their rows up to `poll_relationship_max_rows` (500 by default); larger relations use a
+cheap key/count check, so timestamp columns are recommended for large collections.
 Set `poll_relationships` to `false` or call `pollRelationships(false)` for column-only polling.
 
 ### Merge text fields

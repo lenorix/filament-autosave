@@ -1,25 +1,26 @@
 # Deep relationship polling: implementation decision
 
-Status: proposed follow-up; not implemented by the current polling code.
+Status: implemented for rendered relationship components, with bounded depth
+and row-cost controls.
 
-Current coverage: top-level relationships refresh without a parent update;
-relations without timestamps use persisted row/pivot hashes, including stale
-reporting for dirty local fields. Deep child changes still require `$touches`.
+Current coverage: top-level and rendered nested relationships refresh without a
+parent update; relations without timestamps use persisted row/pivot hashes,
+including stale reporting for dirty local fields. Depth and row limits are
+configurable to keep polling bounded.
 
 ## Proposed contract
 
-Support independent fingerprints for nested relationships declared in the form
-schema. Make deeper traversal opt-in with a separate bounded polling depth;
-do not reuse Undo depth or discover every Eloquent relationship on a model.
-Keep the existing default query cost for applications that do not opt in.
+Independent fingerprints are created for nested relationships declared in the
+form schema. Traversal is bounded by `poll_relationship_depth`; it does not
+reuse Undo depth or discover arbitrary Eloquent relationships.
 
 Identify a node by schema path, parent model class/key, relation name and child
 key (plus morph type or pivot identity where applicable). Never use transient
 Repeater UUIDs or row positions as database identities. A remote insertion,
 deletion, reorder or pivot change must affect the enclosing field fingerprint.
-Hash persisted attributes for timestamp-free nodes. Timestamp aggregates alone
-cannot reliably detect same-second updates, unchanged maxima or changed pivot
-values; an exact mode needs content hashes or explicit revision counters.
+Hash persisted attributes for timestamp-free nodes up to
+`poll_relationship_max_rows`. Larger relations use key/count aggregates;
+timestamp columns are recommended when exact edits must be detected at scale.
 
 Load by relationship path and parent key sets, not one query per rendered row.
 Bound traversal depth, reject cycles, respect relation scopes and exclusions,
