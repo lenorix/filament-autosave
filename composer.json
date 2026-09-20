@@ -51,6 +51,7 @@
     "scripts": {
         "test": "vendor/bin/pest --exclude-testsuite Browser",
         "test:browser": "vendor/bin/pest --testsuite Browser",
+        "test:coverage": "XDEBUG_MODE=coverage vendor/bin/pest --exclude-testsuite Browser --coverage --min=90",
         "phpstan": "vendor/bin/phpstan analyse --memory-limit=1G"
     },
     "minimum-stability": "stable",
