@@ -37,7 +37,7 @@ public function panel(Panel $panel): Panel
 }
 ```
 
-Edit pages now autosave with the default settings. Publish the config, translations, or views only when you need to
+Edits pages now autosave with the default settings. Publish the config, translations, or views only when you need to
 change them. No Node build step is required:
 
 ```bash
@@ -101,7 +101,7 @@ class CommentsRelationManager extends RelationManager
 }
 ```
 
-Clear a create draft after the action creates its record:
+Clear a creation draft after the action creates its record:
 
 ```php
 CreateAction::make()
