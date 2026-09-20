@@ -99,7 +99,7 @@ trait HasAutosaveForRelationManager
 
         $owner = $this->getOwnerRecord();
 
-        if ($owner instanceof Model && $owner->getKey() !== null) {
+        if ($owner->getKey() !== null) {
             $context[] = 'owner:'.get_class($owner).':'.$owner->getKey();
         }
 
@@ -158,5 +158,16 @@ trait HasAutosaveForRelationManager
         $this->autosaveValidationErrors = [];
         $this->autosaveValidationKeys = [];
         $this->resetAutosaveUploadHashes();
+    }
+
+    /**
+     * A relation manager has no `$data` property to fall back to: without a
+     * mounted action there is no modal to fill, so there is nothing to do.
+     *
+     * @param  array<string, mixed>  $draft
+     */
+    protected function fillAutosaveData(array $draft): void
+    {
+        $this->resolveAutosaveForm()?->fill($draft);
     }
 }
