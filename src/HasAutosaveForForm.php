@@ -402,7 +402,7 @@ trait HasAutosaveForForm
 
         // Before the hashes below acknowledge this write, so "clean" still
         // means "unchanged since the last acknowledged state".
-        $this->refreshAutosaveUnchangedFields($record);
+        $this->refreshAutosaveFormUnchangedFields($record);
         $this->refreshAutosaveMergedFields($record);
 
         // A relationship callback may have persisted state that is not a
@@ -420,7 +420,7 @@ trait HasAutosaveForForm
     }
 
     /** Post-save refresh of clean columns; see HasAutosaveBase::refreshAutosaveFieldsFromRecord(). */
-    protected function refreshAutosaveUnchangedFields(Model $record): void
+    protected function refreshAutosaveFormUnchangedFields(Model $record): void
     {
         $this->autosaveRefreshState = [];
 
