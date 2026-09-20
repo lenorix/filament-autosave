@@ -188,17 +188,16 @@ protected function getAutosaveStatePath(): string
 - **Custom persistence**: Override `persistAutosaveForm()` for custom action lifecycles or side effects.
 - **Page events**: Filament's `RecordSaved`/`RecordUpdated` require a `Page`; use `afterAutosave()` or package events.
 
-## How autosave decides what to write
+## What autosave saves
 
-Autosave writes modified fields while skipping invalid inputs and protecting sensitive data:
+Autosave writes changed, valid form data and leaves the rest of the record alone.
 
-- **Supported inputs**: Standard fields, repeaters (JSON & relations at any depth), file uploads, media, and `RichEditor`.
-- **Exclusions**: Password fields, `dehydrated(false)`, and fields configured in `except` are never autosaved.
-- **Dirty-only**: Only modified fields are written to the database on each cycle.
-- **Validation safety**: Invalid or blank required fields are skipped without clearing data; valid fields still save.
-- **Atomic containers**: Single-column repeaters, groups, and builders save only when all child inputs are valid.
-- **Lifecycle & hooks**: Executes standard Filament save hooks and events (`beforeValidate`, `afterSave`, etc.).
-- **Authorization**: Enforces page authorization (`authorizeAccess()`) across all autosave, sync, and undo actions.
+- Regular fields, JSON and relationship repeaters, uploads, media, and `RichEditor` are supported.
+- Password fields, fields with `dehydrated(false)`, and fields listed in `except` are never saved.
+- With dirty-only enabled, each cycle writes only fields that changed.
+- Invalid fields are skipped without clearing their stored value; valid sibling fields can still be saved.
+- Groups, builders, and other single-column fields are saved only when all of their child inputs are valid.
+- Filament hooks, events, and page authorization continue to run for autosave, sync, and Undo.
 
 ```php
 protected function getAutosaveValidationRules(): array
@@ -211,6 +210,9 @@ protected function afterAutosave(object $record): void
     Cache::forget("user-{$record->id}");
 }
 ```
+
+Use `getAutosaveValidationRules()` for rules that apply only to autosave. Use `afterAutosave()` for work that should
+run after a successful Edit-page save.
 
 ## Keeping editors in sync
 
