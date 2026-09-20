@@ -102,14 +102,15 @@
             :heading="$showTimestamp ? $alpineText($savedAtExpression) : __('filament-autosave::autosave.saved')"
             :description="__('filament-autosave::autosave.pending')"
         >
+            {{-- A single "footer" slot, not "footer" plus "controls" together:
+                 some Filament releases silently drop the second of two
+                 optional named slots passed to the same anonymous component. --}}
             <x-slot name="footer">
                 <template x-for="field in pendingFields" :key="field">
                     <x-filament::badge color="gray" size="sm">
                         <span x-text="field"></span>
                     </x-filament::badge>
                 </template>
-            </x-slot>
-            <x-slot name="controls">
                 <x-filament::link tag="button" type="button" size="sm" x-on:click="undo()" x-show="$wire.autosaveCanUndo" data-autosave-action="undo">
                     {{ __('filament-autosave::autosave.undo') }}
                 </x-filament::link>
@@ -184,6 +185,9 @@
             :heading="__('filament-autosave::autosave.conflicts')"
             data-autosave-conflicts
         >
+            {{-- A single "footer" slot, not "footer" plus "controls" together:
+                 some Filament releases silently drop the second of two
+                 optional named slots passed to the same anonymous component. --}}
             <x-slot name="footer">
                 <template x-for="(conflict, index) in conflicts" :key="conflict.path + ':' + index">
                     <div x-bind:data-autosave-conflict-reason="conflict.reason">
@@ -203,8 +207,6 @@
                         </template>
                     </div>
                 </template>
-            </x-slot>
-            <x-slot name="controls">
                 <x-filament::link tag="button" type="button" size="sm" color="gray" x-on:click="dismissConflicts()" data-autosave-action="dismiss-conflicts">
                     {{ __('filament-autosave::autosave.dismiss') }}
                 </x-filament::link>

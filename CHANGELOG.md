@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Raised the minimum supported Filament 4 release to 4.13 (previously any
+  `^4.0`). The `filament::callout` component the indicator relies on for
+  every non-trivial status doesn't exist before 4.7; `ActionsRenderHook`
+  (relation manager modal indicator) doesn't exist before 4.1; RichEditor's
+  mention, grid and text-colour extensions don't exist before 4.5; and a rich
+  merge integration bug in `ueberdosis/tiptap-php` 2.0–2.1 is worked around by
+  requiring `^2.2` directly instead of trusting whatever `filament/forms`
+  happens to pull in. Also fixed on the way: the indicator's two callouts
+  that combined a `footer` slot with a `controls` slot silently dropped the
+  `controls` content (the Undo link, the dismiss-conflicts button) on some
+  Filament releases — both now render inside a single `footer` slot instead.
 - Added `HasAutosaveForRelationManager`: a relation manager autosaves its
   edit and create modals with nothing to wire up beyond the `use` statement.
   It is `HasAutosaveForForm` with the mounted action's schema and state path,

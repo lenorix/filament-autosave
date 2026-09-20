@@ -13,10 +13,23 @@ parameters:
     level: 6
     ignoreErrors:
         # The traits are generic over their host (Edit page, Create page, plain
-        # Livewire component). Analysed inside one concrete host, every
-        # `method_exists($this, …)` / `$this instanceof …` guard for an
-        # optional host feature is either always true or always false; the
-        # guards are the point, so the narrowing reports are not defects.
+        # Livewire component) and over which Filament/Laravel minor a consumer
+        # has installed. Analysed inside one concrete host on one concrete
+        # dependency set, every `method_exists($this, …)` / `$this instanceof
+        # …` guard for an optional host feature or a method that only exists
+        # from a later Filament/Laravel release reads as always-true or
+        # always-false there, even though it is not across the version range
+        # this package supports; the guards are the point, so the narrowing
+        # reports are not defects. PHPStan attributes a trait-body error to
+        # whichever file it was analysing when it found it: the trait's own
+        # file for a plain boolean check, but the *host* file
+        # (tests/Support/Phpstan/*.php) for one that needs the host's type to
+        # resolve, such as a call through `$this`. Both paths must be listed
+        # or the exact set of matches shifts under a different Filament
+        # version and either leaves a real error unignored or an ignore rule
+        # unmatched (phpstan.neon's default reportUnmatchedIgnoredErrors also
+        # then fails the build) — this is what broke the PHP 8.4 / Filament
+        # ^4.0 (prefer-lowest) / Testbench ^10.0 CI cell.
         -
             identifiers:
                 - function.alreadyNarrowedType
@@ -27,6 +40,12 @@ parameters:
                 - nullsafe.neverNull
             paths:
                 - src/HasAutosave*.php
+                - tests/Support/Phpstan/*.php
+            # Which identifier fires, and whether it attributes to the trait
+            # file or the host file, depends on the installed Filament/
+            # Laravel version: never all of them at once. Requiring every
+            # combination to match is what actually broke CI here.
+            reportUnmatched: false
         # Filament's transaction helpers exist only on panel pages; the trait
         # calls them behind `autosavePanelOwnsDatabaseTransactions()`.
         -

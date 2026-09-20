@@ -1657,9 +1657,11 @@ trait HasAutosaveBase
         $rows = [];
 
         foreach ($relation->get() as $related) {
+            $pivot = $related->relationLoaded('pivot') ? $related->getRelation('pivot') : null;
+
             $rows[] = [
                 'key' => $related->getKey(),
-                'pivot' => $related->pivot?->getAttributes() ?? [],
+                'pivot' => $pivot instanceof Model ? $pivot->getAttributes() : [],
             ];
         }
 

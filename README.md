@@ -31,7 +31,7 @@ class EditArticle extends EditRecord
 - A stable `@api` surface, lifecycle events, and 770+ tests including real
   browser flows.
 
-**Works with** Filament 4 and 5, Laravel 12 and 13, PHP 8.4 and 8.5,
+**Works with** Filament 4.13+ and 5, Laravel 12 and 13, PHP 8.4 and 8.5,
 `filament/spatie-laravel-media-library-plugin` and translatable Edit pages
 (`lara-zeus/spatie-translatable`). No Node build and no stylesheet of its own.
 
@@ -39,7 +39,7 @@ class EditArticle extends EditRecord
 
 - PHP 8.4 or 8.5
 - Laravel 12 or 13
-- Filament 4 or 5
+- Filament 4.13 or later, or Filament 5
 - Livewire 3 with Filament 4, or Livewire 4 with Filament 5
 
 The test suite runs against every combination of those PHP, Filament, and
