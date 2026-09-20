@@ -3,6 +3,7 @@
 namespace Lenorix\FilamentAutosave;
 
 use Closure;
+use Filament\Actions\View\ActionsRenderHook;
 use Filament\Contracts\Plugin;
 use Filament\Panel;
 use Filament\Support\Concerns\EvaluatesClosures;
@@ -279,6 +280,35 @@ class AutosavePlugin implements Plugin
         FilamentView::registerRenderHook(
             PanelsRenderHook::PAGE_END,
             fn (array $scopes): string => $this->indicatorRendered ? '' : $this->renderIndicator($scopes),
+        );
+
+        // A relation manager's action modal is not a page: it never fires
+        // PAGE_HEADER_ACTIONS_*/PAGE_END, so a HasAutosaveForRelationManager
+        // host would otherwise autosave with no visible indicator. This fires
+        // for every action's modal; the trait check keeps it a no-op for
+        // everything else, on Filament 4 and 5 alike (the action-modal render
+        // hooks are unchanged between them).
+        FilamentView::registerRenderHook(
+            ActionsRenderHook::MODAL_CUSTOM_CONTENT_AFTER,
+            fn (array $data): string => $this->renderRelationManagerModalIndicator($data),
+        );
+    }
+
+    /** @param  array<mixed>  $data */
+    protected function renderRelationManagerModalIndicator(array $data): string
+    {
+        $livewire = $data['action']->getLivewire() ?? null;
+
+        if (! is_object($livewire) || ! in_array(HasAutosaveForRelationManager::class, class_uses_recursive($livewire), true)) {
+            return '';
+        }
+
+        return (string) new HtmlString(
+            view('filament-autosave::autosave-indicator', [
+                'debounce' => $this->getDebounce(),
+                'showTimestamp' => $this->shouldShowTimestamp(),
+                'mode' => 'form',
+            ])->render()
         );
     }
 

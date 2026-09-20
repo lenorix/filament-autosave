@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added `HasAutosaveForRelationManager`: a relation manager autosaves its
+  edit and create modals with nothing to wire up beyond the `use` statement.
+  It is `HasAutosaveForForm` with the mounted action's schema and state path,
+  a scope built from owner + relationship + action + row (so two rows, or two
+  relation managers on the same owner, never share a draft or an Undo
+  snapshot), and its own indicator injected into the action's modal
+  automatically. A create action still needs one line, the same one every
+  `HasAutosaveForCreate`/`HasAutosaveForForm` consumer already needs:
+  `->after(fn ($livewire) => $livewire->clearAutosaveDraft())`.
 - Polling now also refreshes relationship repeaters, relation selects, upload
   columns and Spatie media, on by default (`poll_relationships`,
   `AutosavePlugin::pollRelationships()`). A clean field refills exactly like
@@ -12,7 +21,6 @@
   the way: the `updated_at` fast path compared a cast `Carbon` against the
   raw stored string and so never matched on a timestamped model, making
   every idle poll re-read the whole record.
-
 - The browser flushes an edit still waiting on its debounce when the tab is
   hidden or the page is being left (`beforeunload`, request sent with
   `keepalive`), so closing the tab a second after typing no longer drops the

@@ -162,7 +162,13 @@ callback only manages file attachments and runs in addition, so a plain editor
 without an attachment provider keeps its content and Undo.
 Relation managers, action/modal forms, table forms, and standalone Livewire
 components are separate components. Use `HasAutosaveForForm` with a
-context-specific draft key and include the indicator in their views.
+context-specific draft key and include the indicator in their views. On a
+`RelationManager` specifically, use `HasAutosaveForRelationManager` instead:
+it is `HasAutosaveForForm` with the mounted action's schema, a scope built
+from owner + relationship + action + row, and the modal's own indicator
+already wired up — nothing else to add beyond the `use` statement. A create
+action still needs `->after(fn ($livewire) => $livewire->clearAutosaveDraft())`,
+same as any other draft-backed create flow.
 Column-backed `FileUpload` fields support add/remove/reorder. Top-level
 `SpatieMediaLibraryFileUpload` fields support add/remove/reorder when the
 Filament Spatie plugin is installed. Both kinds are also persisted inside a
