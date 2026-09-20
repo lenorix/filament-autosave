@@ -1,7 +1,30 @@
 version: 2
 
 updates:
-  # Keep Composer ranges broad; this library has no lockfile.
+  # This is a library, so composer.lock is intentionally not committed.
+  # Dependabot still updates the constraints in composer.json.
+  - package-ecosystem: composer
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      composer:
+        patterns:
+          - '*'
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns:
+          - '*'
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
