@@ -1222,19 +1222,6 @@ trait HasAutosave
         }
     }
 
-    /** @return array<string, mixed> */
-    protected function captureAutosaveBaseline(): array
-    {
-        return ['snapshotHash' => $this->autosaveSnapshotHash, 'fieldHashes' => $this->autosaveFieldHashes];
-    }
-
-    /** @param  array<string, mixed>  $baseline */
-    protected function restoreAutosaveBaseline(array $baseline): void
-    {
-        $this->autosaveSnapshotHash = $baseline['snapshotHash'];
-        $this->autosaveFieldHashes = $baseline['fieldHashes'];
-    }
-
     /**
      * Edit pages restore through Filament's own update path, translatable concerns included.
      *

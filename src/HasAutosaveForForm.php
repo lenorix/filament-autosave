@@ -565,19 +565,6 @@ trait HasAutosaveForForm
         $this->resetAutosaveFormUndo();
     }
 
-    /** @return array<string, mixed> */
-    protected function captureAutosaveBaseline(): array
-    {
-        return ['snapshotHash' => $this->autosaveSnapshotHash, 'fieldHashes' => $this->autosaveFieldHashes];
-    }
-
-    /** @param  array<string, mixed>  $baseline */
-    protected function restoreAutosaveBaseline(array $baseline): void
-    {
-        $this->autosaveSnapshotHash = $baseline['snapshotHash'];
-        $this->autosaveFieldHashes = $baseline['fieldHashes'];
-    }
-
     /** A recordless draft only touches the cache, so it needs no transaction. */
     protected function autosaveWithoutDatabaseTransaction(callable $write): mixed
     {

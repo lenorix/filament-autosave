@@ -783,19 +783,31 @@ trait HasAutosaveBase
 
     /**
      * What a rolled-back cycle must put back: the acknowledged state the
-     * dirty checks compare against. Traits with per-field hashes add them.
+     * dirty checks compare against. `HasAutosave` and `HasAutosaveForForm`
+     * both keep per-field hashes on `$autosaveFieldHashes`, captured here
+     * once rather than overridden identically in each.
      *
      * @return array<string, mixed>
      */
     protected function captureAutosaveBaseline(): array
     {
-        return ['snapshotHash' => $this->autosaveSnapshotHash];
+        $baseline = ['snapshotHash' => $this->autosaveSnapshotHash];
+
+        if (property_exists($this, 'autosaveFieldHashes')) {
+            $baseline['fieldHashes'] = $this->autosaveFieldHashes;
+        }
+
+        return $baseline;
     }
 
     /** @param  array<string, mixed>  $baseline */
     protected function restoreAutosaveBaseline(array $baseline): void
     {
         $this->autosaveSnapshotHash = $baseline['snapshotHash'];
+
+        if (property_exists($this, 'autosaveFieldHashes') && array_key_exists('fieldHashes', $baseline)) {
+            $this->autosaveFieldHashes = $baseline['fieldHashes'];
+        }
     }
 
     /** The cycle's transaction committed normally. */
