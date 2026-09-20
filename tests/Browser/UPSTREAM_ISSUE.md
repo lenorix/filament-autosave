@@ -1,6 +1,23 @@
 # Upstream issue draft — pestphp/pest-plugin-browser
 
-Ready to paste. Not filed automatically.
+Historical reproduction for Pest Browser 5.0.1. Not filed automatically.
+
+The E2E upload test now runs unconditionally. `BrowserTestCase` registers the
+test-only `ParseMultipartUploads` middleware to decode the real HTTP body before
+Livewire handles it. It preserves nested/repeated field names, uses Laravel
+`UploadedFile` objects in test mode, and removes temporary files in `finally`.
+Already-parsed uploads pass through unchanged. Remove the bridge once a supported
+Pest release passes the same upload test without it. No vendor patch is needed.
+
+The Relation Manager E2E also runs unconditionally, twice in separate Testbench
+applications. Its former HTTP 500 came from duplicate Filament partial hooks in
+Livewire's static registry: stateful hook objects survived application teardown,
+and the next registration was not equal to the old object. Both hooks rendered
+the same modal; the second render had no root tag. Resetting that registry before
+booting each browser application restores test isolation without changing the
+application's action lifecycle.
+
+`composer test:browser` fails if any test is skipped.
 
 ---
 

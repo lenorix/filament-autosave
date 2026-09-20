@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -2085,8 +2086,8 @@ trait HasAutosaveBase
     /**
      * One query for every polled relation: `count(*)` and the latest
      * `updated_at` of its rows (the pivot's for a BelongsToMany), compared
-     * against what the last poll saw. Relations without timestamps get no
-     * fingerprint and are re-read on every poll instead.
+     * against what the last poll saw. Relations without timestamps hash
+     * their persisted rows and pivot attributes on every poll instead.
      *
      * @return array{fingerprints: array<string, string>, unfingerprinted: list<string>}
      */
@@ -2099,13 +2100,31 @@ trait HasAutosaveBase
         }
 
         $union = null;
+        $fingerprints = [];
         $unfingerprinted = [];
 
         foreach ($fields as $path => ['relation' => $relation]) {
             $stamp = $this->autosaveRelationStampColumn($relation);
 
             if ($stamp === null) {
-                $unfingerprinted[] = $path;
+                // Without timestamps, compare persisted contents rather than
+                // silently ignoring remote changes while the field is dirty.
+                $rows = (clone $relation)->get()->map(function (Model $row): string {
+                    $state = $row->getAttributes();
+                    ksort($state);
+
+                    $pivots = [];
+                    foreach ($row->getRelations() as $name => $related) {
+                        if ($related instanceof Pivot) {
+                            $pivots[$name] = $related->getAttributes();
+                            ksort($pivots[$name]);
+                        }
+                    }
+                    ksort($pivots);
+
+                    return $this->autosaveStore()->snapshotHash(['attributes' => $state, 'pivots' => $pivots]);
+                })->sort()->values()->all();
+                $fingerprints[$path] = $this->autosaveStore()->snapshotHash(['rows' => $rows]);
 
                 continue;
             }
@@ -2128,8 +2147,6 @@ trait HasAutosaveBase
 
             $union = $union === null ? $query : $union->unionAll($query);
         }
-
-        $fingerprints = [];
 
         if ($union !== null) {
             foreach ($union->get() as $row) {

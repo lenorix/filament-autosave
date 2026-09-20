@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Run upload and Relation Manager browser tests by default, with test-only
+  multipart decoding and isolated Livewire hook registration. Browser CI now
+  fails on skipped tests.
+- Detect remote changes to locally edited relations without timestamps using
+  persisted row and pivot fingerprints; preserve local state and report stale.
+
 - Raised the minimum supported Filament 4 release to 4.13 (previously any
   `^4.0`). The `filament::callout` component the indicator relies on for
   every non-trivial status doesn't exist before 4.7; `ActionsRenderHook`

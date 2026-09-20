@@ -41,6 +41,7 @@ class PollRelationsRecordForm extends Component implements HasSchemas
                     ->schema([
                         TextInput::make('label'),
                     ]),
+                Repeater::make('notes')->relationship('notes')->schema([TextInput::make('body')]),
                 CheckboxList::make('authors')->relationship('authors', 'name'),
             ])
             ->statePath('data');

@@ -18,7 +18,7 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
  */
 function openCommentModal(object $page): object
 {
-    $page->script('document.querySelector("[data-testid=\'edit-comment\']")?.click()');
+    $page->click("[data-testid='edit-comment']");
 
     return $page;
 }
@@ -28,24 +28,8 @@ function modalStatus(object $page): string
     return (string) ($page->script('document.querySelector(".fi-modal [data-autosave-status]")?.dataset.autosaveStatus') ?? 'idle');
 }
 
-/**
- * Passes on its own (`vendor/bin/pest --filter`), but a Filament action's
- * `mountAction()` click silently no-ops (no JS error, no server error, the
- * modal just never opens) once ANY other browser test has already run in the
- * same process — reproduced with a totally unrelated prior test
- * (`AutosaveIndicatorTest.php`, which never mounts an action), so the trigger
- * is "a second browser test ran before this one", not anything specific to
- * this file. Every other browser test drives a plain form field and is
- * unaffected; this is the first one that drives a Filament action/modal, and
- * it fails regardless of which test runs before it. Root cause not found
- * (a per-action rate limit and a stale `APP_KEY` were both ruled out). Gated
- * behind PEST_BROWSER_ACTIONS=1, the same convention
- * tests/Browser/AutosaveUploadTest.php uses for its own plugin limitation, so
- * `composer test:browser` stays green; set the env var (or run this file
- * directly with `--filter`) to verify the feature end to end.
- */
-test('a relation manager edit modal autosaves and undoes with no wiring at all', function () {
-    $post = Post::create(['title' => 'Original']);
+test('a relation manager edit modal autosaves and undoes with no wiring at all', function (string $application) {
+    $post = Post::create(['title' => $application]);
     $comment = Comment::create([
         'body' => 'Original comment',
         'commentable_type' => $post->getMorphClass(),
@@ -98,7 +82,4 @@ test('a relation manager edit modal autosaves and undoes with no wiring at all',
     );
 
     $this->assertNoBrowserErrors($page);
-})->skip(
-    getenv('PEST_BROWSER_ACTIONS') !== '1',
-    'a Filament action click silently no-ops once another browser test has already run in this process (see the docblock above); set PEST_BROWSER_ACTIONS=1 to run it',
-);
+})->with(['first application', 'fresh application']);

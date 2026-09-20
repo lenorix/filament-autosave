@@ -265,3 +265,21 @@ test('an upload another editor stored is not re-uploaded by a later save of this
     expect($post->fresh()->attachment)->toBe('theirs.txt')
         ->and(Storage::disk('public')->allFiles())->toBe(['theirs.txt']);
 });
+
+test('a remote edit to a timestamp-free dirty relation is reported as stale without losing local state', function (string $host) {
+    $post = PollPost::create(['title' => 'Post']);
+    $note = PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'Original']);
+    $page = Livewire::test($host, ['record' => $host === PollEditPost::class ? $post->getKey() : $post]);
+    $key = array_key_first($page->get('data.notes'));
+    $page->set("data.notes.{$key}.body", 'Local edit');
+    $page->call('syncAutosave');
+    expect(lastPollPayload($page)['stale'] ?? [])->not->toContain('notes');
+
+    $note->update(['body' => 'Remote edit']);
+
+    $page->call('syncAutosave');
+
+    expect($page->get("data.notes.{$key}.body"))->toBe('Local edit')
+        ->and(lastPollPayload($page)['stale'] ?? [])->toContain('notes')
+        ->and($note->fresh()->body)->toBe('Remote edit');
+})->with([[PollEditPost::class], [PollRelationsRecordForm::class]]);

@@ -80,7 +80,7 @@ jobs:
       # Node only supplies the Playwright browser driver; Pest stays the runner.
       - name: Install Playwright
         run: |
-          npm ci
+          npm install --no-package-lock
           npx playwright install --with-deps chromium
 
       - name: Execute browser suite

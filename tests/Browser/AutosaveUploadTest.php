@@ -3,18 +3,6 @@
 use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 
-/**
- * FilePond keeps a real `input[type=file]` in the DOM, so Playwright can hand
- * it a file; Livewire then POSTs it as multipart to `livewire/upload-file`.
- *
- * Gated behind PEST_BROWSER_UPLOADS=1 because pest-plugin-browser cannot yet
- * deliver a multipart upload to Laravel from its in-process server: 5.0.1
- * drops the body outright, and the unreleased 5.x branch keeps `files[]`
- * under a literal key so Livewire sees no file. The exact diagnosis and a
- * verified two-hunk patch are in tests/Browser/UPSTREAM_ISSUE.md; with that
- * patch applied this test is green end to end, so it is a real contract, not
- * a wish. Flip the env var on once the fix ships.
- */
 test('uploading a file through FilePond autosaves the path, survives reload, and removing it clears the column', function () {
     Storage::fake('public');
     $post = Post::create(['title' => 'With upload']);
@@ -45,7 +33,4 @@ test('uploading a file through FilePond autosaves the path, survives reload, and
 
     expect($post->fresh()->settings)->toBeEmpty();
     $this->assertNoBrowserErrors($reloaded);
-})->skip(
-    getenv('PEST_BROWSER_UPLOADS') !== '1',
-    'pest-plugin-browser cannot deliver multipart uploads from its in-process server yet (see tests/Browser/UPSTREAM_ISSUE.md); set PEST_BROWSER_UPLOADS=1 to run against a patched plugin',
-);
+});

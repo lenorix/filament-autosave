@@ -186,7 +186,8 @@ Set `poll_interval` to check for remote changes in the background. It defaults t
 Polling requires `refresh_unchanged_fields` and is available on Edit pages and record-backed forms.
 
 Polling updates untouched columns, repeaters, uploads, and media. Locally edited fields are marked `stale` instead of
-being overwritten. Set `poll_relationships` to `false` or call `pollRelationships(false)` for column-only polling.
+being overwritten. Deep child changes require the parent model to update its timestamp (for example with `$touches`).
+Set `poll_relationships` to `false` or call `pollRelationships(false)` for column-only polling.
 
 ### Merge text fields
 

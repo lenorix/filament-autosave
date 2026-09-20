@@ -111,6 +111,9 @@ not refresh relationships or uploads.
 `poll_interval` defaults to 5000 ms and `0` disables polling. Polling requires
 dirty-only writes and post-save refresh. It pulls untouched columns and, when
 `poll_relationships` is true, untouched relationship, upload, and media state.
+Relations without timestamps compare persisted row/pivot content hashes, adding
+reads per relation. Deep child changes still require `$touches` on the parent;
+independent nested fingerprints are not implemented.
 A locally dirty field changed remotely is reported as `stale` and remains
 untouched. Polling never writes to the database and never creates an Undo
 snapshot. The browser pauses polling while a save is pending or the tab is

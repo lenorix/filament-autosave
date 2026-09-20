@@ -1100,7 +1100,13 @@ trait HasAutosaveUploads
         // getAutosaveData()/writeAutosave instead of replacing it with the
         // now-invisible media rows.
         if ($this->autosaveExternalMediaAfter === []) {
-            $this->captureAutosaveExternalMediaAfter();
+            try {
+                $this->captureAutosaveExternalMediaAfter();
+            } catch (\Throwable) {
+                // If the external store is unavailable, the durable upload
+                // ledger is still sufficient to remove files written in this
+                // cycle. Never let a second snapshot failure skip cleanup.
+            }
         }
 
         foreach ($this->autosaveStoredUploadPaths as $path => $files) {

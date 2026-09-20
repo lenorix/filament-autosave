@@ -2,10 +2,13 @@
 
 namespace Lenorix\FilamentAutosave\Tests;
 
+use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\BrowserUser;
+use Lenorix\FilamentAutosave\Tests\Support\Browser\ParseMultipartUploads;
+use Livewire\ComponentHookRegistry;
 use RuntimeException;
 
 /**
@@ -35,7 +38,15 @@ abstract class BrowserTestCase extends IntegrationTestCase
 
     protected function setUp(): void
     {
+        // Filament registers hook objects. After handling requests those objects
+        // contain state, so Livewire's equality check no longer deduplicates
+        // fresh registrations in the next Testbench application. Duplicate
+        // partial hooks render the modal twice; the second render has no root.
+        (new \ReflectionProperty(ComponentHookRegistry::class, 'componentHooks'))->setValue(null, []);
+
         parent::setUp();
+
+        $this->app->make(Kernel::class)->prependMiddleware(ParseMultipartUploads::class);
 
         View::addNamespace('autosave-fixtures', __DIR__.'/Fixtures/views');
 

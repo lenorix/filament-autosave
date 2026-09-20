@@ -140,10 +140,10 @@ test('an idle poll costs the detector alone when every polled relation has times
 
     $marginal = marginalPollQueries($page);
 
-    // The updated_at fast path and the detector, nothing else: no relation is
-    // read until its fingerprint moves.
+    // The updated_at fast path, the detector, and the timestamp-free notes
+    // fingerprint query. No relation is hydrated until its fingerprint moves.
     expect(array_values(array_filter($marginal, static fn (string $sql): bool => str_contains($sql, 'autosave_count'))))->toHaveCount(1)
-        ->and($marginal)->toHaveCount(2);
+        ->and($marginal)->toHaveCount(3);
 });
 
 test('a poll that refills a changed relation reads that relation, not the others', function () {
