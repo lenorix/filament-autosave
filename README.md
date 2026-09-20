@@ -450,4 +450,4 @@ pending field indicators.
 ## Support It
 
 If you find this package useful, consider starring the repository on [GitHub](https://github.com/lenorix/filament-autosave),
-joining our [Discord](https://discord.gg/uGxpY7PQGa), or supporting [Lenorix](https://github.com/lenorix) open-source projects.
+joining our [Discord](https://discord.gg/uGxpY7PQGa), or supporting [Lenorix](https://lenorix.com/) open-source projects.
