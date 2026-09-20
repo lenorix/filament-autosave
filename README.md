@@ -165,6 +165,45 @@ class UserPreferences extends Page
 A draft is just a draft: it never creates a record, stores a permanent file, or
 attaches Spatie media. That only happens when the user actually submits.
 
+### Relation managers
+
+Add `HasAutosaveForRelationManager` and a relation manager's edit and create
+modals autosave with nothing else to wire up:
+
+```php
+use Filament\Resources\RelationManagers\RelationManager;
+use Lenorix\FilamentAutosave\HasAutosaveForRelationManager;
+
+class CommentsRelationManager extends RelationManager
+{
+    use HasAutosaveForRelationManager;
+
+    protected static string $relationship = 'comments';
+}
+```
+
+It's `HasAutosaveForForm` with every default a relation manager can infer
+already filled in: the mounted action's schema is the form, the scope is the
+owner, the relationship, the action and the row being edited (so two rows, or
+two relation managers on the same owner, never share a draft or an Undo
+snapshot), and the indicator is injected into the action's modal for you —
+there's no view to include. Undo, polling and the merge fields covered
+[below](#keeping-editors-in-sync) all work the same way they do on an Edit
+page, scoped to that one modal.
+
+The one thing this can't infer is when a row gets created: a create modal
+still drafts (same as [Create pages](#create-pages)) until you clear the
+draft once the action creates the record, exactly the one line every
+`HasAutosaveForCreate`/`HasAutosaveForForm` consumer already needs:
+
+```php
+CreateAction::make()
+    ->after(fn (CommentsRelationManager $livewire) => $livewire->clearAutosaveDraft());
+```
+
+For an action or table form that isn't a relation manager, see
+[Any other form](#any-other-form) below.
+
 ### Any other form
 
 Relation managers, action and modal forms, table forms, and standalone Livewire
