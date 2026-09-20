@@ -18,6 +18,8 @@ class AutosaveCommentsRelationManager extends RelationManager
 
     public ?array $data = [];
 
+    public int $afterAutosaveCalls = 0;
+
     public function table(Table $table): Table
     {
         return $table
@@ -48,5 +50,10 @@ class AutosaveCommentsRelationManager extends RelationManager
     public function fillMountedEdit(array $data): void
     {
         $this->getMountedActionSchema()->fill($data);
+    }
+
+    protected function afterAutosave(object $record): void
+    {
+        $this->afterAutosaveCalls++;
     }
 }

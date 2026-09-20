@@ -181,3 +181,20 @@ test('an untouched FileUpload does not disable undo for a column-only generic fo
 
     expect($post->fresh()->title)->toBe('Post');
 });
+
+test('afterAutosave() runs on a record-backed generic form, including one that is a relation manager', function () {
+    $post = Post::create(['title' => 'Post']);
+    $comment = $post->comments()->create(['body' => 'Original']);
+
+    $page = Livewire::test(AutosaveCommentsRelationManager::class, [
+        'ownerRecord' => $post,
+        'pageClass' => 'Lenorix\\FilamentAutosave\\Tests\\Fixtures\\Integration\\Resources\\Relationship\\RelationshipEditPost',
+    ]);
+    $instance = $page->instance();
+    $instance->mountTableAction('edit', (string) $comment->getKey());
+    $instance->fillMountedEdit(['body' => 'Changed']);
+    $instance->autosave();
+
+    expect($comment->fresh()->body)->toBe('Changed')
+        ->and($instance->afterAutosaveCalls)->toBe(1);
+});
