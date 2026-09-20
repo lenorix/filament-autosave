@@ -2,6 +2,10 @@ includes:
     - phpstan-baseline.neon
 
 parameters:
+    # Scope is src/ (plus the analysis-only hosts below, which pull every
+    # trait's body into scope). Fixtures and the Unit/Integration/Browser
+    # suites are not analysed: "phpstan clean" is a claim about the package
+    # itself, not the test tree.
     paths:
         - src
         # Analysis-only hosts that `use` each trait so trait bodies are analysed.

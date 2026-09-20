@@ -18,9 +18,21 @@ test('test suites declare no top-level classes', function () {
     $offenders = [];
 
     foreach (['Unit', 'Integration', 'Browser'] as $suite) {
-        foreach (glob(dirname(__DIR__)."/{$suite}/*.php") as $path) {
-            foreach (testLayoutTopLevelDeclarations($path) as $name) {
-                $offenders[] = basename($path).': '.$name;
+        $dir = dirname(__DIR__)."/{$suite}";
+
+        if (! is_dir($dir)) {
+            continue;
+        }
+
+        $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
+
+        foreach ($files as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            foreach (testLayoutTopLevelDeclarations($file->getPathname()) as $name) {
+                $offenders[] = $file->getFilename().': '.$name;
             }
         }
     }

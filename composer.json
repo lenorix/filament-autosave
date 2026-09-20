@@ -49,7 +49,8 @@
     },
     "scripts": {
         "test": "vendor/bin/pest --exclude-testsuite Browser",
-        "test:browser": "vendor/bin/pest --testsuite Browser"
+        "test:browser": "vendor/bin/pest --testsuite Browser",
+        "phpstan": "vendor/bin/phpstan analyse --memory-limit=1G"
     },
     "minimum-stability": "stable",
     "prefer-stable": true,

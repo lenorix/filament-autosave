@@ -124,6 +124,7 @@ final class AutosaveUploadLedger
         return $removed;
     }
 
+    /** `upload_ledger_ttl` has no fluent method on `AutosavePlugin`, config only, as documented in the README. */
     private function entryTtl(): int
     {
         return max(1, (int) config('filament-autosave.upload_ledger_ttl', 180));

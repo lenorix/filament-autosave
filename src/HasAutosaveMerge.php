@@ -317,6 +317,7 @@ trait HasAutosaveMerge
      */
     protected function writeAutosaveMergeColumns(Model $record, array $columns): array
     {
+        // `merge_retries` has no fluent method on `AutosavePlugin`, config only, as documented in the README.
         $retries = max(0, (int) config('filament-autosave.merge_retries', 10));
         $written = [];
         $previous = [];

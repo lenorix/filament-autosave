@@ -6,7 +6,7 @@ use Lenorix\FilamentAutosave\Events\AutosaveFailed;
 use Lenorix\FilamentAutosave\Events\AutosaveSaved;
 use Lenorix\FilamentAutosave\Events\AutosaveSkipped;
 use Lenorix\FilamentAutosave\Events\AutosaveUndone;
-use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\EventsFailingAfterSaveEditPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\FailingAfterSaveEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\AutosavePostForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\EventsTitleOnlyRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
@@ -75,7 +75,7 @@ test('a failing autosave dispatches AutosaveFailed with the exception, and a rea
     });
     $post = Post::create(['title' => 'Original']);
 
-    Livewire::test(EventsFailingAfterSaveEditPost::class, ['record' => $post->getKey()])
+    Livewire::test(FailingAfterSaveEditPost::class, ['record' => $post->getKey()])
         ->set('data.title', 'Changed')
         ->call('autosave')
         ->assertDispatched('autosave-status', status: 'error');

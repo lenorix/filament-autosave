@@ -6,7 +6,12 @@ use Lenorix\FilamentAutosave\Contracts\AutosaveExternalUndoAdapter;
 
 final class AutosaveExternalUndoManager
 {
-    /** @return array<int, AutosaveExternalUndoAdapter> */
+    /**
+     * Read directly, not through `AutosavePlugin`: `external_undo_adapters`
+     * has no fluent method, config only, as documented in the README.
+     *
+     * @return array<int, AutosaveExternalUndoAdapter>
+     */
     public function adapters(): array
     {
         $configured = config('filament-autosave.external_undo_adapters', []);

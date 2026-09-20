@@ -1581,6 +1581,7 @@ trait HasAutosaveBase
                     ? $path
                     : ($this->autosaveRelativeFieldPath($field) ?? $path.'.'.$index);
 
+                // `relationship_undo_depth` has no fluent method on `AutosavePlugin`, config only, as documented in the README.
                 if ($this->autosaveRelationshipUndoDepth($snapshotPath)
                     > max(1, (int) config('filament-autosave.relationship_undo_depth', 8))) {
                     $this->autosaveRelationshipUndoTruncated = true;

@@ -878,7 +878,9 @@ trait HasAutosaveForForm
 
     /**
      * Require callers to disambiguate reusable generic form instances when
-     * the application opts into strict context isolation.
+     * the application opts into strict context isolation. `require_form_context`
+     * has no fluent method on `AutosavePlugin`, config only, as documented in
+     * the README.
      */
     protected function assertAutosaveFormContext(): void
     {
