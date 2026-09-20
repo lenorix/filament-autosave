@@ -5,6 +5,7 @@ use Lenorix\FilamentAutosave\HasAutosaveBase;
 use Lenorix\FilamentAutosave\HasAutosaveDraft;
 use Lenorix\FilamentAutosave\HasAutosaveForCreate;
 use Lenorix\FilamentAutosave\HasAutosaveForForm;
+use Lenorix\FilamentAutosave\HasAutosaveForRelationManager;
 use Lenorix\FilamentAutosave\HasAutosaveUploads;
 
 /**
@@ -49,6 +50,7 @@ function autosaveTraitMethods(): array
     foreach ([
         HasAutosaveBase::class, HasAutosave::class, HasAutosaveForForm::class,
         HasAutosaveForCreate::class, HasAutosaveDraft::class, HasAutosaveUploads::class,
+        HasAutosaveForRelationManager::class,
     ] as $trait) {
         foreach ((new ReflectionClass($trait))->getMethods() as $method) {
             $methods[$method->getName()][] = $method;
