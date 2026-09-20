@@ -23,7 +23,7 @@ class EditArticle extends EditRecord
 - **Create drafts**: Restorable drafts on Create pages without persisting records prematurely.
 - **Media & nested relations**: Supports repeaters at any depth, file uploads, and Spatie Media Library with failure cleanup.
 - **Broad compatibility**: Works on Edit/Create pages, relation managers, actions, modals, table forms, and Livewire components.
-- **Extensible & tested**: Stable `@api`, lifecycle events, and 770+ automated tests.
+- **Easy to extend**: Lifecycle events and hooks for custom behavior.
 
 **Works with** Spatie Media Library (`filament/spatie-laravel-media-library-plugin`) and translatable Edit pages
 (`lara-zeus/spatie-translatable`) out of the box when installed. No Node build or custom stylesheet.
@@ -139,23 +139,27 @@ CreateAction::make()
 
 ### Actions, modals, table forms, and Livewire components
 
-Use `HasAutosaveForForm` for action/modal forms, table forms, and standalone Livewire components:
+Use `HasAutosaveForForm` for action and modal forms, table forms, and standalone Livewire components:
 
 ```php
 use Lenorix\FilamentAutosave\HasAutosaveForForm;
+use Livewire\Component;
 
-class EditCommentAction
+class EditCommentForm extends Component
 {
     use HasAutosaveForForm;
 
     public ?array $data = [];
+    public string|int|null $recordId = null;
 
     protected function getAutosaveFormContext(): string
     {
-        return 'comment:'.($this->ownerRecord->getKey() ?? 'new');
+        return 'comment:'.$this->recordId;
     }
 }
 ```
+
+Return a stable value based on the owner, record, or action so separate forms do not share drafts.
 
 Call `$this->mountHasAutosaveForForm()` in `mount()` and include the indicator in the Blade view:
 
@@ -216,19 +220,19 @@ run after a successful Edit-page save.
 
 ## Keeping editors in sync
 
-With dirty-only saves, changes to different fields do not overwrite each other. Changes to the same field use
-last-write-wins unless text merging is enabled.
+Dirty-only saves are enabled by default. Changes to different fields do not overwrite each other. Changes to the same
+field use last-write-wins unless text merging is enabled.
 
 ### Refresh after saving
 
-Enable `refresh_unchanged_fields` to refresh untouched model columns after each autosave. This does not use polling
-and never replaces values you are currently editing. Relationships, uploads, and excluded fields are not refreshed
-by this option.
+When `refresh_unchanged_fields` is enabled (the default), each autosave refreshes untouched model columns in its
+response. This does not use polling and never replaces values you are currently editing. Relationships, uploads, and
+excluded fields are not refreshed by this option.
 
 ### Background polling
 
 Set `poll_interval` to check for remote changes in the background. It defaults to 5 seconds; set it to `0` to disable
-polling.
+polling. Polling requires `refresh_unchanged_fields` to be enabled.
 
 Polling updates untouched columns, repeaters, uploads, and media. Fields with local changes are marked as `stale` and
 are never overwritten.
@@ -252,7 +256,7 @@ protected function autosavePollInterval(): ?int
 
 ### Merging text edits
 
-Add text fields to `mergeFields` to combine non-overlapping edits from different users:
+Add top-level text fields to `mergeFields` to combine non-overlapping edits from different users:
 
 ```php
 AutosavePlugin::make()->mergeFields(['title', 'body']);
@@ -311,7 +315,8 @@ Repeater::make('settings')->schema([
 
 ### Failed and interrupted uploads
 
-Autosaves use database transactions. When a save fails, newly uploaded files and media are removed automatically.
+Edit and Create page autosaves use database transactions. Generic forms use the host transaction when one is
+available. When a save fails, newly uploaded files and media are removed automatically.
 
 To clean up files left behind by interrupted requests, schedule the pruning command:
 
@@ -356,36 +361,35 @@ Event::listen(AutosaveFailed::class, function (AutosaveFailed $event): void {
 });
 ```
 
-## Extension points and stability
+## Customizing autosave
 
-Only trait members tagged `@api` are stable extension points (pinned by contract tests). All other members
-(including `protected`) are internal, unsupported for overriding, and may change across minor releases.
+Use the documented hooks and methods below when the defaults do not fit your form. Other trait internals are not part
+of the public API and may change between releases.
 
 | Override (`protected`) | Purpose |
 | --- | --- |
-| `shouldAutosave()` | Turn autosave on or off for this component |
-| `autosaveDebounce()` / `autosaveExcept()` | Per-page debounce and excluded fields |
-| `autosavePollInterval()` | Per-page poll interval for other editors' changes; `0` disables |
-| `autosaveMergeFields()` | Per-page plain-text fields merged word by word; `null` uses the plugin/config |
-| `beforeAutosave(array $data): array` | Inspect or change the eligible state before validation |
-| `getAutosaveValidationRules()` | Extra rules; failing fields are skipped |
-| `afterAutosave(object $record)` | Work after each successful Edit-page save |
-| `getUndoTtlMinutes()` | Undo snapshot lifetime |
-| `resolveAutosaveForm()` / `getAutosaveStatePath()` | Which schema and state path autosave uses |
-| `persistAutosaveForm(array $data)` | Custom persistence for generic forms |
-| `getAutosaveFormContext()` | Draft/Undo scope for generic forms |
+| `shouldAutosave()` | Enable or disable autosave for this component |
+| `autosaveDebounce()` / `autosaveExcept()` | Set the debounce delay or excluded fields for one page |
+| `autosavePollInterval()` | Set the polling interval for one page; `0` disables polling |
+| `autosaveMergeFields()` | Choose fields to merge when other editors change them |
+| `beforeAutosave(array $data): array` | Change the data before validation |
+| `getAutosaveValidationRules()` | Add rules used by autosave |
+| `afterAutosave(object $record)` | Run code after a successful Edit-page save |
+| `getUndoTtlMinutes()` | Change how long Undo remains available |
+| `resolveAutosaveForm()` / `getAutosaveStatePath()` | Select the form and state path for generic forms |
+| `persistAutosaveForm(array $data)` | Provide custom persistence for generic forms |
+| `getAutosaveFormContext()` | Isolate drafts and Undo data for generic forms |
 
 | Call (`public`) | Purpose |
 | --- | --- |
-| `autosave(array $mergePatches = [])` | Background save; never throws. Patches per mergeable field |
-| `flushAutosave(): bool` | Synchronous save that throws |
-| `undoAutosave()` | Restore the last autosave |
-| `syncAutosave(array $mergeBaseHashes = [])` | Pull other editors' changes into untouched fields (what the poll calls) |
-| `getAutosavePollInterval()` / `getAutosaveMergeFields()` | Resolved poll interval and mergeable fields |
-| `restoreDraft()` / `discardDraft()` / `clearAutosaveDraft()` | Draft lifecycle |
-| `isAutosaveEnabled()` / `getAutosaveDebounce()` / `getAutosaveExcept()` | Resolved settings |
+| `autosave(array $mergePatches = [])` | Run a background save; errors are reported through the indicator |
+| `flushAutosave(): bool` | Run a save immediately and let errors propagate |
+| `undoAutosave()` | Restore the most recent autosave |
+| `syncAutosave(array $mergeBaseHashes = [])` | Pull remote changes into untouched fields |
+| `restoreDraft()` / `discardDraft()` / `clearAutosaveDraft()` | Manage a Create or recordless draft |
 
-Use package events (`Lenorix\FilamentAutosave\Events\*`) to observe the lifecycle without overriding methods.
+Use package events (`Lenorix\FilamentAutosave\Events\*`) when you need to observe the lifecycle without overriding
+methods.
 
 ## Configuration
 
@@ -401,6 +405,9 @@ AutosavePlugin::make()
     ->showTimestamp(false)
     ->indicatorPosition('after');
 ```
+
+Options without a plugin or page method are set in the published config file, including `dirty_only`,
+`refresh_unchanged_fields`, `poll_interval`, and `poll_relationships`.
 
 Page-level settings use methods (do not redeclare trait properties):
 
@@ -427,8 +434,8 @@ protected function shouldAutosave(): bool
 php artisan vendor:publish --tag="filament-autosave-translations"
 ```
 
-Ships with English out of the box (kept in parity via tests), covering all status badges, draft and undo
-actions, validation messages, and pending field indicators.
+English is included by default. The translations cover status badges, draft and Undo actions, validation messages, and
+pending field indicators.
 
 ## The indicator
 
