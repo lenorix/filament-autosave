@@ -4,6 +4,7 @@
 [![Total Downloads](https://img.shields.io/packagist/dt/lenorix/filament-autosave.svg?style=flat-square)](https://packagist.org/packages/lenorix/filament-autosave)
 [![Tests](https://img.shields.io/github/actions/workflow/status/lenorix/filament-autosave/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/lenorix/filament-autosave/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg?style=flat-square)](LICENSE.md)
+[![Plumb score](https://plumbphp.dev/badges/lenorix/filament-autosave/composite.svg)](https://plumbphp.dev/lenorix/filament-autosave)
 
 Filament Autosave saves form changes after the user pauses typing. It writes only the fields that changed, keeps
 untouched fields up to date when other editors save, and offers one-step Undo.
