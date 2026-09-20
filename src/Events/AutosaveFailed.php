@@ -5,7 +5,7 @@ namespace Lenorix\FilamentAutosave\Events;
 /**
  * An autosave operation threw. The write was rolled back before this fires.
  *
- * `$context` is `save`, `undo`, or `restore`.
+ * `$context` is `save`, `sync`, `undo`, or `restore`.
  */
 final class AutosaveFailed
 {

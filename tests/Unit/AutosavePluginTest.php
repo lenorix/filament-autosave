@@ -149,8 +149,7 @@ test('the indicator ships its controller inline', function (string $mode) {
     $controller = $indicator->getAttribute('x-data');
 
     expect($controller)->toContain('(function (', 'debounce: 2300', "mode: '$mode'", 'destroy()')
-        ->and($html)->toContain('fi-badge', 'fi-link')
-        ->not->toContain('x-load', '<script', '<link');
+        ->and($html)->not->toContain('x-load', '<script', '<link');
 
     // Undo is rendered in every mode and hidden client-side while
     // $wire.autosaveCanUndo is false, so record-backed generic forms get it too.
@@ -163,12 +162,23 @@ test('the indicator ships its controller inline', function (string $mode) {
         ->and($xpath->query('//button[@data-autosave-action="dismiss-conflicts"]')->length)->toBe(1);
 
     // Everything visual is a Filament component; none of our former helper
-    // classes or raw Tailwind utilities remain (Filament's own markup may
-    // carry whatever classes its theme compiles, so only ours are asserted).
-    expect($html)->toContain('fi-callout')
+    // classes or raw Tailwind utilities remain. Which components render is
+    // asserted on the view's own source below, not on Filament's rendered
+    // CSS class names, which are an implementation detail that can change
+    // with a Filament release without any behaviour here changing.
+    expect($html)
         ->not->toContain('fi-autosave-stack')->not->toContain('fi-autosave-note')->not->toContain('fi-autosave-list')
         ->not->toContain('text-gray-')->not->toContain('flex-col')->not->toContain('text-xs');
 })->with(['edit', 'create', 'form']);
+
+test('the indicator view is built only from Filament badge, link and callout components', function () {
+    $source = file_get_contents(__DIR__.'/../../resources/views/autosave-indicator.blade.php');
+
+    expect($source)
+        ->toContain('<x-filament::badge', '<x-filament::link', '<x-filament::callout')
+        ->not->toContain('<div class="', '<span class="')
+        ->not->toContain('text-gray-')->not->toContain('flex-col')->not->toContain('text-xs');
+});
 
 test('the indicator ships the merge runtime only for a component that lists merge fields', function () {
     $component = new class
