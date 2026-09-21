@@ -3,15 +3,12 @@
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\DeepRelationshipRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Relationship\RelationshipEditPost;
 use Livewire\Livewire;
 
-// These two tests pin the *per-row* conflict and per-row undo granularity we
-// want for relationship Repeaters. They are RED on purpose today: the dirty
-// hash keys the whole top-level relationship field ("data.items") and
-// dirty_only persists / undoes the whole touched top-level relationship
-// subtree, so one tab editing row A clobbers (persist) or reverts (undo) the
-// row a remote tab changed in the same relationship. They only turn GREEN
-// once autosave carries, merges and undoes one repeater row at a time.
+// These tests pin per-row conflict and Undo granularity for relationship
+// Repeaters. Each tab may write or undo its own row while preserving a
+// different row changed by another tab.
 
 function seedTwoItemRepeater(): Post
 {
@@ -80,4 +77,34 @@ test('a generic form relationship undo is per row: it restores only the row it w
 
     expect($post->fresh()->items()->orderBy('position')->pluck('label')->all())
         ->toBe(['Item One', 'Item Two from B']);
+});
+
+test('an edit page repeater also preserves a different row edited in another tab', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = seedTwoItemRepeater();
+
+    $first = Livewire::test(RelationshipEditPost::class, ['record' => $post->getKey()]);
+    $second = Livewire::test(RelationshipEditPost::class, ['record' => $post->getKey()]);
+    [$firstKey, $secondKey] = array_keys($first->get('data')['items']);
+
+    $first->set("data.items.{$firstKey}.label", 'Item One from A')->call('autosave');
+    $second->set("data.items.{$secondKey}.label", 'Item Two from B')->call('autosave');
+
+    expect($post->fresh()->items()->orderBy('position')->pluck('label')->all())
+        ->toBe(['Item One from A', 'Item Two from B']);
+});
+
+test('a page re-baselines relationship row hashes after a partial save', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = seedTwoItemRepeater();
+
+    $page = Livewire::test(RelationshipEditPost::class, ['record' => $post->getKey()]);
+    [$firstKey] = array_keys($page->get('data')['items']);
+
+    $page->set("data.items.{$firstKey}.label", 'Item One from A')->call('autosave');
+    $post->items()->where('position', 2)->update(['label' => 'Item Two from B']);
+    $page->set("data.items.{$firstKey}.label", 'Item One from A again')->call('autosave');
+
+    expect($post->fresh()->items()->orderBy('position')->pluck('label')->all())
+        ->toBe(['Item One from A again', 'Item Two from B']);
 });

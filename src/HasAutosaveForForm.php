@@ -264,6 +264,8 @@ trait HasAutosaveForForm
     /** Uploads are only actionable when this form is bound to a record. */
     protected function prepareAutosavePersistence(): void
     {
+        $this->autosavePendingRelationshipRows = [];
+
         if (! (($record = $this->getAutosaveFormRecord()) instanceof Model) || ! $record->exists) {
             $this->autosavePendingUploads = [];
             $this->autosaveBlockedUploadColumns = [];
@@ -785,6 +787,7 @@ trait HasAutosaveForForm
                 $relationshipSnapshot,
                 $externalSnapshot,
                 $externalFields,
+                $expectedRelationships ?? [],
             ));
 
             $record->refresh();
@@ -957,11 +960,13 @@ trait HasAutosaveForForm
     protected function resetAutosaveFormRelationshipHashes(): void
     {
         $this->autosaveRelationshipHashes = [];
+        $this->autosaveRelationshipRowHashes = [];
 
         foreach ($this->autosaveRelationshipFields() as $path => $fields) {
             $this->autosaveRelationshipHashes[$path] = $this->autosaveRelationshipHash($fields);
 
             foreach ($fields as $field) {
+                $this->captureAutosaveRelationshipRowHashes($field);
                 $concrete = $this->autosaveRelativeFieldPath($field);
 
                 if ($concrete !== null && $concrete !== $path) {
@@ -1155,6 +1160,7 @@ trait HasAutosaveForForm
             return;
         }
 
+        $this->autosavePendingRelationshipRows = [];
         $touched = array_fill_keys(array_map(AutosaveFieldTree::topLevelKey(...), [...array_keys($data), ...array_keys($uploads)]), true);
 
         if ($touched !== []) {
@@ -1189,6 +1195,12 @@ trait HasAutosaveForForm
 
             if (! isset($touched[AutosaveFieldTree::topLevelKey($path)])) {
                 continue;
+            }
+
+            if (method_exists($component, 'getRawState')
+                && method_exists($component, 'rawState')
+                && is_array($state = $component->getRawState())) {
+                $component->rawState($this->mergeAutosaveRelationshipRows($component, $state));
             }
 
             $component->saveRelationshipsBeforeChildren();

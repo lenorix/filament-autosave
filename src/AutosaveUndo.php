@@ -142,6 +142,66 @@ final class AutosaveUndo
      */
     public static function relationshipsMatch(?array $expected, array $current): bool
     {
-        return $expected === null || array_intersect_key($current, $expected) === $expected;
+        if ($expected === null) {
+            return true;
+        }
+
+        foreach ($expected as $path => $expectedState) {
+            if (! array_key_exists($path, $current)) {
+                return false;
+            }
+
+            if (! ($expectedState['partial'] ?? false)) {
+                if ($current[$path] !== $expectedState) {
+                    return false;
+                }
+
+                continue;
+            }
+
+            $currentRows = self::rowsByKey($current[$path]['rows'] ?? []);
+            $expectedRows = self::rowsByKey($expectedState['rows'] ?? []);
+
+            foreach ($expectedRows as $key => $row) {
+                if (! array_key_exists($key, $currentRows) || $currentRows[$key] !== $row) {
+                    return false;
+                }
+            }
+
+            foreach ($expectedState['stateKeys'] ?? [] as $stateKey) {
+                $stateKey = (string) $stateKey;
+
+                if (! str_starts_with($stateKey, 'record-')) {
+                    continue;
+                }
+
+                $key = substr($stateKey, 7);
+
+                if (array_key_exists($key, $expectedRows) !== array_key_exists($key, $currentRows)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, array<string, mixed>>
+     */
+    private static function rowsByKey(array $rows): array
+    {
+        $indexed = [];
+
+        foreach ($rows as $row) {
+            $key = $row['key'] ?? ($row['attributes']['id'] ?? null);
+
+            if ($key !== null) {
+                $indexed[(string) $key] = $row;
+            }
+        }
+
+        return $indexed;
     }
 }

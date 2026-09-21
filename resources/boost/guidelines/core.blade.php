@@ -88,9 +88,10 @@ redirect run only after an explicit `flushAutosave()` commits successfully.
 
 ## Fields, validation, and dirty-only writes
 
-`dirty_only` defaults to `true`. Hashes are kept per top-level state path; a
-successful cycle advances hashes only for values actually written. Never copy
-or mutate these hashes manually.
+`dirty_only` defaults to `true`. Column hashes are kept per top-level state
+path; relationship Repeater hashes also track each row. A successful cycle
+advances hashes only for values actually written. Never copy or mutate these
+hashes manually.
 
 Invalid fields are skipped and reported as pending; valid sibling fields may
 still save. Blank required values, invalid uploads, and incomplete groups,
@@ -142,7 +143,7 @@ covered by Pest's browser plugin, with Playwright used only as the driver.
 Undo is single-step. It restores saved columns, pivot data, and supported
 relationship rows only when their expected values still match the database.
 If another editor changed a value being restored, Undo reports a conflict and
-does not overwrite it. Changes to unrelated columns do not block Undo.
+does not overwrite it. For Repeaters, unrelated rows do not block Undo.
 
 `relationship_undo_depth` defaults to 8. Deeper graphs disable Undo for that
 snapshot. Files, media, and other external storage are excluded unless a

@@ -158,6 +158,7 @@ Autosave writes changed, valid form data and leaves the rest of the record alone
 - Regular fields, JSON and relationship repeaters, uploads, media, and `RichEditor` are supported.
 - Password fields, `dehydrated(false)`, and fields listed in `except` are never saved.
 - With `dirty_only` enabled (the default), each cycle writes only fields that changed.
+- Relationship Repeaters use the same rule per row, so two editors can save different rows without clobbering each other.
 - Invalid fields are skipped without clearing their stored value; valid sibling fields can still be saved.
 - Groups, builders, and other single-column fields are saved only when all child inputs are valid.
 - Filament validation, hooks, events, and page authorization still run.
@@ -215,6 +216,7 @@ Undo is available for 5 seconds after a save. Snapshots are kept for 90 minutes 
 
 - Restores saved attributes, pivot data, and supported relationships.
 - Stops when the fields being restored changed remotely, so Undo does not overwrite newer work.
+- For relationship Repeaters, conflict checks and restoration are scoped to the rows changed by that autosave.
 - Relation snapshots are limited by `relationship_undo_depth` (8 by default).
 - Files and media are excluded unless a reversible `external_undo_adapters` adapter is configured.
 

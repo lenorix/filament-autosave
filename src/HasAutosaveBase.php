@@ -72,6 +72,13 @@ trait HasAutosaveBase
     /** @var array<string, mixed> Clean columns re-read from the record for the status event. */
     protected array $autosaveRefreshState = [];
 
+    /** @var array<string, array{order: array<int, string|int>, rows: array<string, string>}> Baselines for relationship rows. */
+    #[Locked]
+    public array $autosaveRelationshipRowHashes = [];
+
+    /** @var array<string, array<int, string|int>> State keys touched in the current relationship write. */
+    protected array $autosavePendingRelationshipRows = [];
+
     /** Livewire path watched by the indicator; defaults to the Filament form path. */
     #[Locked]
     public string $autosaveDataPath = 'data';
@@ -832,8 +839,9 @@ trait HasAutosaveBase
      * @param  array<string, array<string, mixed>>  $relationshipSnapshot
      * @param  array<string, array<string, mixed>>  $externalSnapshot
      * @param  array<string, object>  $externalFields
+     * @param  array<string, array<string, mixed>>  $expectedRelationships
      */
-    protected function restoreAutosaveUndoParts(object $record, array $snapshot, array $relationshipSnapshot, array $externalSnapshot, array $externalFields): void
+    protected function restoreAutosaveUndoParts(object $record, array $snapshot, array $relationshipSnapshot, array $externalSnapshot, array $externalFields, array $expectedRelationships = []): void
     {
         $this->callAutosaveHook('beforeValidate');
         $this->callAutosaveHook('afterValidate');
@@ -844,7 +852,7 @@ trait HasAutosaveBase
         }
 
         if ($relationshipSnapshot !== []) {
-            $this->restoreAutosaveRelationshipUndo($relationshipSnapshot);
+            $this->restoreAutosaveRelationshipUndo($relationshipSnapshot, $expectedRelationships);
         }
 
         // External (file/media) restores come from the uploads trait, which
@@ -1565,6 +1573,180 @@ trait HasAutosaveBase
         return AutosaveFieldTree::relativePath((string) $fieldPath, $this->getAutosaveStatePath());
     }
 
+    /** Capture one relationship component's per-row baseline. */
+    protected function captureAutosaveRelationshipRowHashes(object $field): void
+    {
+        if (! method_exists($field, 'getRawState')) {
+            return;
+        }
+
+        $path = $this->autosaveRelativeFieldPath($field);
+        $state = $field->getRawState();
+
+        if ($path === null || ! is_array($state) || ($state !== [] && count(array_filter($state, 'is_array')) !== count($state))) {
+            return;
+        }
+
+        $rows = [];
+
+        foreach ($state as $key => $row) {
+            if (is_array($row)) {
+                $rows[(string) $key] = $this->hashAutosaveValue($row);
+            }
+        }
+
+        $this->autosaveRelationshipRowHashes[$path] = [
+            'order' => array_keys($state),
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * Merge clean relationship rows from the database into a stale form
+     * state, preserving only the rows this editor changed.
+     *
+     * @param  array<string, mixed>  $state
+     * @return array<string, mixed>
+     */
+    protected function mergeAutosaveRelationshipRows(object $field, array $state): array
+    {
+        $path = $this->autosaveRelativeFieldPath($field);
+        $baseline = $path !== null ? ($this->autosaveRelationshipRowHashes[$path] ?? null) : null;
+
+        if ($path === null || $baseline === null || ! method_exists($field, 'getRelationship')) {
+            return $state;
+        }
+
+        if ($state !== [] && count(array_filter($state, 'is_array')) !== count($state)) {
+            return $state;
+        }
+
+        $currentRows = [];
+
+        foreach ($state as $key => $row) {
+            if (is_array($row)) {
+                $currentRows[(string) $key] = $row;
+            }
+        }
+
+        $dirty = array_fill_keys($this->autosaveRelationshipDirtyRowKeys($field, $state), true);
+        $deleted = array_diff_key($dirty, $currentRows);
+
+        if ($dirty === []) {
+            return $state;
+        }
+
+        $this->autosavePendingRelationshipRows[$path] = array_keys($dirty);
+
+        try {
+            $relationship = $field->getRelationship();
+            $parent = method_exists($relationship, 'getParent') ? $relationship->getParent() : null;
+            $name = method_exists($field, 'getRelationshipName') ? $field->getRelationshipName() : null;
+
+            if ($parent !== null && filled($name) && method_exists($parent, 'unsetRelation')) {
+                $parent->unsetRelation((string) $name);
+            }
+
+            if (method_exists($field, 'clearCachedExistingRecords')) {
+                $field->clearCachedExistingRecords();
+            }
+
+            if (! method_exists($field, 'loadStateFromRelationships')) {
+                return $state;
+            }
+
+            $field->loadStateFromRelationships(true);
+            $remote = $field->getRawState();
+
+            if (! is_array($remote)) {
+                return $state;
+            }
+
+            $merged = $remote;
+
+            foreach ($currentRows as $key => $row) {
+                if (isset($dirty[$key])) {
+                    $merged[$key] = $row;
+                }
+            }
+
+            foreach (array_keys($deleted) as $key) {
+                unset($merged[$key]);
+            }
+
+            if ($baseline['order'] !== array_keys($state)) {
+                $ordered = [];
+
+                foreach (array_keys($state) as $key) {
+                    if (array_key_exists($key, $merged)) {
+                        $ordered[$key] = $merged[$key];
+                    }
+                }
+
+                foreach ($merged as $key => $row) {
+                    if (! array_key_exists($key, $ordered)) {
+                        $ordered[$key] = $row;
+                    }
+                }
+
+                $merged = $ordered;
+            }
+
+            return $merged;
+        } catch (\Throwable) {
+            // A failed refresh must never discard the user's local row.
+            return $state;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $state
+     * @return array<int, string>
+     */
+    protected function autosaveRelationshipDirtyRowKeys(object $field, array $state): array
+    {
+        $path = $this->autosaveRelativeFieldPath($field);
+        $baseline = $path !== null ? ($this->autosaveRelationshipRowHashes[$path] ?? null) : null;
+
+        if ($path === null || $baseline === null) {
+            return [];
+        }
+
+        if ($state !== [] && count(array_filter($state, 'is_array')) !== count($state)) {
+            return [];
+        }
+
+        $dirty = [];
+
+        foreach ($state as $key => $row) {
+            $key = (string) $key;
+
+            if (! is_array($row) || ($baseline['rows'][$key] ?? null) !== $this->hashAutosaveValue($row)) {
+                $dirty[] = $key;
+            }
+        }
+
+        foreach (array_keys($baseline['rows']) as $key) {
+            if (! array_key_exists($key, $state)) {
+                $dirty[] = (string) $key;
+            }
+        }
+
+        if ($baseline['order'] !== array_keys($state)) {
+            $dirty = [...$dirty, ...array_map(strval(...), array_keys($baseline['rows']))];
+        }
+
+        return array_values(array_unique($dirty));
+    }
+
+    /** @return array<int, string>|null Rows changed for a concrete component. */
+    protected function autosavePendingRelationshipRowKeys(object $field): ?array
+    {
+        $path = $this->autosaveRelativeFieldPath($field);
+
+        return $path !== null ? ($this->autosavePendingRelationshipRows[$path] ?? null) : null;
+    }
+
     /**
      * Snapshot every pending relationship field under a cacheable path.
      *
@@ -1593,12 +1775,67 @@ trait HasAutosaveBase
                 $captured = $this->captureAutosaveRelationshipUndoField($field);
 
                 if ($captured !== null) {
+                    $rowKeys = $this->autosavePendingRelationshipRowKeys($field);
+
+                    if ($rowKeys === null && method_exists($field, 'getRawState') && is_array($state = $field->getRawState())) {
+                        $rowKeys = $this->autosaveRelationshipDirtyRowKeys($field, $state);
+                    }
+
+                    if ($rowKeys !== null && $rowKeys !== []) {
+                        $captured = $this->restrictAutosaveRelationshipUndoToRows($field, $captured, $rowKeys);
+                    }
+
                     $snapshot[$snapshotPath] = $captured;
                 }
             }
         }
 
         return $snapshot;
+    }
+
+    /**
+     * Keep relationship Undo scoped to the repeater rows changed by this
+     * cycle. The full shape remains backwards compatible for older snapshots.
+     *
+     * @param  array<string, mixed>  $captured
+     * @param  array<int, string|int>  $rowKeys
+     * @return array<string, mixed>
+     */
+    protected function restrictAutosaveRelationshipUndoToRows(object $field, array $captured, array $rowKeys): array
+    {
+        if (! isset($captured['rows']) || ! is_array($captured['rows'])) {
+            return $captured;
+        }
+
+        // New repeater rows do not have a database key until after the write.
+        // Keep the established full snapshot for those cycles; it remains
+        // safe and lets Undo remove newly-created rows correctly.
+        if (array_filter($rowKeys, static fn (string|int $rowKey): bool => ! str_starts_with((string) $rowKey, 'record-')) !== []) {
+            return $captured;
+        }
+
+        $ids = [];
+
+        foreach ($rowKeys as $rowKey) {
+            $rowKey = (string) $rowKey;
+
+            if (str_starts_with($rowKey, 'record-')) {
+                $ids[] = substr($rowKey, 7);
+            }
+        }
+
+        $captured['partial'] = true;
+        $captured['stateKeys'] = array_values(array_map(strval(...), $rowKeys));
+        $captured['rows'] = array_values(array_filter(
+            $captured['rows'],
+            function (array $row) use ($ids): bool {
+                $key = $row['key'] ?? ($row['attributes']['id'] ?? null);
+
+                return $key !== null && in_array((string) $key, $ids, true);
+            },
+        ));
+
+        return $captured;
     }
 
     /** Count nested state segments to bound recursive relationship snapshots. */
@@ -1701,8 +1938,11 @@ trait HasAutosaveBase
         return [];
     }
 
-    /** @param  array<string, array<string, mixed>>  $snapshot */
-    protected function restoreAutosaveRelationshipUndo(array $snapshot): void
+    /**
+     * @param  array<string, array<string, mixed>>  $snapshot
+     * @param  array<string, array<string, mixed>>  $expected
+     */
+    protected function restoreAutosaveRelationshipUndo(array $snapshot, array $expected = []): void
     {
         $fieldsByPath = $this->autosaveRelationshipFields();
 
@@ -1717,9 +1957,9 @@ trait HasAutosaveBase
 
             match (true) {
                 $relation instanceof MorphTo => $this->restoreMorphToUndo($relation, $state['attributes'] ?? []),
-                $relation instanceof BelongsToMany => $this->restoreBelongsToManyUndo($relation, $state['rows'] ?? []),
-                $relation instanceof HasOneOrManyThrough => $this->restoreHasManyThroughUndo($relation, $state['rows'] ?? []),
-                $relation instanceof HasOneOrMany => $this->restoreHasManyUndo($relation, $state['rows'] ?? []),
+                $relation instanceof BelongsToMany => $this->restoreBelongsToManyUndo($relation, $state['rows'] ?? [], $state['partial'] ?? false, $expected[$path]['rows'] ?? []),
+                $relation instanceof HasOneOrManyThrough => $this->restoreHasManyThroughUndo($relation, $state['rows'] ?? [], $state['partial'] ?? false, $expected[$path]['rows'] ?? []),
+                $relation instanceof HasOneOrMany => $this->restoreHasManyUndo($relation, $state['rows'] ?? [], $state['partial'] ?? false, $expected[$path]['rows'] ?? []),
                 default => null,
             };
         }
@@ -1739,13 +1979,35 @@ trait HasAutosaveBase
     /**
      * @param  BelongsToMany<Model, Model>  $relation
      * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $expectedRows
      */
-    protected function restoreBelongsToManyUndo(BelongsToMany $relation, array $rows): void
+    protected function restoreBelongsToManyUndo(BelongsToMany $relation, array $rows, bool $partial = false, array $expectedRows = []): void
     {
         $ids = [];
 
         foreach ($rows as $row) {
             $ids[$row['key']] = $row['pivot'] ?? [];
+        }
+
+        if ($partial) {
+            $expected = [];
+
+            foreach ($expectedRows as $row) {
+                $expected[(string) $row['key']] = true;
+            }
+
+            $current = $relation->get()->keyBy(fn (Model $model): string => (string) $model->getKey());
+            $touched = array_unique([...array_keys($ids), ...array_keys($expected)]);
+
+            foreach ($touched as $key) {
+                if (array_key_exists((string) $key, $ids)) {
+                    $relation->syncWithoutDetaching([(string) $key => $ids[(string) $key]]);
+                } elseif ($current->has((string) $key)) {
+                    $relation->detach($key);
+                }
+            }
+
+            return;
         }
 
         $relation->sync($ids);
@@ -1754,12 +2016,28 @@ trait HasAutosaveBase
     /**
      * @param  HasOneOrManyThrough<Model, Model, Model, mixed>  $relation
      * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $expectedRows
      */
-    protected function restoreHasManyThroughUndo(HasOneOrManyThrough $relation, array $rows): void
+    protected function restoreHasManyThroughUndo(HasOneOrManyThrough $relation, array $rows, bool $partial = false, array $expectedRows = []): void
     {
         $related = $relation->getRelated();
         $keyName = $related->getKeyName();
         $original = $this->autosaveRelatedRowsByKey($rows, $keyName);
+
+        if ($partial) {
+            $expected = $this->autosaveRelatedRowsByKey($expectedRows, $keyName);
+            $existing = $this->autosaveCurrentRelatedRows($relation);
+
+            foreach (array_diff_key($expected, $original) as $key => $attributes) {
+                $existing->get($key)?->delete();
+            }
+
+            foreach ($original as $attributes) {
+                $this->restoreAutosaveRelatedModel($related, $attributes, $keyName, $existing)->save();
+            }
+
+            return;
+        }
 
         // A through relation has no save/sync operation of its own.
         // Restore the complete related set explicitly: delete rows
@@ -1776,12 +2054,28 @@ trait HasAutosaveBase
     /**
      * @param  HasOneOrMany<Model, Model, mixed>  $relation
      * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $expectedRows
      */
-    protected function restoreHasManyUndo(HasOneOrMany $relation, array $rows): void
+    protected function restoreHasManyUndo(HasOneOrMany $relation, array $rows, bool $partial = false, array $expectedRows = []): void
     {
         $related = $relation->getRelated();
         $keyName = $related->getKeyName();
         $original = $this->autosaveRelatedRowsByKey($rows, $keyName);
+
+        if ($partial) {
+            $expected = $this->autosaveRelatedRowsByKey($expectedRows, $keyName);
+            $existing = $this->autosaveCurrentRelatedRows($relation);
+
+            foreach (array_diff_key($expected, $original) as $key => $attributes) {
+                $existing->get($key)?->delete();
+            }
+
+            foreach ($original as $attributes) {
+                $relation->save($this->restoreAutosaveRelatedModel($related, $attributes, $keyName, $existing));
+            }
+
+            return;
+        }
 
         $existing = $this->autosaveCurrentRelatedRows($relation);
         $this->deleteAutosaveRowsMissingFrom($existing, $original);

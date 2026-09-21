@@ -247,11 +247,13 @@ trait HasAutosave
     protected function resetAutosaveRelationshipHashes(): void
     {
         $this->autosaveRelationshipHashes = [];
+        $this->autosaveRelationshipRowHashes = [];
 
         foreach ($this->autosaveRelationshipFields() as $path => $fields) {
             $this->autosaveRelationshipHashes[$path] = $this->autosaveRelationshipHash($fields);
 
             foreach ($fields as $field) {
+                $this->captureAutosaveRelationshipRowHashes($field);
                 $concrete = $this->autosaveRelativeFieldPath($field);
 
                 if ($concrete !== null && $concrete !== $path) {
@@ -264,6 +266,7 @@ trait HasAutosave
     protected function prepareAutosaveRelationshipPersistence(): void
     {
         $this->autosavePendingRelationships = [];
+        $this->autosavePendingRelationshipRows = [];
 
         foreach ($this->autosaveRelationshipFields() as $path => $fields) {
             if ($this->autosavePathExcluded($path)) {
@@ -334,6 +337,10 @@ trait HasAutosave
 
         foreach ($this->autosavePendingRelationships as $path => $fields) {
             $this->autosaveRelationshipHashes[$path] = $this->autosaveRelationshipHash($fields);
+
+            foreach ($fields as $field) {
+                $this->captureAutosaveRelationshipRowHashes($field);
+            }
         }
 
         return $this->hashAutosaveFields($current) === $this->autosaveFieldHashes
@@ -649,7 +656,8 @@ trait HasAutosave
                     continue;
                 }
 
-                if (method_exists($field, 'rawState')) {
+                if (method_exists($field, 'rawState') && is_array($state)) {
+                    $state = $this->mergeAutosaveRelationshipRows($field, $state);
                     $field->rawState($state);
                 }
 
@@ -974,6 +982,7 @@ trait HasAutosave
                 $relationshipSnapshot ?? [],
                 $externalSnapshot ?? [],
                 $this->autosaveExternalUndoFields(),
+                $expectedRelationships ?? [],
             ));
 
             $this->getRecord()->refresh();
