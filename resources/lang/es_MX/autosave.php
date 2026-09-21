@@ -6,7 +6,7 @@ return [
     'saved' => 'Cambios guardados',
     'saved_at' => 'Guardado a las',
     'undo' => 'Deshacer',
-    'undone' => 'Valor anterior restablecido',
+    'undone' => 'Valor anterior restaurado',
     'conflict' => 'Deshacer cancelado: el registro cambió en otro lugar',
     'error' => 'El guardado automático encontró un problema',
     'validation' => 'Algunos cambios necesitan atención',
