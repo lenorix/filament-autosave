@@ -57,14 +57,24 @@ trait HasAutosaveBase
     public array $autosaveSyncedAttributeHashes = [];
 
     /**
-     * Fingerprint of each polled relation (row count + latest updated_at) as
-     * this component last observed it, by top-level path. Only kept while
+     * Fingerprint of each polled relation (sorted keys + latest updated_at)
+     * as this component last observed it, by top-level path. Only kept while
      * `poll_relationships` is on.
      *
      * @var array<string, string>
      */
     #[Locked]
     public array $autosaveSyncedRelationHashes = [];
+
+    /**
+     * Scalar descriptors for relation polling. Livewire carries these between
+     * requests so an idle poll can rebuild relation queries without asking
+     * Filament to flatten every nested Repeater again.
+     *
+     * @var array<string, array{kind: 'relation'|'media', refresh: string, name: string|null, pollPath?: string}>
+     */
+    #[Locked]
+    public array $autosavePolledRelationDescriptors = [];
 
     /** @var array<string, string>|null Fingerprints already read this request; null once a write invalidated them. */
     protected ?array $autosaveReadRelationFingerprints = null;
@@ -102,6 +112,9 @@ trait HasAutosaveBase
     protected bool $isAutosaving = false;
 
     protected bool $autosaveCycleActive = false;
+
+    /** Set for the request whose render/dehydrate phase follows syncAutosave(). */
+    protected bool $autosaveSyncRequest = false;
 
     /** Set by flushAutosave(): fail loudly instead of reporting through the indicator. */
     protected bool $autosaveThrows = false;
@@ -573,6 +586,10 @@ trait HasAutosaveBase
      */
     protected function autosaveValidatePhase(array $data): ?array
     {
+        $eligibleState = property_exists($this, 'data') && is_array($this->data)
+            ? $this->data
+            : $data;
+        $eligiblePaths = array_fill_keys(array_map(strval(...), array_keys($eligibleState)), true);
         $data = $this->beforeAutosave($data);
         $data = $this->validateAutosaveFields($data);
         $data = $this->enforceFieldOptionRules($data);
@@ -580,6 +597,29 @@ trait HasAutosaveBase
 
         if ($this->autosaveThrows && $this->autosaveValidationErrors !== []) {
             throw $this->autosaveValidationException();
+        }
+
+        // Filament's afterValidate hook only runs after a clean validation
+        // pass. Autosave may still persist valid sibling fields, but a
+        // validation error must not make the host observe a successful hook.
+        $hasRelevantValidationErrors = false;
+
+        foreach (array_keys($this->autosaveValidationErrors) as $key) {
+            if (isset($eligiblePaths[AutosaveFieldTree::topLevelKey((string) $key)])) {
+                $hasRelevantValidationErrors = true;
+
+                break;
+            }
+        }
+
+        if ($hasRelevantValidationErrors) {
+            if ($this->autosaveHasNothingToPersist($data)) {
+                $this->finishAutosaveWithoutWrite();
+
+                return null;
+            }
+
+            return $data;
         }
 
         $this->callAutosaveHook('afterValidate');
@@ -2203,6 +2243,16 @@ trait HasAutosaveBase
             return;
         }
 
+        // Polling returns its state through the autosave-status event. Avoid a
+        // full Filament render after every idle tick; nested Repeaters would
+        // otherwise hydrate their relationship components once per row after
+        // the detector has already batched them.
+        if (method_exists($this, 'skipRender')) {
+            $this->skipRender();
+        }
+
+        $this->autosaveSyncRequest = true;
+
         $record = $this->autosaveSyncRecord();
 
         if (! is_object($record) || ! method_exists($record, 'getAttributes') || ! ($record->exists ?? false)) {
@@ -2329,12 +2379,16 @@ trait HasAutosaveBase
      * and not excluded. Nested relationship fields use their concrete row path
      * and refresh independently up to the configured depth.
      *
-     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>, refresh: string}>
+     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>, refresh: string, name: string|null}>
      */
-    protected function autosavePolledRelationFields(object $record): array
+    protected function autosavePolledRelationFields(object $record, bool $withComponents = true): array
     {
         if (! $this->autosavePollsRelationships()) {
             return [];
+        }
+
+        if (! $withComponents && $this->autosavePolledRelationDescriptors !== []) {
+            return $this->buildAutosavePolledRelationFields($record);
         }
 
         $polled = [];
@@ -2352,22 +2406,27 @@ trait HasAutosaveBase
                     }
 
                     $concretePath = $this->autosaveRelativeFieldPath($field) ?? $path;
-                    $depth = $this->autosaveRelationPathDepth($concretePath);
 
                     if ($this->autosavePathExcluded($concretePath)
-                        || $depth > $this->autosavePollRelationshipDepth()
                         || str_contains($concretePath, '*')) {
                         continue;
                     }
 
                     $key = $concretePath === $path ? $path : $concretePath;
+                    $name = method_exists($field, 'getRelationshipName')
+                        ? $field->getRelationshipName()
+                        : null;
                     $polled[$key] ??= [
                         'kind' => 'relation',
                         'components' => [],
                         'relation' => $relation,
                         'refresh' => $refresh,
+                        'name' => is_string($name) ? $name : null,
                     ];
-                    $polled[$key]['components'][] = $field;
+
+                    if ($withComponents) {
+                        $polled[$key]['components'][] = $field;
+                    }
                 }
             }
         }
@@ -2384,12 +2443,232 @@ trait HasAutosaveBase
                 $relation = $record->media();
 
                 if ($relation instanceof Relation) {
-                    $polled[$path] = ['kind' => 'media', 'components' => [$field], 'relation' => $relation, 'refresh' => $path];
+                    $polled[$path] = [
+                        'kind' => 'media',
+                        'components' => [$field],
+                        'relation' => $relation,
+                        'refresh' => $path,
+                        'name' => 'media',
+                    ];
+                }
+            }
+        }
+
+        // A relationship can live below a non-relationship container (for
+        // example `settings.items`). Keep the component's original key for
+        // refreshes, but store a normalized path for rebuilding its query
+        // graph on a later polling request.
+        $relationNames = array_values(array_unique(array_filter(array_map(
+            static fn (array $entry): ?string => is_string($entry['name'] ?? null) ? $entry['name'] : null,
+            $polled,
+        ))));
+
+        $this->autosavePolledRelationDescriptors = [];
+
+        foreach ($polled as $path => $entry) {
+            $pollPath = $entry['kind'] === 'relation'
+                ? $this->autosaveNormalizePolledRelationPath((string) $path, $relationNames)
+                : $entry['refresh'];
+
+            if ($entry['kind'] === 'relation'
+                && $this->autosaveRelationPathDepth($pollPath) > $this->autosavePollRelationshipDepth()) {
+                unset($polled[$path]);
+
+                continue;
+            }
+
+            $this->autosavePolledRelationDescriptors[$path] = [
+                'kind' => $entry['kind'],
+                'refresh' => $entry['refresh'],
+                'name' => $entry['name'],
+                'pollPath' => $pollPath,
+            ];
+        }
+
+        return $polled;
+    }
+
+    /**
+     * Rebuild poll entries from scalar descriptors carried by Livewire.
+     * Resolving all parents level by level lets Eloquent eager-load one query
+     * per rendered relationship level, including a self-referential
+     * `children.children` schema.
+     *
+     * @return array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>, refresh: string, name: string|null}>
+     */
+    protected function buildAutosavePolledRelationFields(object $record): array
+    {
+        $polled = [];
+        $relationDescriptors = [];
+
+        foreach ($this->autosavePolledRelationDescriptors as $path => $descriptor) {
+            if ($descriptor['kind'] === 'media') {
+                if (method_exists($record, 'media') && ($relation = $record->media()) instanceof Relation) {
+                    $polled[$path] = [
+                        'kind' => 'media',
+                        'components' => [],
+                        'relation' => $relation,
+                        'refresh' => $descriptor['refresh'],
+                        'name' => 'media',
+                    ];
+                }
+
+                continue;
+            }
+
+            if (! is_string($descriptor['name'] ?? null)) {
+                continue;
+            }
+
+            $relationDescriptors[(string) $path] = $descriptor;
+        }
+
+        if ($relationDescriptors === []) {
+            return $polled;
+        }
+
+        /** @var array<string, Model> $parents */
+        $parents = ['' => $record instanceof Model ? $record : null];
+        $maxLevels = 0;
+
+        foreach ($relationDescriptors as $descriptor) {
+            $pollPath = (string) ($descriptor['pollPath'] ?? '');
+            $maxLevels = max($maxLevels, (int) ceil(count(explode('.', $pollPath)) / 2));
+        }
+
+        for ($level = 0; $level < $maxLevels; $level++) {
+            $requests = [];
+
+            foreach ($relationDescriptors as $path => $descriptor) {
+                $pollPath = (string) ($descriptor['pollPath'] ?? $path);
+                $segments = explode('.', $pollPath);
+                $relationIndex = $level * 2;
+
+                if (! isset($segments[$relationIndex])) {
+                    continue;
+                }
+
+                $parentPath = implode('.', array_slice($segments, 0, $relationIndex));
+                $parent = $parents[$parentPath] ?? null;
+
+                if (! $parent instanceof Model || ! $parent->exists) {
+                    continue;
+                }
+
+                $name = (string) $segments[$relationIndex];
+                $requests[] = [
+                    'path' => $path,
+                    'pollPath' => $pollPath,
+                    'parentPath' => $parentPath,
+                    'parent' => $parent,
+                    'name' => $name,
+                    'final' => ! isset($segments[$relationIndex + 2]),
+                    'rowKey' => $segments[$relationIndex + 1] ?? null,
+                ];
+            }
+
+            if ($requests === []) {
+                continue;
+            }
+
+            $groups = [];
+
+            foreach ($requests as $request) {
+                if ($request['final']) {
+                    continue;
+                }
+
+                $groupKey = $request['parent']::class.'|'.$request['name'];
+                $groups[$groupKey]['name'] = $request['name'];
+                $groups[$groupKey]['parents'][(string) $request['parent']->getKey()] = $request['parent'];
+            }
+
+            foreach ($groups as $group) {
+                $groupParents = array_values($group['parents']);
+                $collection = $groupParents[0]->newCollection($groupParents);
+
+                foreach ($groupParents as $parent) {
+                    $parent->unsetRelation($group['name']);
+                }
+
+                $collection->load($group['name']);
+            }
+
+            foreach ($requests as $request) {
+                $parent = $request['parent'];
+                $name = $request['name'];
+                $relation = $parent->{$name}();
+
+                if (! $relation instanceof Relation) {
+                    continue;
+                }
+
+                if ($request['final']) {
+                    $descriptor = $relationDescriptors[$request['path']];
+                    $polled[$request['path']] = [
+                        'kind' => 'relation',
+                        'components' => [],
+                        'relation' => $relation,
+                        'refresh' => $descriptor['refresh'],
+                        'name' => (string) $descriptor['name'],
+                    ];
+
+                    continue;
+                }
+
+                $related = $parent->getRelation($name);
+                $row = $this->autosavePollRelatedRow($related, (string) $request['rowKey']);
+
+                if ($row instanceof Model) {
+                    $rowPath = $request['parentPath'] === ''
+                        ? $name.'.'.$request['rowKey']
+                        : $request['parentPath'].'.'.$name.'.'.$request['rowKey'];
+                    $parents[$rowPath] = $row;
                 }
             }
         }
 
         return $polled;
+    }
+
+    protected function autosavePollRelatedRow(mixed $related, string $rowKey): ?Model
+    {
+        if ($related instanceof Model) {
+            return (string) $related->getKey() === $rowKey || 'record-'.$related->getKey() === $rowKey
+                ? $related
+                : null;
+        }
+
+        if (! is_iterable($related)) {
+            return null;
+        }
+
+        foreach ($related as $row) {
+            if ($row instanceof Model
+                && ((string) $row->getKey() === $rowKey || 'record-'.$row->getKey() === $rowKey)) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Remove state-only container segments before the first relation name.
+     *
+     * @param  list<string>  $relationNames
+     */
+    protected function autosaveNormalizePolledRelationPath(string $path, array $relationNames): string
+    {
+        $segments = array_values(array_filter(explode('.', $path), static fn (string $segment): bool => $segment !== ''));
+
+        foreach ($segments as $index => $segment) {
+            if (in_array($segment, $relationNames, true)) {
+                return implode('.', array_slice($segments, $index));
+            }
+        }
+
+        return $path;
     }
 
     /** Count relationship segments in a concrete form path (`items.id.children` => 2). */
@@ -2411,17 +2690,124 @@ trait HasAutosaveBase
     }
 
     /**
-     * One query for every polled relation: `count(*)` and the latest
-     * `updated_at` of its rows (the pivot's for a BelongsToMany), compared
-     * against what the last poll saw. Relations without timestamps hash
-     * their persisted rows and pivot attributes on every poll instead, up to
-     * the configured row limit.
+     * Load nested relations in batches. A concrete Repeater
+     * row owns its own Relation instance, but all rows at one schema level
+     * share the same parent class and relationship name. Eloquent can eager
+     * load that set in one query, avoiding one detector query per rendered
+     * child. Unsaved local rows are skipped: they have no database identity
+     * that a poll can inspect.
+     *
+     * @param  array<string, array{kind: 'relation'|'media', components: array<int, object>, relation: Relation<Model, Model, *>, refresh: string, name: string|null}>  $fields
+     * @param  bool  $timestampFreeOnly  Limit batching to relations whose rows have no update stamp.
+     * @param  bool  $timestampedOnly  Limit batching to relations whose rows have an update stamp.
+     * @return array<string, array<int, Model>>
+     */
+    protected function preloadAutosavePolledRelations(
+        array $fields,
+        bool $timestampFreeOnly = true,
+        bool $timestampedOnly = false,
+    ): array {
+        $groups = [];
+
+        foreach ($fields as $path => $entry) {
+            if ($entry['kind'] !== 'relation' || ! is_string($entry['name'])) {
+                continue;
+            }
+
+            // Top-level fields already have one relation query and must keep
+            // the row-limit probe for large timestamp-free collections.
+            if ($this->autosaveRelationPathDepth($path) <= 1) {
+                continue;
+            }
+
+            $relation = $entry['relation'];
+
+            $hasTimestamp = $this->autosaveRelationStampColumn($relation) !== null;
+
+            if (($timestampFreeOnly && $hasTimestamp)
+                || ($timestampedOnly && ! $hasTimestamp)
+                || ! method_exists($relation, 'getParent')) {
+                continue;
+            }
+
+            $parent = $relation->getParent();
+
+            if (! $parent->exists || $parent->getKey() === null) {
+                continue;
+            }
+
+            $name = $entry['name'];
+            $groupKey = $parent::class.'|'.$name;
+            $groups[$groupKey]['name'] = $name;
+            $groups[$groupKey]['relation'] ??= $relation;
+            $groups[$groupKey]['parents'][(string) $parent->getKey()] = $parent;
+            $groups[$groupKey]['paths'][] = $path;
+        }
+
+        $preloaded = [];
+
+        foreach ($groups as $group) {
+            $parents = array_values($group['parents']);
+
+            $parentsCollection = $parents[0]->newCollection($parents);
+
+            // A relation may have been hydrated while Filament rebuilt the
+            // nested schema. Drop that value before eager loading so a poll
+            // sees remote inserts and edits as well as the initial snapshot.
+            foreach ($parents as $parent) {
+                $parent->unsetRelation($group['name']);
+            }
+
+            if ($timestampFreeOnly && method_exists($group['relation'], 'getExistenceCompareKey')) {
+                $limit = $this->autosavePollRelationshipRowLimit() + 1;
+                $relation = $group['relation'];
+
+                $parentsCollection->load([
+                    $group['name'] => function ($query) use ($relation, $limit): void {
+                        $query->getQuery()->groupLimit($limit, $relation->getExistenceCompareKey());
+                    },
+                ]);
+            } else {
+                $parentsCollection->load($group['name']);
+            }
+
+            foreach ($group['paths'] as $path) {
+                $relation = $fields[$path]['relation'];
+
+                if (! method_exists($relation, 'getParent')) {
+                    continue;
+                }
+
+                $parent = $relation->getParent();
+                $name = $fields[$path]['name'];
+
+                if (! is_string($name) || ! $parent->relationLoaded($name)) {
+                    continue;
+                }
+
+                $loaded = $parent->getRelation($name);
+                $preloaded[$path] = $loaded instanceof Model
+                    ? [$loaded]
+                    : (is_iterable($loaded) ? iterator_to_array($loaded, false) : []);
+            }
+        }
+
+        return $preloaded;
+    }
+
+    /**
+     * One union query for all timestamped polled relations: it returns the
+     * related key and update stamp for each row, compared against what the
+     * last poll saw. Keys are cast to text by the active grammar and hashed in
+     * PHP, so UUID and string keys never pass through numeric SQL aggregates.
+     * Relations without timestamps hash their persisted rows and pivot
+     * attributes on every poll instead, up to the configured row limit.
      *
      * @return array{fingerprints: array<string, string>, unfingerprinted: list<string>}
      */
     protected function autosaveRelationFingerprints(object $record): array
     {
-        $fields = $this->autosavePolledRelationFields($record);
+        $fields = $this->autosavePolledRelationFields($record, withComponents: false);
 
         if ($fields === [] || ! $record instanceof Model) {
             return ['fingerprints' => [], 'unfingerprinted' => []];
@@ -2430,6 +2816,13 @@ trait HasAutosaveBase
         $union = null;
         $fingerprints = [];
         $unfingerprinted = [];
+        $keyRows = [];
+        $preloaded = $this->preloadAutosavePolledRelations($fields);
+        $preloaded = [...$preloaded, ...$this->preloadAutosavePolledRelations(
+            $fields,
+            timestampFreeOnly: false,
+            timestampedOnly: true,
+        )];
 
         foreach ($fields as $path => ['relation' => $relation]) {
             $stamp = $this->autosaveRelationStampColumn($relation);
@@ -2437,9 +2830,11 @@ trait HasAutosaveBase
             if ($stamp === null) {
                 // Without timestamps, compare persisted contents rather than
                 // silently ignoring remote changes while the field is dirty.
-                $rows = (clone $relation)->limit($this->autosavePollRelationshipRowLimit() + 1)->get();
+                $rows = $preloaded[$path] ?? (clone $relation)->limit($this->autosavePollRelationshipRowLimit() + 1)->get();
 
-                if ($rows->count() > $this->autosavePollRelationshipRowLimit()) {
+                $rowCount = is_array($rows) ? count($rows) : $rows->count();
+
+                if ($rowCount > $this->autosavePollRelationshipRowLimit()) {
                     $query = (clone $relation->getQuery())->toBase();
                     $query->columns = null;
                     $query->orders = null;
@@ -2498,20 +2893,32 @@ trait HasAutosaveBase
                 continue;
             }
 
+            if (array_key_exists($path, $preloaded)) {
+                $fingerprints[$path] = $this->autosaveRelationFingerprintFromRows($relation, $preloaded[$path]);
+
+                continue;
+            }
+
             $query = (clone $relation->getQuery())->toBase();
             $query->columns = null;
             $query->orders = null;
             $query->limit = null;
             $query->offset = null;
             // A quoted literal, not a binding: Postgres cannot type a bare
-            // parameter in a select list.
-            // The key columns catch a row swapped for another within the
-            // same second, which the timestamp alone cannot see.
+            // parameter in a select list. Cast key and stamp values to text
+            // before unioning, because PostgreSQL requires every UNION column
+            // to have one type even when two relations use different keys.
             $grammar = $query->getGrammar();
             $key = $grammar->wrap($this->autosaveRelationKeyColumn($relation));
+            $grammarClass = strtolower($grammar::class);
+            $driver = str_contains($grammarClass, 'postgres')
+                ? 'pgsql'
+                : (str_contains($grammarClass, 'mysql') ? 'mysql' : 'sqlite');
+            $keyText = $this->autosaveRelationFingerprintText($key, $driver);
+            $stampText = $this->autosaveRelationFingerprintText($grammar->wrap($stamp), $driver);
+            $keyRows[$path] = [];
             $query->selectRaw(
-                $grammar->quoteString($path).' as autosave_path, count(*) as autosave_count, max('.$grammar->wrap($stamp).') as autosave_stamp'
-                .", max({$key}) as autosave_max_key, sum({$key}) as autosave_sum_key",
+                $grammar->quoteString($path).' as autosave_path, '.$keyText.' as autosave_key, '.$stampText.' as autosave_stamp',
             );
 
             $union = $union === null ? $query : $union->unionAll($query);
@@ -2520,16 +2927,71 @@ trait HasAutosaveBase
         if ($union !== null) {
             foreach ($union->get() as $row) {
                 $row = (array) $row;
-                $fingerprints[(string) $row['autosave_path']] = $this->autosaveStore()->snapshotHash([
-                    'count' => (int) $row['autosave_count'],
-                    'stamp' => $row['autosave_stamp'] === null ? null : (string) $row['autosave_stamp'],
-                    'max' => $row['autosave_max_key'] === null ? null : (string) $row['autosave_max_key'],
-                    'sum' => $row['autosave_sum_key'] === null ? null : (string) $row['autosave_sum_key'],
-                ]);
+                $path = (string) $row['autosave_path'];
+
+                if (! array_key_exists($path, $keyRows)) {
+                    continue;
+                }
+
+                $keyRows[$path][] = $row['autosave_key'] === null ? null : (string) $row['autosave_key'];
+                $stamp = $row['autosave_stamp'] === null ? null : (string) $row['autosave_stamp'];
+
+                if ($stamp !== null) {
+                    $keyRows[$path]['__stamps'][] = $stamp;
+                }
             }
         }
 
+        foreach ($keyRows as $path => $keys) {
+            $stamps = $keys['__stamps'] ?? [];
+            unset($keys['__stamps']);
+            $keys = array_values(array_filter($keys, static fn (mixed $key): bool => $key !== null));
+            sort($keys, SORT_STRING);
+            sort($stamps, SORT_STRING);
+
+            $fingerprints[$path] = $this->autosaveStore()->snapshotHash([
+                'keys' => $keys,
+                'stamp' => $stamps === [] ? null : $stamps[array_key_last($stamps)],
+            ]);
+        }
+
         return ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted];
+    }
+
+    /**
+     * Fingerprint rows already eager-loaded for a nested timestamped relation.
+     * This keeps the detector independent from the number of rendered child
+     * rows while preserving the same key/stamp contract as the SQL path.
+     *
+     * @param  Relation<Model, Model, *>  $relation
+     * @param  iterable<int, Model>  $rows
+     */
+    protected function autosaveRelationFingerprintFromRows(Relation $relation, iterable $rows): string
+    {
+        $keys = [];
+        $stamps = [];
+
+        foreach ($rows as $row) {
+            $keys[] = (string) $row->getKey();
+
+            if ($relation instanceof BelongsToMany) {
+                $value = $row->getRelationValue('pivot')?->getAttribute($relation->updatedAt());
+            } else {
+                $value = $row->getAttribute($row->getUpdatedAtColumn());
+            }
+
+            if ($value !== null) {
+                $stamps[] = (string) $value;
+            }
+        }
+
+        sort($keys, SORT_STRING);
+        sort($stamps, SORT_STRING);
+
+        return $this->autosaveStore()->snapshotHash([
+            'keys' => $keys,
+            'stamp' => $stamps === [] ? null : $stamps[array_key_last($stamps)],
+        ]);
     }
 
     /** The related row's key (the related key on a pivot), qualified.
@@ -2543,6 +3005,21 @@ trait HasAutosaveBase
         }
 
         return $relation->getRelated()->getQualifiedKeyName();
+    }
+
+    /**
+     * Convert a qualified key or timestamp to a common SQL text type before
+     * it is used in a UNION. The cast syntax is the small portable part that
+     * differs between the supported database grammars; the fingerprinting
+     * itself stays database-independent in PHP.
+     */
+    protected function autosaveRelationFingerprintText(string $column, string $driver): string
+    {
+        return match ($driver) {
+            'mysql', 'mariadb' => 'CAST('.$column.' AS CHAR)',
+            'pgsql' => 'CAST('.$column.' AS TEXT)',
+            default => 'CAST('.$column.' AS TEXT)',
+        };
     }
 
     /** The column whose maximum tells a row edit apart, or null when the relation has no timestamps.
@@ -2609,6 +3086,7 @@ trait HasAutosaveBase
         $refreshed = [];
         $stale = [];
         $refilled = [];
+        $cleanEntries = [];
 
         foreach ($paths as $path => $certain) {
             $entry = $fields[$path] ?? null;
@@ -2627,15 +3105,43 @@ trait HasAutosaveBase
                 continue;
             }
 
+            $cleanEntries[$path] = $entry;
+        }
+
+        // Load all clean nested parents for one relation level together. The
+        // components still refresh individually, but their relation getters
+        // now read the eager-loaded value instead of issuing one query each.
+        $preloaded = $this->preloadAutosavePolledRelations($cleanEntries, timestampFreeOnly: false);
+
+        foreach ($cleanEntries as $path => $entry) {
+            ['kind' => $kind, 'components' => $components] = $entry;
+
             $before = $this->autosaveRelationStateHash($components);
 
             foreach ($components as $component) {
-                if (method_exists($component, 'getRelationshipName') && method_exists($record, 'unsetRelation')) {
+                $name = method_exists($component, 'getRelationshipName')
+                    ? $component->getRelationshipName()
+                    : null;
+
+                if (! array_key_exists($path, $preloaded)
+                    && is_string($name) && method_exists($record, 'unsetRelation')) {
                     $record->unsetRelation((string) $component->getRelationshipName());
                 }
 
                 if (method_exists($component, 'clearCachedExistingRecords')) {
                     $component->clearCachedExistingRecords();
+                } elseif (method_exists($component, 'state')) {
+                    // A non-Repeater relationship field (Select, CheckboxList)
+                    // fills its state from the relationship only once, while
+                    // its state is still empty: Filament's own
+                    // fillStateFromRelationship() returns immediately when
+                    // filled($this->getState()) is true, so an already
+                    // populated field never re-reads the relationship no
+                    // matter how many times loadStateFromRelationships() is
+                    // called. Clearing state first — safe here, this branch
+                    // only runs on a field already judged clean — lets that
+                    // guard pass and the poll's refill actually take effect.
+                    $component->state(null);
                 }
 
                 $component->loadStateFromRelationships(true);

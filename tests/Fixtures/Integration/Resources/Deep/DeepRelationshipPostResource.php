@@ -2,6 +2,7 @@
 
 namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Deep;
 
+use Filament\Forms\Components\Builder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -17,6 +18,11 @@ class DeepRelationshipPostResource extends Resource
     {
         return $schema->components([
             TextInput::make('title'),
+            Builder::make('settings')->blocks([
+                Builder\Block::make('text')->schema([
+                    TextInput::make('content'),
+                ]),
+            ]),
             Repeater::make('items')
                 ->relationship('items')
                 ->schema([

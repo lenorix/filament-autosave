@@ -132,8 +132,9 @@ only. Timestamp-free relations hash at most `poll_relationship_max_rows` rows
 (500 by default); larger collections use key/count detection, so timestamps are
 recommended at scale. Timestamped relations fingerprint sorted keys as text in
 PHP, so UUID and string primary keys are safe across supported databases.
-Nested parents at one relationship level are eager-loaded as a batch when a
-poll needs to refill them.
+Nested parents at each rendered relationship level are eager-loaded as a batch
+when a poll needs to fingerprint or refill them. Timestamp-free batches keep
+the configured per-parent row limit; larger sets use the key/count fallback.
 Polling follows only relationship components rendered by the form; it does
 not walk arbitrary Eloquent graphs, so cycles are bounded automatically.
 A locally dirty field changed remotely is reported as `stale` and remains
@@ -187,7 +188,14 @@ For behavior changes, run:
 ~~~bash
 composer test
 vendor/bin/pint --test
+composer phpstan
 ~~~
+
+PHPStan uses the repository baseline and must run with the Composer script's
+`--memory-limit=1G`. An internal "Could not read file" error is an incomplete
+analysis result: first make sure no formatter or other process is rewriting
+`src/HasAutosaveBase.php`, then run the command again. Do not hide it with a
+new baseline entry.
 
 Run `composer test:browser` when changing the indicator, debounce, polling,
 merge, stale-field, draft-restore, or upload browser behavior. Add integration

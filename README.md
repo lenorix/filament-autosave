@@ -194,7 +194,11 @@ Polling updates untouched columns, repeaters, uploads, and media. Locally edited
 being overwritten. Nested relationship fields are fingerprinted up to `poll_relationship_depth` (3 by default), so
 deep child changes no longer require `$touches` on the parent. Set the depth to `0` for direct relationships only.
 Timestamp-free relations hash their rows up to `poll_relationship_max_rows` (500 by default); larger relations use a
-cheap key/count check, so timestamp columns are recommended for large collections.
+cheap key/count check, so timestamp columns are recommended for large collections. Timestamped relations fingerprint
+their sorted keys as text, which also supports UUID and string primary keys.
+Nested rows are checked in batches per parent relationship, so polling does not issue one detector query per rendered
+repeater row. Only relationships rendered by the form are checked; cycles and deeper graphs stay bounded by
+`poll_relationship_depth`.
 Set `poll_relationships` to `false` or call `pollRelationships(false)` for column-only polling.
 
 ### Merge text fields

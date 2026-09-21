@@ -3,10 +3,13 @@
 use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\AutosavePlugin;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\PollRelationsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\UuidPollRelationsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Author;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollNote;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\UuidPollItem;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\UuidPollPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\PollRelations\PollEditPost;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -175,6 +178,49 @@ test('rows of a relation without timestamps are refreshed too, by comparing stat
 
     expect(array_values(array_map(static fn (array $row): string => $row['body'], $page->get('data.notes'))))->toBe(['Edited elsewhere'])
         ->and(lastPollPayload($page)['refreshed'] ?? [])->toHaveKey('notes');
+});
+
+test('polling fingerprints UUID relation keys without numeric SQL aggregation', function () {
+    config(['filament-autosave.poll_relationships' => true]);
+
+    $post = UuidPollPost::create([
+        'id' => '00000000-0000-0000-0000-000000000100',
+        'title' => 'Post',
+    ]);
+    $stamp = now()->startOfSecond();
+    UuidPollItem::create([
+        'id' => '00000000-0000-0000-0000-000000000001',
+        'uuid_poll_post_id' => $post->getKey(),
+        'label' => 'First',
+        'created_at' => $stamp,
+        'updated_at' => $stamp,
+    ]);
+    UuidPollItem::create([
+        'id' => '00000000-0000-0000-0000-000000000009',
+        'uuid_poll_post_id' => $post->getKey(),
+        'label' => 'Second',
+        'created_at' => $stamp,
+        'updated_at' => $stamp,
+    ]);
+
+    $page = Livewire::test(UuidPollRelationsRecordForm::class, ['record' => $post]);
+    expect(repeaterLabels($page))->toBe(['First', 'Second']);
+
+    // Keep the count and latest timestamp unchanged. Only the UUID key is
+    // replaced; a numeric sum cannot distinguish this from the original set.
+    UuidPollItem::query()->whereKey('00000000-0000-0000-0000-000000000001')->delete();
+    UuidPollItem::create([
+        'id' => '00000000-0000-0000-0000-000000000002',
+        'uuid_poll_post_id' => $post->getKey(),
+        'label' => 'Replacement',
+        'created_at' => $stamp,
+        'updated_at' => $stamp,
+    ]);
+
+    $page->call('syncAutosave');
+
+    expect(repeaterLabels($page))->toBe(['Replacement', 'Second'])
+        ->and(lastPollPayload($page)['refreshed'] ?? [])->toHaveKey('items');
 });
 
 test('nothing is written and nothing is reported when no relation changed', function () {

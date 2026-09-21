@@ -1,15 +1,15 @@
 <?php
 
-namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Deep;
+namespace Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Cycle;
 
 use Filament\Resources\Pages\EditRecord;
 use Lenorix\FilamentAutosave\HasAutosave;
 
-class DeepRelationshipEditPost extends EditRecord
+class ThroughRelationEditPost extends EditRecord
 {
     use HasAutosave;
 
-    protected static string $resource = DeepRelationshipPostResource::class;
+    protected static string $resource = ThroughRelationPostResource::class;
 
     /** @return array{fingerprints: array<string, string>, unfingerprinted: list<string>} */
     public function probeAutosaveRelationFingerprints(): array

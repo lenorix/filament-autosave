@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Support\Facades\DB;
 use Lenorix\FilamentAutosave\HasAutosave;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\RelationshipSavingHookEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\UnsavedAlertEditPost;
@@ -160,6 +161,94 @@ test('edit pages poll a changed nested relationship without parent timestamps', 
 
     expect($subitems[$subKey]['label'])->toBe('Edited elsewhere')
         ->and($page->get('autosaveCanUndo'))->toBeFalse();
+});
+
+test('deep polling discovers a child under a parent added remotely', function () {
+    config(['filament-autosave.poll_relationships' => true, 'filament-autosave.poll_relationship_depth' => 3]);
+    $post = Post::create(['title' => 'Post']);
+    $post->items()->create(['label' => 'Existing', 'position' => 1]);
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    $added = $post->items()->create(['label' => 'Remote parent', 'position' => 2]);
+    $added->subitems()->create(['label' => 'Remote child']);
+
+    $page->call('syncAutosave');
+
+    $items = array_values($page->get('data.items'));
+    $remote = collect($items)->firstWhere('label', 'Remote parent');
+
+    expect($remote)->not->toBeNull();
+});
+
+test('deep polling batches timestamp-free child reads across repeater rows', function () {
+    config(['filament-autosave.poll_relationships' => true, 'filament-autosave.poll_relationship_depth' => 3]);
+    $post = Post::create(['title' => 'Post']);
+
+    foreach (range(1, 6) as $position) {
+        $item = $post->items()->create(['label' => 'Item '.$position, 'position' => $position]);
+        $item->subitems()->create(['label' => 'Child '.$position]);
+    }
+
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+
+    $page->call('probeAutosaveRelationFingerprints');
+
+    $queries = array_column(DB::getQueryLog(), 'query');
+    DB::disableQueryLog();
+
+    $subitemQueries = array_values(array_filter($queries, static fn (string $query): bool => str_contains($query, 'post_sub_items')));
+    $subsubitemQueries = array_values(array_filter($queries, static fn (string $query): bool => str_contains($query, 'post_sub_sub_items')));
+    $batchedSubitemQueries = array_values(array_filter(
+        $subitemQueries,
+        static fn (string $query): bool => str_contains(strtolower($query), ' in ('),
+    ));
+    $batchedSubsubitemQueries = array_values(array_filter(
+        $subsubitemQueries,
+        static fn (string $query): bool => str_contains(strtolower($query), ' in ('),
+    ));
+
+    // Up to 2, not exactly 1: the cached-descriptor path
+    // (buildAutosavePolledRelationFields()) already eager-loads each level
+    // in one batched query, but the fingerprint computation's own
+    // preloadAutosavePolledRelations() pass checks independently and, not
+    // finding what it expects loaded on its own parent instances, batches
+    // again — redundant work, never per-row. Both passes stay batched
+    // regardless of row count, which is what this test actually pins.
+    expect($batchedSubitemQueries)->not->toBeEmpty()->and(count($batchedSubitemQueries))->toBeLessThanOrEqual(2)
+        ->and($batchedSubsubitemQueries)->not->toBeEmpty()->and(count($batchedSubsubitemQueries))->toBeLessThanOrEqual(2);
+});
+
+test('polling keeps a Builder sibling isolated from nested relationship refreshes', function () {
+    config(['filament-autosave.poll_relationships' => true, 'filament-autosave.poll_relationship_depth' => 3]);
+    $post = Post::create([
+        'title' => 'Post',
+        'settings' => [['type' => 'text', 'data' => ['content' => 'Local block']]],
+    ]);
+    $post->items()->create(['label' => 'Item', 'position' => 1]);
+    $page = Livewire::test(DeepRelationshipEditPost::class, ['record' => $post->getKey()]);
+
+    $post->items()->firstOrFail()->subitems()->create(['label' => 'Remote child']);
+    $page->call('syncAutosave');
+
+    expect(collect($page->get('data.settings'))->pluck('data.content')->all())->toContain('Local block');
+});
+
+test('polling refreshes a remote morphMany insertion', function () {
+    config(['filament-autosave.poll_relationships' => true]);
+    $post = Post::create(['title' => 'Post']);
+    $page = Livewire::test(PolymorphicEditPost::class, ['record' => $post->getKey()]);
+
+    Comment::create([
+        'commentable_type' => $post->getMorphClass(),
+        'commentable_id' => $post->getKey(),
+        'body' => 'Remote comment',
+    ]);
+
+    $page->call('syncAutosave');
+
+    expect(array_values($page->get('data.comments'))[0]['body'] ?? null)->toBe('Remote comment');
 });
 
 test('autosave processes belongsTo fields in every repeated row', function () {

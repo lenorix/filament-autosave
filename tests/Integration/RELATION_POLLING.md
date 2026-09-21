@@ -6,7 +6,9 @@ and row-cost controls.
 Current coverage: top-level and rendered nested relationships refresh without a
 parent update; relations without timestamps use persisted row/pivot hashes,
 including stale reporting for dirty local fields. Depth and row limits are
-configurable to keep polling bounded.
+configurable to keep polling bounded. Builder/Repeater siblings, remote
+parents, morphMany, through fingerprints, self-referential cycles, UUID keys,
+and query budgets are covered by integration fixtures.
 
 ## Proposed contract
 
@@ -23,8 +25,10 @@ Hash persisted attributes for timestamp-free nodes up to
 timestamp columns are recommended when exact edits must be detected at scale.
 
 Load by relationship path and parent key sets, not one query per rendered row.
-Bound traversal depth, reject cycles, respect relation scopes and exclusions,
-and evaluate query/row volume for polymorphic and through relations explicitly.
+The implementation batches clean rendered parents at each relationship level,
+respects relation scopes and exclusions, and never recursively discovers an
+arbitrary Eloquent graph; rendered cycles therefore remain bounded. Evaluate
+query/row volume for polymorphic and through relations explicitly.
 A new remote row must be discoverable even if the local schema has no instance
 for it yet. Never hydrate the active form to calculate remote fingerprints.
 

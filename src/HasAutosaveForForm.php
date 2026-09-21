@@ -97,7 +97,7 @@ trait HasAutosaveForForm
      */
     public function dehydrateHasAutosaveForForm(): void
     {
-        if (! $this->isAutosaveEnabled()) {
+        if (! $this->isAutosaveEnabled() || $this->autosaveSyncRequest) {
             return;
         }
 

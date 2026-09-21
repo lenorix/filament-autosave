@@ -105,12 +105,35 @@ abstract class IntegrationTestCase extends TestCase
             $table->text('body')->nullable();
         });
 
+        Schema::create('uuid_poll_posts', function ($table) {
+            $table->string('id')->primary();
+            $table->string('title')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('uuid_poll_items', function ($table) {
+            $table->string('id')->primary();
+            $table->string('uuid_poll_post_id');
+            $table->string('label');
+            $table->timestamps();
+        });
+
         Schema::create('author_poll_post', function ($table) {
             $table->foreignId('author_id');
             $table->foreignId('poll_post_id');
             $table->string('role')->nullable();
             $table->timestamps();
             $table->primary(['author_id', 'poll_post_id']);
+        });
+
+        // Self-referential: children() points back at the same table, so a
+        // schema that nests the same relationship component inside itself
+        // renders a cyclic relation *type* graph, not just a deep one.
+        Schema::create('cycle_nodes', function ($table) {
+            $table->id();
+            $table->foreignId('parent_id')->nullable();
+            $table->string('label');
+            $table->timestamps();
         });
 
         Filament::setCurrentPanel('admin');

@@ -103,9 +103,10 @@ test('a poll that pulls a remote change into a relationship-heavy form is bounde
 
 /*
  * With `poll_relationships` on, an idle poll pays one more query whatever the
- * form: a UNION of one `count(*)` + `max(updated_at)` row per polled relation
- * (media included). Only a relation whose rows carry no timestamps is re-read
- * on every poll, since nothing cheaper can tell an edit to its rows apart.
+ * form: a UNION of related keys and `updated_at` values for every timestamped
+ * relation (media included). Only a relation whose rows carry no timestamps
+ * is re-read on every poll, since nothing cheaper can tell an edit to its rows
+ * apart.
  */
 
 test('an idle poll with relationship polling on adds one detector query for every relation at once', function () {
@@ -118,7 +119,7 @@ test('an idle poll with relationship polling on adds one detector query for ever
     $page = Livewire::test(PollEditPost::class, ['record' => $post->getKey()]);
 
     $marginal = marginalPollQueries($page);
-    $detector = array_values(array_filter($marginal, static fn (string $sql): bool => str_contains($sql, 'autosave_count')));
+    $detector = array_values(array_filter($marginal, static fn (string $sql): bool => str_contains($sql, 'autosave_key')));
 
     // updated_at fast path + the detector + the `notes` re-read (no timestamps).
     expect($detector)->toHaveCount(1)
@@ -143,7 +144,7 @@ test('an idle poll costs the detector alone when every polled relation has times
 
     // The updated_at fast path, the detector, and the timestamp-free notes
     // fingerprint query. No relation is hydrated until its fingerprint moves.
-    expect(array_values(array_filter($marginal, static fn (string $sql): bool => str_contains($sql, 'autosave_count'))))->toHaveCount(1)
+    expect(array_values(array_filter($marginal, static fn (string $sql): bool => str_contains($sql, 'autosave_key'))))->toHaveCount(1)
         ->and($marginal)->toHaveCount(3);
 });
 
@@ -191,7 +192,7 @@ test('a poll that refills a changed relation reads that relation, not the others
     expect(count($marginal))->toBeLessThanOrEqual(10)
         ->and(array_values(array_filter(
             $marginal,
-            static fn (string $sql): bool => str_contains($sql, 'author_poll_post') && ! str_contains($sql, 'autosave_count'),
+            static fn (string $sql): bool => str_contains($sql, 'author_poll_post') && ! str_contains($sql, 'autosave_key'),
         )))->toBe([])
         ->and($page->get('data.items'))->toHaveCount(2);
 });

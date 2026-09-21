@@ -53,7 +53,7 @@ trait HasAutosave
      */
     public function dehydrateHasAutosave(): void
     {
-        if (! $this->isAutosaveEnabled()) {
+        if (! $this->isAutosaveEnabled() || $this->autosaveSyncRequest) {
             return;
         }
 
