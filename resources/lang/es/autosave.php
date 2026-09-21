@@ -8,7 +8,7 @@ return [
     'undo' => 'Deshacer',
     'undone' => 'Valor anterior restaurado',
     'conflict' => 'Deshacer cancelado: el registro cambió en otro sitio',
-    'error' => 'El autoguardado ha encontrado un problema',
+    'error' => 'El autoguardado encontró un problema',
     'validation' => 'Algunos cambios necesitan atención',
     'pending' => 'Campos pendientes:',
     'draft_available' => 'Hay un borrador guardado',

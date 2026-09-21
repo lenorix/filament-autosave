@@ -1,17 +1,17 @@
 <?php
 
 return [
-    'unsaved' => 'Todavía no se han guardado los cambios',
+    'unsaved' => 'Cambios sin guardar',
     'saving' => 'Guardando tus cambios...',
     'saved' => 'Cambios guardados',
     'saved_at' => 'Guardado a las',
     'undo' => 'Deshacer',
     'undone' => 'Valor anterior restablecido',
-    'conflict' => 'Deshacer cancelado porque el registro cambió en otro lugar',
+    'conflict' => 'Deshacer cancelado: el registro cambió en otro lugar',
     'error' => 'El guardado automático encontró un problema',
     'validation' => 'Algunos cambios necesitan atención',
     'pending' => 'Campos pendientes:',
-    'draft_available' => 'Se ha guardado un borrador para ti',
+    'draft_available' => 'Hay un borrador guardado',
     'restore' => 'Cargar borrador',
     'discard' => 'Eliminar borrador',
     'restored' => 'Borrador restaurado',
