@@ -1,8 +1,8 @@
 <?php
 
-use Livewire\Livewire;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\EditPages\ProbingAfterValidateEditPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
+use Livewire\Livewire;
 
 test('afterValidate is not called when any field fails validation, matching Filament', function () {
     $post = Post::create(['title' => 'Original', 'slug' => 'original']);
