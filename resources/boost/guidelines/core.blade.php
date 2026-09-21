@@ -43,7 +43,9 @@ Only use the following documented hooks and methods from application code:
 - `autosavePollInterval()` and `autosaveMergeFields()` for page-level sync options.
 - `beforeAutosave(array $data): array` to change eligible state before validation.
 - `getAutosaveValidationRules(): array` for rules used by autosave.
-- `afterAutosave(object $record): void` after a successful Edit-page save.
+- `afterAutosave(object $record): void` after a successful save: Edit pages
+  always call it; a generic form (`HasAutosaveForForm`) calls it too once its
+  schema is bound to an existing record, but not for a recordless draft.
 - `resolveAutosaveForm()` and `getAutosaveStatePath()` for generic form resolution.
 - `persistAutosaveForm(array $data)` for a custom generic-form persistence lifecycle.
 - `getAutosaveFormContext()` for draft and Undo scope.

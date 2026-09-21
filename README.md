@@ -281,7 +281,8 @@ AutosavePlugin::make()
 ```
 
 Publish the config to change options without a plugin method, such as `dirty_only`, `refresh_unchanged_fields`,
-`poll_interval`, `poll_relationships`, `relationship_undo_depth`, and `require_form_context`.
+`poll_interval`, `poll_relationships`, `poll_relationship_depth`, `poll_relationship_max_rows`,
+`relationship_undo_depth`, and `require_form_context`.
 
 ## Translations and indicator
 
