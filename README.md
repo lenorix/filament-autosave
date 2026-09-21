@@ -20,6 +20,10 @@ Edit pages (`lara-zeus/spatie-translatable`).
 - Filament 4.13+ or 5
 - Livewire 3 with Filament 4, or Livewire 4 with Filament 5
 
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](https://github.com/lenorix/filament-autosave/blob/main/CONTRIBUTING.md) before opening an issue or a pull request.
+
 ## Installation
 
 ```bash
@@ -289,4 +293,4 @@ saves, failures, synchronization, or Undo.
 
 ## License
 
-[The Unlicense](LICENSE.md)
+[The Unlicense](https://github.com/lenorix/filament-autosave/blob/main/LICENSE.md)
