@@ -17,7 +17,7 @@ return [
     'restored' => 'Entwurf wiederhergestellt',
     'synced' => 'Mit den Änderungen eines anderen Bearbeiters aktualisiert',
     'stale' => 'Ein anderer Bearbeiter hat ebenfalls geändert:',
-    'conflicts' => 'Deine Wörter haben die eines anderen Bearbeiters ersetzt in:',
+    'conflicts' => 'Deine Wörter haben die eines anderen Bearbeiters in folgenden Feldern ersetzt:',
     'contended' => 'Jemand anderes bearbeitet dieses Feld weiterhin; dein Text bleibt erhalten und wird erneut versucht',
     'recover' => 'Die andere Version wiederherstellen',
     'dismiss' => 'Schließen',

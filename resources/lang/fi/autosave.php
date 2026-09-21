@@ -10,7 +10,7 @@ return [
     'conflict' => 'Kumoaminen peruttu, koska tietue muuttui muualla',
     'error' => 'Automaattitallennuksessa ilmeni ongelma',
     'validation' => 'Osa muutoksista vaatii huomiota',
-    'pending' => 'Odotavat kentät:',
+    'pending' => 'Odottavat kentät:',
     'draft_available' => 'Luonnos on tallennettu sinulle',
     'restore' => 'Lataa luonnos',
     'discard' => 'Poista luonnos',

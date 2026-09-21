@@ -18,7 +18,7 @@ return [
     'synced' => 'Actualizat cu modificările altui editor',
     'stale' => 'Un alt editor a modificat și:',
     'conflicts' => 'Cuvintele dvs. le-au înlocuit pe cele ale altui editor în:',
-    'contended' => 'Altcuiva continuă să scrie acest câmp; textul dvs. este păstrat și se va reîncerca',
+    'contended' => 'Altcineva continuă să scrie în acest câmp; textul dvs. este păstrat și se va încerca din nou',
     'recover' => 'Recuperează cealaltă versiune',
     'dismiss' => 'Închide',
 ];

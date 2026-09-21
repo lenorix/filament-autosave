@@ -18,7 +18,7 @@ return [
     'synced' => 'Atualizado com as alterações de outro editor',
     'stale' => 'Outro editor também alterou:',
     'conflicts' => 'As suas palavras substituíram as de outro editor em:',
-    'contended' => 'Outra pessoa continua a escrever neste campo; o seu texto foi guardado e será repetido',
+    'contended' => 'Outra pessoa continua a escrever neste campo; o seu texto foi guardado e uma nova tentativa será feita',
     'recover' => 'Recuperar a outra versão',
     'dismiss' => 'Fechar',
 ];
