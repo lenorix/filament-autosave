@@ -61,6 +61,12 @@ Use typed events under `Lenorix\FilamentAutosave\Events` to observe saves,
 skips, failures, synchronization, conflicts, and Undo. Do not override other
 protected methods or mutate locked state, hashes, snapshots, or upload ledgers.
 
+Filament's own `RecordUpdated`/`RecordSaved` are dispatched too, but only when
+the host is a real `Filament\Resources\Pages\Page` (an Edit page, or a custom
+resource page hosting its own form) — their constructor requires one. A
+relation manager, action, table form, or bare Livewire component is not a
+Page and dispatches neither; use the package's own events there instead.
+
 ## Autosave cycle
 
 The cycle is authorize → prepare → validate → persist → commit → report.
