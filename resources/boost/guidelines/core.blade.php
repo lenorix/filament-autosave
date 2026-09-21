@@ -124,7 +124,12 @@ reads per relation. Nested relationship components are fingerprinted up to
 `poll_relationship_depth` (3 by default); set it to 0 for direct relations
 only. Timestamp-free relations hash at most `poll_relationship_max_rows` rows
 (500 by default); larger collections use key/count detection, so timestamps are
-recommended at scale.
+recommended at scale. Timestamped relations fingerprint sorted keys as text in
+PHP, so UUID and string primary keys are safe across supported databases.
+Nested parents at one relationship level are eager-loaded as a batch when a
+poll needs to refill them.
+Polling follows only relationship components rendered by the form; it does
+not walk arbitrary Eloquent graphs, so cycles are bounded automatically.
 A locally dirty field changed remotely is reported as `stale` and remains
 untouched. Polling never writes to the database and never creates an Undo
 snapshot. The browser pauses polling while a save is pending or the tab is
