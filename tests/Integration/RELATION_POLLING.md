@@ -47,7 +47,8 @@ warnings. Polling must not persist anything or modify Undo snapshots.
 
 Filament `RecordSaved`/`RecordUpdated` require a Page host; use package events in
 Relation Managers and generic components rather than fabricating a Page.
-Action submission hooks/notifications remain distinct from background autosave.
+Mounted action form-validation and `before`/`after` hooks run during autosave. The action's submit callback remains
+submit-only; success notifications and redirects run only after an explicit `flushAutosave()` commits.
 External Undo continues to require reversible adapters; generic file rollback
 cannot restore deleted external content. Nested merge needs stable row identity
 and deletion/reorder semantics before expanding beyond top-level text fields.

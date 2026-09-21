@@ -37,6 +37,10 @@ trait HasAutosaveForForm
         HasAutosaveUploads::commitAutosaveStoredUploads insteadof HasAutosaveBase;
         HasAutosaveBase::getAutosaveData as autosaveBaseData;
         HasAutosaveBase::autosaveWithoutDatabaseTransaction as autosaveBaseWithoutDatabaseTransaction;
+        HasAutosaveBase::callAutosaveHook as callAutosaveComponentHook;
+        HasAutosaveBase::autosaveValidatePhase as validateAutosaveFormPhase;
+        HasAutosaveBase::runAutosavePhases as runAutosaveFormPhases;
+        HasAutosaveBase::afterAutosaveCycleCommitted as afterAutosaveFormCycleCommitted;
     }
 
     #[Locked]
@@ -52,6 +56,12 @@ trait HasAutosaveForForm
     /** @var array<string, string> Raw hashes for relationship components. */
     #[Locked]
     public array $autosaveRelationshipHashes = [];
+
+    /** Whether the current cycle has a mounted Filament Action lifecycle. */
+    protected bool $autosaveActionLifecycleActive = false;
+
+    /** The mounted action kept until the transaction has reported its result. */
+    protected ?object $autosaveActionLifecycleAction = null;
 
     /**
      * Call from mount(); Livewire lifecycle, not an extension point.
@@ -122,6 +132,133 @@ trait HasAutosaveForForm
         $this->assertAutosaveFormContext();
         $this->acceptAutosaveMergePatches($mergePatches);
         $this->performAutosave(fn (array $data): bool|array => $this->persistAutosaveForm($data));
+    }
+
+    /**
+     * Run the generic phases with the mounted action available to lifecycle
+     * callbacks. The action itself is still submitted separately by Filament;
+     * autosave must not execute its domain callback on every debounce tick.
+     *
+     * @param  callable(array<string, mixed>): mixed  $persist
+     */
+    protected function runAutosavePhases(callable $persist): void
+    {
+        $this->autosaveActionLifecycleAction = $this->getAutosaveMountedAction();
+        $this->autosaveActionLifecycleActive = $this->autosaveActionLifecycleAction !== null;
+
+        try {
+            $this->runAutosaveFormPhases($persist);
+        } finally {
+            $this->autosaveActionLifecycleActive = false;
+        }
+    }
+
+    /**
+     * Filament applies an action's data mutator after form validation and
+     * before `callBefore()`. Apply the same transformation to the payload
+     * that autosave is about to persist.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function autosaveValidatePhase(array $data): ?array
+    {
+        $data = $this->validateAutosaveFormPhase($data);
+
+        if ($data === null || ! $this->autosaveActionLifecycleActive) {
+            return $data;
+        }
+
+        $action = $this->autosaveActionLifecycleAction;
+
+        if ($action === null || ! method_exists($action, 'data') || ! method_exists($action, 'getData')) {
+            return $data;
+        }
+
+        $action->data($data);
+        $mutated = $action->getData();
+
+        return is_array($mutated) ? $mutated : $data;
+    }
+
+    /**
+     * Bridge the action callbacks that are safe and meaningful during an
+     * autosave write. Submit-only effects are handled after an explicit flush.
+     */
+    protected function callAutosaveHook(string $hook): void
+    {
+        $action = $this->autosaveActionLifecycleActive
+            ? $this->autosaveActionLifecycleAction
+            : null;
+
+        if ($action !== null) {
+            match ($hook) {
+                'beforeValidate' => method_exists($action, 'callBeforeFormValidated')
+                    ? $action->callBeforeFormValidated()
+                    : null,
+                'afterValidate' => $this->autosaveValidationErrors === [] && method_exists($action, 'callAfterFormValidated')
+                    ? $action->callAfterFormValidated()
+                    : null,
+                'beforeSave' => method_exists($action, 'callBefore')
+                    ? $action->callBefore()
+                    : null,
+                default => null,
+            };
+        }
+
+        $this->callAutosaveComponentHook($hook);
+
+        if ($action !== null && $hook === 'afterSave' && method_exists($action, 'callAfter')) {
+            $action->callAfter();
+        }
+    }
+
+    /** Resolve the active Action on Filament hosts without coupling to a version. */
+    protected function getAutosaveMountedAction(): ?object
+    {
+        if (! method_exists($this, 'getMountedAction')) {
+            return null;
+        }
+
+        try {
+            $action = $this->getMountedAction();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_object($action) ? $action : null;
+    }
+
+    /**
+     * Filament sends action success effects only after its transaction. Match
+     * that behavior for explicit flushes, while keeping background autosave
+     * silent and inside the mounted modal.
+     */
+    protected function afterAutosaveCycleCommitted(): void
+    {
+        $this->afterAutosaveFormCycleCommitted();
+
+        $action = $this->autosaveActionLifecycleAction;
+
+        try {
+            if (! $this->autosaveThrows || ! $this->autosaveCycleWrote || $action === null) {
+                return;
+            }
+
+            if (method_exists($action, 'success')) {
+                $action->success();
+            }
+
+            if (method_exists($action, 'sendSuccessNotification')) {
+                $action->sendSuccessNotification();
+            }
+
+            if (method_exists($action, 'dispatchSuccessRedirect')) {
+                $action->dispatchSuccessRedirect();
+            }
+        } finally {
+            $this->autosaveActionLifecycleAction = null;
+        }
     }
 
     /** Uploads are only actionable when this form is bound to a record. */

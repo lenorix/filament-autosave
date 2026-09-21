@@ -81,6 +81,11 @@ Generic forms use the host transaction when the host exposes one. Custom
 `persistAutosaveForm()` implementations are responsible for their own
 transaction and relationship lifecycle when no host transaction exists.
 
+Mounted action and modal forms bridge Filament's form-validation callbacks,
+data mutator, and `before`/`after` action callbacks into autosave. The action
+submit callback is not run by background autosave. Its success notification and
+redirect run only after an explicit `flushAutosave()` commits successfully.
+
 ## Fields, validation, and dirty-only writes
 
 `dirty_only` defaults to `true`. Hashes are kept per top-level state path; a

@@ -259,6 +259,10 @@ $written = $this->flushAutosave(); // bool
 It runs the same dirty-only save, refresh, and Undo flow synchronously. Validation and persistence exceptions are
 thrown to the caller. The background `autosave()` method reports failures through the indicator instead.
 
+For a mounted action or modal, autosave also runs the action's form-validation callbacks, data mutator, and
+`before`/`after` callbacks. The action's own submit callback remains submit-only. A background autosave never sends the
+action's success notification or redirects; `flushAutosave()` sends them after its write commits.
+
 ## Configuration
 
 Plugin settings override the published config, and page settings override the plugin:

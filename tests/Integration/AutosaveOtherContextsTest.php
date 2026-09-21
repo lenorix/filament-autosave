@@ -83,6 +83,41 @@ test('a mounted action form persists and undoes its record', function () {
     expect($post->fresh()->title)->toBe('Post');
 });
 
+test('a mounted action autosave runs its native lifecycle callbacks', function () {
+    $post = Post::create(['title' => 'Post']);
+
+    $page = Livewire::test(AutosaveActionForm::class, ['record' => $post])
+        ->set('mountedActions.0.data.title', 'Action title')
+        ->call('autosave');
+
+    expect($page->get('actionLifecycle'))
+        ->toBe(['beforeFormValidated', 'afterFormValidated', 'before', 'after']);
+});
+
+test('a mounted action autosave applies its data mutator', function () {
+    $post = Post::create(['title' => 'Post']);
+
+    Livewire::test(AutosaveActionForm::class, ['record' => $post])
+        ->set('actionMutate', true)
+        ->set('mountedActions.0.data.title', 'Action title')
+        ->call('autosave');
+
+    expect($post->fresh()->title)->toBe('Action title (mutated)');
+});
+
+test('an explicit action flush sends native success effects after the write', function () {
+    $post = Post::create(['title' => 'Post']);
+
+    $page = Livewire::test(AutosaveActionForm::class, ['record' => $post])
+        ->set('mountedActions.0.data.title', 'Action title')
+        ->set('actionRedirect', true)
+        ->call('flushAutosave')
+        ->assertRedirect('/action-complete');
+
+    expect($page->instance()->getMountedAction()->getStatus()->name)->toBe('Success')
+        ->and(collect(session('filament.notifications', []))->pluck('title'))->toContain('Action saved');
+});
+
 test('a table action form persists and undoes its row', function () {
     $post = Post::create(['title' => 'Post']);
 
