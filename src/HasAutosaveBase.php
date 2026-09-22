@@ -1671,12 +1671,22 @@ trait HasAutosaveBase
 
         $dirty = array_fill_keys($this->autosaveRelationshipDirtyRowKeys($field, $state), true);
         $deleted = array_diff_key($dirty, $currentRows);
+        $baselineOrder = array_map(strval(...), $baseline['order']);
+        $stateOrder = array_map(strval(...), array_keys($state));
+        $orderChanged = $baselineOrder !== $stateOrder;
 
-        if ($dirty === []) {
+        if ($dirty === [] && ! $orderChanged) {
             return $state;
         }
 
-        $this->autosavePendingRelationshipRows[$path] = array_keys($dirty);
+        // Undo must snapshot every row when membership/order changes, because
+        // Filament rewrites the order column for each surviving row. Keep this
+        // separate from `$dirty`, which contains content changes and explicit
+        // additions/deletions only.
+        $this->autosavePendingRelationshipRows[$path] = array_values(array_unique([
+            ...array_keys($dirty),
+            ...($orderChanged ? array_keys($baseline['rows']) : []),
+        ]));
 
         try {
             $relationship = $field->getRelationship();
@@ -1714,7 +1724,7 @@ trait HasAutosaveBase
                 unset($merged[$key]);
             }
 
-            if ($baseline['order'] !== array_keys($state)) {
+            if ($orderChanged) {
                 $ordered = [];
 
                 foreach (array_keys($state) as $key) {
@@ -1770,10 +1780,6 @@ trait HasAutosaveBase
             if (! array_key_exists($key, $state)) {
                 $dirty[] = (string) $key;
             }
-        }
-
-        if ($baseline['order'] !== array_keys($state)) {
-            $dirty = [...$dirty, ...array_map(strval(...), array_keys($baseline['rows']))];
         }
 
         return array_values(array_unique($dirty));

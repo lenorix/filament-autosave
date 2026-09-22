@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the indicator losing a poll's `stale` report the moment an unrelated
+  local save (the debounced attempt behind the very edit that made a field
+  stale, for example) resolved afterwards: a plain `autosave()` reply carries
+  no `stale` key at all, and the controller was defaulting the missing key to
+  empty instead of keeping the poll's own report.
 - Added `FilesystemUndoAdapter`, a ready-to-use `AutosaveExternalUndoAdapter`
   for a plain `FileUpload` field backed by a Laravel filesystem disk. Register
   it in `external_undo_adapters` to make file Undo work without writing an

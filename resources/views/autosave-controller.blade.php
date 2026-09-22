@@ -117,7 +117,14 @@
                 // Merged values the server stored are acknowledged like a
                 // refill: they belong in the baseline, not in the diff.
                 const refreshed = this.richNormalized({ ...(data.refreshed || {}), ...this.mergeAcknowledged(data) })
-                this.setStatus(data.status, data.timestamp || null, data.errors || {}, refreshed, data.pending || [], data.stale || [])
+                // Only a poll's own reply carries `stale` at all (a plain
+                // autosave() response has no such key, since staleness is a
+                // polling concept). Falling back to [] here would wipe a
+                // stale list a poll just reported the moment an unrelated
+                // local save -- e.g. the debounced attempt behind the very
+                // edit that made a field stale -- resolves afterwards.
+                const stale = 'stale' in data ? (data.stale || []) : this.staleFields
+                this.setStatus(data.status, data.timestamp || null, data.errors || {}, refreshed, data.pending || [], stale)
                 this.receiveMerge(data)
             })
 

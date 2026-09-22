@@ -55,6 +55,16 @@ test('a row this tab is editing stays local and is reported stale when another e
     $page->clear(BrowserTestCase::field("form.items.record-{$item->getKey()}.label"));
     $this->waitForInputValue($page, BrowserTestCase::field("form.items.record-{$item->getKey()}.label"), '');
 
+    // Wait for the server to have actually run the debounced autosave
+    // attempt and reported validation, not just for the input's own value:
+    // otherwise the remote update below can race ahead of it, and the poll
+    // sometimes sees the field as not-yet-dirty on the server side.
+    $this->waitUntil(
+        $page,
+        sprintf('document.body.innerText.includes(%s)', json_encode(__('filament-autosave::autosave.validation'))),
+        'the validation status to be reported',
+    );
+
     PollItem::query()
         ->whereKey($item->getKey())
         ->update(['label' => 'Changed elsewhere']);
@@ -63,6 +73,7 @@ test('a row this tab is editing stays local and is reported stale when another e
         $page,
         sprintf('(document.querySelector("[data-autosave-stale]")?.innerText || "").includes(%s)', json_encode('items')),
         'the stale indicator to list the items field',
+        20_000,
     );
 
     // The local (blank) edit was preserved, not overwritten by the remote row.

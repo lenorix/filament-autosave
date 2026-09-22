@@ -152,7 +152,11 @@ test('status events update the indicator and reset settled states after a delay'
 
     expect($markup)
         ->toContain('this.$wire.$on(statuses.event')
-        ->toContain('this.setStatus(data.status, data.timestamp || null, data.errors || {}, refreshed, data.pending || [], data.stale || [])')
+        // A plain autosave() reply has no `stale` key at all (only a poll's
+        // reply does); staleFields must be preserved then, not defaulted to
+        // empty, or an unrelated local save wipes a poll's own report.
+        ->toContain("'stale' in data ? (data.stale || []) : this.staleFields")
+        ->toContain('this.setStatus(data.status, data.timestamp || null, data.errors || {}, refreshed, data.pending || [], stale)')
         ->toContain('this.receiveMerge(data)')
         ->toContain('this.serverBaselineJson')
         ->toContain('this.setStatePath(baseline, path, value)')

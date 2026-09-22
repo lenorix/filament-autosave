@@ -1,6 +1,7 @@
 <?php
 
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\DeepRelationshipRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\OrderedRelationshipRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PostItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Relationship\RelationshipEditPost;
@@ -15,6 +16,21 @@ function seedTwoItemRepeater(): Post
     $post = Post::create(['title' => 'Post']);
     PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item One', 'position' => 1]);
     PostItem::create(['post_id' => $post->getKey(), 'label' => 'Item Two', 'position' => 2]);
+
+    return $post;
+}
+
+function seedThreeOrderedItems(): Post
+{
+    $post = Post::create(['title' => 'Post']);
+
+    foreach (['One', 'Two', 'Three'] as $index => $label) {
+        PostItem::create([
+            'post_id' => $post->getKey(),
+            'label' => $label,
+            'position' => $index + 1,
+        ]);
+    }
 
     return $post;
 }
@@ -107,4 +123,91 @@ test('a page re-baselines relationship row hashes after a partial save', functio
 
     expect($post->fresh()->items()->orderBy('position')->pluck('label')->all())
         ->toBe(['Item One from A again', 'Item Two from B']);
+});
+
+test('reordering a stale relationship repeater does not overwrite another editor\'s row edit', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = seedThreeOrderedItems();
+
+    $reorderingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $editingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $items = $reorderingEditor->get('data')['items'];
+    $keys = array_keys($items);
+
+    $editingEditor->set("data.items.{$keys[0]}.label", 'One edited remotely')->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    $reorderingEditor->set('data.items', array_reverse($items, preserve_keys: true))->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->items()->orderBy('position')->pluck('label')->all())
+        ->toBe(['Three', 'Two', 'One edited remotely']);
+});
+
+test('reordering a stale relationship repeater does not restore a row deleted by another editor', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = seedThreeOrderedItems();
+
+    $reorderingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $deletingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $items = $reorderingEditor->get('data')['items'];
+    $keys = array_keys($items);
+
+    $deletedKey = $keys[1];
+    unset($items[$deletedKey]);
+
+    $deletingEditor->set('data.items', $items)->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->items()->count())->toBe(2);
+
+    $reorderingEditor->set('data.items', array_reverse($reorderingEditor->get('data')['items'], preserve_keys: true))
+        ->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->items()->count())->toBe(2)
+        ->and($post->fresh()->items()->orderBy('position')->pluck('label')->all())
+        ->toBe(['Three', 'One']);
+});
+
+test('deleting a relationship repeater row preserves another editor\'s edit to a different row', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = seedThreeOrderedItems();
+
+    $deletingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $editingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $items = $deletingEditor->get('data')['items'];
+    $keys = array_keys($items);
+
+    $editingEditor->set("data.items.{$keys[2]}.label", 'Three edited remotely')->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    unset($items[$keys[0]]);
+
+    $deletingEditor->set('data.items', $items)->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    expect($post->fresh()->items()->orderBy('position')->pluck('label')->all())
+        ->toBe(['Two', 'Three edited remotely']);
+});
+
+test('undoing a reorder restores order without reverting another editor\'s row edit', function () {
+    config(['filament-autosave.dirty_only' => true]);
+    $post = seedThreeOrderedItems();
+
+    $reorderingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $editingEditor = Livewire::test(OrderedRelationshipRecordForm::class, ['record' => $post]);
+    $items = $reorderingEditor->get('data')['items'];
+    $keys = array_keys($items);
+
+    $editingEditor->set("data.items.{$keys[0]}.label", 'One edited remotely')->call('autosave')
+        ->assertDispatched('autosave-status', status: 'saved');
+
+    $reorderingEditor->set('data.items', array_reverse($items, preserve_keys: true))->call('autosave')
+        ->assertSet('autosaveCanUndo', true);
+
+    $reorderingEditor->call('undoAutosave')->assertDispatched('autosave-status', status: 'undone');
+
+    expect($post->fresh()->items()->orderBy('position')->pluck('label')->all())
+        ->toBe(['One edited remotely', 'Two', 'Three']);
 });
