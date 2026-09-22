@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- A poll that actually refills a clean relationship (a new, removed, or
+  reordered Repeater row) now lets Filament render once, instead of staying
+  renderless forever: `skipRender()` is still called for every idle or
+  scalar-only poll, so the per-row hydration cost polling was designed to
+  avoid is unchanged, but a remotely added row now reaches the DOM with its
+  normal Filament bindings and internal keys without the user needing to save.
+- Added `poll_relationship_fingerprint_mode` (`bounded`, `exact`, or
+  `conservative`, `AutosavePlugin::pollRelationshipFingerprintMode()`) to
+  control how a timestamp-free relationship larger than
+  `poll_relationship_max_rows` is checked for remote changes: `bounded` (the
+  previous, still-default behavior) can miss an edit to an existing row,
+  `exact` hashes every row instead, and `conservative` always treats the
+  relation as potentially changed rather than risk missing one. A host can
+  also override `getAutosavePollFingerprint()` to supply its own stable
+  version token (a parent revision column, for example) instead of scanning
+  rows at all.
 - Fixed the indicator losing a poll's `stale` report the moment an unrelated
   local save (the debounced attempt behind the very edit that made a field
   stale, for example) resolved afterwards: a plain `autosave()` reply carries
