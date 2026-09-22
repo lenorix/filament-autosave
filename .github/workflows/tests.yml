@@ -48,6 +48,101 @@ jobs:
       - name: Run static analysis
         run: vendor/bin/phpstan analyse --no-progress --debug --memory-limit=1G
 
+  # The PHP matrix above runs the Integration suite on SQLite only. Driver-
+  # specific SQL (the nested-relationship polling fingerprint UNION query
+  # casts differently per grammar to support UUID/string primary keys) is
+  # only proven correct by actually running against these engines, not by
+  # reasoning about their SQL semantics. One representative PHP/Filament/
+  # Testbench cell each is enough; the version matrix is already covered by
+  # SQLite above.
+  postgres:
+    runs-on: ubuntu-latest
+    name: Integration - PostgreSQL
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: filament_autosave_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Fetch code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Provision PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Resolve dependencies
+        run: |
+          composer require "filament/filament:^5.0" --no-interaction --no-update
+          composer require "orchestra/testbench:^11.0" --dev --no-interaction --no-update
+          composer update --prefer-dist --no-interaction
+
+      - name: Execute Integration suite against PostgreSQL
+        env:
+          INTEGRATION_TEST_DB_CONNECTION: pgsql
+          INTEGRATION_TEST_DB_HOST: 127.0.0.1
+          INTEGRATION_TEST_DB_PORT: 5432
+          INTEGRATION_TEST_DB_DATABASE: filament_autosave_test
+          INTEGRATION_TEST_DB_USERNAME: postgres
+          INTEGRATION_TEST_DB_PASSWORD: postgres
+        run: vendor/bin/pest --testsuite Integration
+
+  mysql:
+    runs-on: ubuntu-latest
+    name: Integration - MySQL
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: filament_autosave_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -uroot -proot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Fetch code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Provision PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Resolve dependencies
+        run: |
+          composer require "filament/filament:^5.0" --no-interaction --no-update
+          composer require "orchestra/testbench:^11.0" --dev --no-interaction --no-update
+          composer update --prefer-dist --no-interaction
+
+      - name: Execute Integration suite against MySQL
+        env:
+          INTEGRATION_TEST_DB_CONNECTION: mysql
+          INTEGRATION_TEST_DB_HOST: 127.0.0.1
+          INTEGRATION_TEST_DB_PORT: 3306
+          INTEGRATION_TEST_DB_DATABASE: filament_autosave_test
+          INTEGRATION_TEST_DB_USERNAME: root
+          INTEGRATION_TEST_DB_PASSWORD: root
+        run: vendor/bin/pest --testsuite Integration
+
   # One Filament cell only: pestphp/pest-plugin-browser requires Livewire ^4.3,
   # which Filament 4 (Livewire 3) cannot satisfy. Filament 4 is covered by the
   # PHP matrix above and by the controller markup tests.
