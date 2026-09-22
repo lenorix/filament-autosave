@@ -3,6 +3,8 @@
 namespace Lenorix\FilamentAutosave\ExternalUndoAdapters;
 
 use Filament\Forms\Components\BaseFileUpload;
+use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Storage;
 use Lenorix\FilamentAutosave\Contracts\AutosaveExternalUndoAdapter;
 
 /**
@@ -30,7 +32,7 @@ final class FilesystemUndoAdapter implements AutosaveExternalUndoAdapter
             return false;
         }
 
-        return method_exists($field, 'getDiskName') && $field->getDiskName() === $this->disk;
+        return $field->getDiskName() === $this->disk;
     }
 
     /** @return array{paths: list<string>, contents: array<string, string|null>} */
@@ -106,11 +108,11 @@ final class FilesystemUndoAdapter implements AutosaveExternalUndoAdapter
         return class_exists($spatieClass) && $field instanceof $spatieClass;
     }
 
-    private function diskFor(object $field): \Illuminate\Contracts\Filesystem\Filesystem
+    private function diskFor(object $field): Filesystem
     {
         return method_exists($field, 'getDisk')
             ? $field->getDisk()
-            : \Illuminate\Support\Facades\Storage::disk($this->disk);
+            : Storage::disk($this->disk);
     }
 
     private function rawState(object $field): mixed

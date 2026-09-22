@@ -224,6 +224,21 @@ Undo is available for 5 seconds after a save. Snapshots are kept for 90 minutes 
 - Relation snapshots are limited by `relationship_undo_depth` (8 by default).
 - Files and media are excluded unless a reversible `external_undo_adapters` adapter is configured.
 
+A ready-to-use adapter ships for a plain `FileUpload` field (not Spatie Media Library) backed by a Laravel
+filesystem disk. It restores the previous file's exact bytes and removes whatever the undone cycle wrote, or
+refuses the undo as a conflict if the stored file changed remotely in the meantime:
+
+```php
+use Lenorix\FilamentAutosave\ExternalUndoAdapters\FilesystemUndoAdapter;
+
+'external_undo_adapters' => [
+    new FilesystemUndoAdapter('public'),
+],
+```
+
+Register one instance per disk the form's `FileUpload` fields use. Spatie Media Library fields are not covered by
+this adapter or by any built-in Undo path; the upload ledger only prunes their orphaned files.
+
 ## Uploads and media
 
 Native `FileUpload` fields support uploads, removals, reordering, and size/MIME validation. Invalid uploads skip only
