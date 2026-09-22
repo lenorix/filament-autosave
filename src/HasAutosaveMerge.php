@@ -478,7 +478,17 @@ trait HasAutosaveMerge
     {
         $query = $record->newQueryWithoutScopes()->whereKey($record->getKey());
 
-        $expected === null ? $query->whereNull($column) : $query->where($column, '=', $expected);
+        if ($expected === null) {
+            $query->whereNull($column);
+        } elseif (in_array($record->getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            // MySQL/MariaDB's default collation (utf8mb4_unicode_ci) compares
+            // "=" case-insensitively, so a plain where() would treat a
+            // case-only change as "unchanged" and swap over it. BINARY forces
+            // a byte-exact comparison, matching SQLite and PostgreSQL.
+            $query->whereRaw($record->getConnection()->getQueryGrammar()->wrap($column).' = BINARY ?', [$expected]);
+        } else {
+            $query->where($column, '=', $expected);
+        }
 
         return $query->update([$column => $value]) > 0;
     }

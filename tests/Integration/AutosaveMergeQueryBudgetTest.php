@@ -46,7 +46,7 @@ test('a rich merge adds exactly one query over a plain-text merge', function () 
 
     expect($richPost->fresh()->body)->toBe('<p>ALPHA</p><p>BETA</p>')
         ->and(count($richQueries))->toBe(count($textQueries) + 1)
-        ->and(array_filter($richQueries, fn (string $sql): bool => str_starts_with($sql, 'select "body"')))->toHaveCount(1);
+        ->and(array_filter($richQueries, fn (string $sql): bool => str_starts_with($sql, 'select "body"') || str_starts_with($sql, 'select `body`')))->toHaveCount(1);
 });
 
 test('a rich save without a base costs the same as an unlisted rich editor', function () {

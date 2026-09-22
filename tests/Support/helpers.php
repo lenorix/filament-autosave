@@ -184,7 +184,8 @@ function contendRichColumn(RichUploadPost|PlainRichPost $post, string $column, c
     $active = true;
 
     DB::connection()->beforeExecuting(function (string $query) use ($post, $column, $value, &$remaining, &$busy, &$active): void {
-        if (! $active || $busy || ! str_contains($query, 'update') || ! str_contains($query, "and \"{$column}\" = ?")) {
+        if (! $active || $busy || ! str_contains($query, 'update')
+            || ! preg_match('/and ["`]'.preg_quote($column, '/').'["`] = (?:BINARY )?\?/', $query)) {
             return;
         }
 

@@ -54,7 +54,8 @@ function contendMergeColumn(Post $post, string $column, callable $value, ?int $t
     $watch ??= $column;
 
     DB::connection()->beforeExecuting(function (string $query) use ($post, $column, $value, $watch, &$remaining, &$busy, &$active): void {
-        if (! $active || $busy || ! str_contains($query, 'update') || ! str_contains($query, "and \"{$watch}\" = ?")) {
+        if (! $active || $busy || ! str_contains($query, 'update')
+            || ! preg_match('/and ["`]'.preg_quote($watch, '/').'["`] = (?:BINARY )?\?/', $query)) {
             return;
         }
 
@@ -185,6 +186,17 @@ test('a patch the engine cannot read never takes the cycle down: the field is sa
 });
 
 test('a stored value that is not valid UTF-8 is never read as empty by the merge', function () {
+    // A UTF8-encoded PostgreSQL connection validates every byte on write and
+    // refuses this update outright; the scenario below (another process
+    // wrote invalid UTF-8 straight into the column) cannot occur there in
+    // the first place, so there is nothing left for this test to guard.
+    // MySQL in its default strict mode rejects it too (error 1366). Only
+    // SQLite accepts the write, matching what actually happens if a legacy
+    // import or a non-UTF8 connection put it there.
+    if (in_array(DB::connection()->getDriverName(), ['pgsql', 'mysql', 'mariadb'], true)) {
+        $this->markTestSkipped('This driver rejects invalid UTF-8 at write time; the corrupt-row scenario cannot exist there.');
+    }
+
     $post = Post::create(['title' => 'cafe au lait', 'slug' => 'fox']);
     $b = Livewire::test(MergeEditPost::class, ['record' => $post->getKey()]);
 
@@ -369,7 +381,7 @@ test('a concurrent change to another column does not cause a retry', function ()
     $writes = 0;
 
     DB::connection()->beforeExecuting(function (string $query) use (&$writes): void {
-        if (str_contains($query, 'update') && str_contains($query, 'and "title" = ?')) {
+        if (str_contains($query, 'update') && preg_match('/and ["`]title["`] = (?:BINARY )?\?/', $query)) {
             $writes++;
         }
     });
