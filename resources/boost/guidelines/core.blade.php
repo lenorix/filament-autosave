@@ -147,8 +147,10 @@ Polling follows only relationship components rendered by the form; it does
 not walk arbitrary Eloquent graphs, so cycles are bounded automatically.
 A locally dirty field changed remotely is reported as `stale` and remains
 untouched. Polling never writes to the database and never creates an Undo
-snapshot. The browser pauses polling while a save is pending or the tab is
-hidden.
+snapshot. Idle and scalar-only polls call Livewire `skipRender()`; when a
+clean relationship is actually refilled, the request renders once so new,
+removed, or reordered Repeater rows reach the DOM with Filament's bindings.
+The browser pauses polling while a save is pending or the tab is hidden.
 
 `merge_fields` applies only to top-level `TextInput`, `Textarea`,
 `MarkdownEditor`, and `RichEditor` fields. Non-overlapping plain text changes
