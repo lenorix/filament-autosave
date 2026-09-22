@@ -1,8 +1,10 @@
 <?php
 
 use Lenorix\FilamentAutosave\Tests\BrowserTestCase;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\CycleNode;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollItem;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollPost;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Cycle\CycleNodePostResource;
 
 /**
  * Real-browser coverage for polling relationship, self-referential and
@@ -14,32 +16,52 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollPost;
  * these confirm it survives a real Livewire request/response cycle, a real
  * debounce and a real poll timer.
  *
- * `syncAutosave()` calls `skipRender()` unconditionally (see
- * src/HasAutosaveBase.php:2250) to avoid a full Filament re-render, and
- * comments there and re-hydrating nested Repeater rows, on every idle poll
- * tick. That means a *new* repeater row discovered by polling updates
- * `$wire.data.items` but never reaches the DOM: there is no client-side
- * patching for row insertion the way there is for scalar column merges
- * (FilamentAutosaveMerge.apply.toInput). Confirmed directly: after a
- * remote row is added and the indicator settles on "synced", the
- * underlying wire state holds both rows but only the original row's input
- * is rendered.
- *
- * The `composer test:browser` suite runs with --fail-on-skipped, so the two
- * scenarios that would assert a brand new row becoming visible ("a
- * relationship row another editor added appears... without saving" and its
- * self-referential/grandchild variant) are omitted here rather than shipped
- * as skipped tests: as currently implemented, that DOM update never
- * happens, so a test asserting it would only ever be a permanent skip or a
- * permanent failure. This is a product design question for the maintainer
- * (whether `syncAutosave()` should render when a relation changed, and how
- * to avoid reintroducing the per-row Repeater hydration cost the skipRender
- * call at that line guards against), not something this test file's scope
- * can fix.
+ * `syncAutosave()` stays renderless for idle and scalar-only polls. When a
+ * clean relationship actually changes, it lets Filament render once so new
+ * Repeater rows reach the DOM with their normal bindings and internal keys.
  */
 beforeEach(function () {
     // Short interval so the tests wait on real polls, not a long timer.
     config(['filament-autosave.poll_interval' => 500]);
+});
+
+test('a relationship row another editor adds appears without saving this form', function () {
+    $post = PollPost::create(['title' => 'Original']);
+    $item = $post->items()->create(['label' => 'First', 'position' => 1]);
+
+    $page = visit("/admin/browser-poll-relations-posts/{$post->getKey()}/edit")
+        ->assertValue(BrowserTestCase::field("form.items.record-{$item->getKey()}.label"), 'First');
+
+    $added = $post->items()->create(['label' => 'Added elsewhere', 'position' => 2]);
+
+    $this->waitForInputValue(
+        $page,
+        BrowserTestCase::field("form.items.record-{$added->getKey()}.label"),
+        'Added elsewhere',
+    );
+
+    expect($post->fresh()->items()->count())->toBe(2);
+    $this->assertNoBrowserErrors($page);
+});
+
+test('a deeply nested relationship row another editor adds appears in the DOM', function () {
+    $root = CycleNode::create(['label' => 'Root']);
+    $child = CycleNode::create(['parent_id' => $root->getKey(), 'label' => 'Child']);
+
+    $page = visit(CycleNodePostResource::getUrl('edit', ['record' => $root]))
+        ->assertValue(BrowserTestCase::field("form.children.record-{$child->getKey()}.label"), 'Child');
+
+    $grandchild = CycleNode::create(['parent_id' => $child->getKey(), 'label' => 'Grandchild elsewhere']);
+
+    $this->waitForInputValue(
+        $page,
+        BrowserTestCase::field("form.children.record-{$child->getKey()}.children.record-{$grandchild->getKey()}.label"),
+        'Grandchild elsewhere',
+    );
+
+    expect($root->fresh()->children()->count())->toBe(1)
+        ->and($child->fresh()->children()->count())->toBe(1);
+    $this->assertNoBrowserErrors($page);
 });
 
 test('a row this tab is editing stays local and is reported stale when another editor changes the same row', function () {

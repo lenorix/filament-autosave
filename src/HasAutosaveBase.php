@@ -2250,23 +2250,23 @@ trait HasAutosaveBase
             return;
         }
 
-        // Polling returns its state through the autosave-status event. Avoid a
-        // full Filament render after every idle tick; nested Repeaters would
-        // otherwise hydrate their relationship components once per row after
-        // the detector has already batched them.
-        if (method_exists($this, 'skipRender')) {
-            $this->skipRender();
-        }
-
         $this->autosaveSyncRequest = true;
 
         $record = $this->autosaveSyncRecord();
 
         if (! is_object($record) || ! method_exists($record, 'getAttributes') || ! ($record->exists ?? false)) {
+            $this->skipAutosaveSyncRender();
+
             return;
         }
 
-        $this->authorizeAutosaveAccess();
+        try {
+            $this->authorizeAutosaveAccess();
+        } catch (\Throwable $e) {
+            $this->skipAutosaveSyncRender();
+
+            throw $e;
+        }
 
         try {
             // Relations first: their detector is one query whatever the form,
@@ -2276,6 +2276,8 @@ trait HasAutosaveBase
             $columnsChanged = $this->autosaveRecordChangedRemotely($record);
 
             if (! $columnsChanged && $relations === []) {
+                $this->skipAutosaveSyncRender();
+
                 return;
             }
 
@@ -2283,6 +2285,7 @@ trait HasAutosaveBase
 
             if ($changed === [] && $relations === []) {
                 $this->rememberAutosaveSyncedAttributes($record);
+                $this->skipAutosaveSyncRender();
 
                 return;
             }
@@ -2311,6 +2314,7 @@ trait HasAutosaveBase
             $refreshed = $this->refillAutosavePaths($record, $plan['refill']);
             $relationPlan = $this->refillAutosaveRelationPaths($record, $relations, $current);
             $refreshed = [...$refreshed, ...$relationPlan['refreshed']];
+            $relationRefreshed = $relationPlan['refreshed'] !== [];
             $stale = $plan['stale'];
 
             foreach ($relationPlan['stale'] as $path) {
@@ -2324,17 +2328,36 @@ trait HasAutosaveBase
             // next poll, or the timestamp fast path would hide it for good.
             $this->rememberAutosaveSyncedAttributes($record);
         } catch (\Throwable $e) {
+            $this->skipAutosaveSyncRender();
             $this->handleAutosaveFailure($e, 'sync');
 
             return;
         }
 
         if ($refreshed === [] && $stale === []) {
+            $this->skipAutosaveSyncRender();
+
             return;
+        }
+
+        // Scalar refreshes and stale relationship notices are applied by the
+        // browser controller. A real relationship refill needs Filament's
+        // markup so newly inserted, removed, or reordered Repeater rows reach
+        // the DOM with their bindings and internal keys intact.
+        if (! $relationRefreshed) {
+            $this->skipAutosaveSyncRender();
         }
 
         $this->dispatchAutosaveStatus(AutosaveStatus::Synced, AutosaveSync::syncedPayload($refreshed, $stale, $plan['patches']));
         Event::dispatch(new AutosaveSynced($this, $record, $refreshed, $stale, $plan['patches']));
+    }
+
+    /** Keep idle and scalar-only polling renderless. */
+    protected function skipAutosaveSyncRender(): void
+    {
+        if (method_exists($this, 'skipRender')) {
+            $this->skipRender();
+        }
     }
 
     /**
