@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-09-22
 
 - A poll that actually refills a clean relationship (a new, removed, or
   reordered Repeater row) now lets Filament render once, instead of staying
