@@ -13,7 +13,15 @@ use LaraZeus\SpatieTranslatable\SpatieTranslatableServiceProvider;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Panel\AutosavePanelProvider;
 use Spatie\MediaLibrary\MediaLibraryServiceProvider;
 
-/** Runs resource tests with in-memory SQLite. */
+/**
+ * Runs resource tests against an in-memory SQLite database by default.
+ * Set INTEGRATION_TEST_DB_CONNECTION (pgsql, mysql, mariadb, sqlite) plus
+ * INTEGRATION_TEST_DB_HOST/PORT/DATABASE/USERNAME/PASSWORD to run the same
+ * suite against a real server, e.g. in CI. Every table this suite (and any
+ * package migration, such as spatie/laravel-medialibrary's `media` table)
+ * creates is dropped first, since a real connection is reused across every
+ * test method instead of getting a fresh `:memory:` database each time.
+ */
 abstract class IntegrationTestCase extends TestCase
 {
     protected function setUp(): void
@@ -21,6 +29,8 @@ abstract class IntegrationTestCase extends TestCase
         parent::setUp();
 
         View::addNamespace('autosave-fixtures', __DIR__.'/Fixtures/views');
+
+        Schema::dropAllTables();
 
         Schema::create('posts', function ($table) {
             $table->id();
@@ -157,10 +167,22 @@ abstract class IntegrationTestCase extends TestCase
     {
         parent::defineEnvironment($app);
 
+        $driver = env('INTEGRATION_TEST_DB_CONNECTION', 'sqlite');
+
         $app['config']->set('database.default', 'testing');
-        $app['config']->set('database.connections.testing', [
+        $app['config']->set('database.connections.testing', $driver === 'sqlite' ? [
             'driver' => 'sqlite',
             'database' => ':memory:',
+            'prefix' => '',
+        ] : [
+            'driver' => $driver,
+            'host' => env('INTEGRATION_TEST_DB_HOST', '127.0.0.1'),
+            'port' => env('INTEGRATION_TEST_DB_PORT', $driver === 'pgsql' ? '5432' : '3306'),
+            'database' => env('INTEGRATION_TEST_DB_DATABASE', 'filament_autosave_test'),
+            'username' => env('INTEGRATION_TEST_DB_USERNAME', $driver === 'pgsql' ? 'postgres' : 'root'),
+            'password' => env('INTEGRATION_TEST_DB_PASSWORD', ''),
+            'charset' => $driver === 'pgsql' ? 'utf8' : 'utf8mb4',
+            'collation' => $driver === 'pgsql' ? null : 'utf8mb4_unicode_ci',
             'prefix' => '',
         ]);
     }

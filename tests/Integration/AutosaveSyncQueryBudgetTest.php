@@ -76,7 +76,7 @@ test('an idle poll adds exactly one query on a relationship-heavy form and never
     $marginal = marginalPollQueries($page);
 
     expect($marginal)->toHaveCount(1)
-        ->and($marginal[0])->toContain('"posts"')
+        ->and($marginal[0])->toMatch('/["`]posts["`]/')
         ->not->toContain('post_items')->not->toContain('author_post')->not->toContain('categories');
 });
 
