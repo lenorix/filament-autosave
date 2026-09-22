@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\DB;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\PollRelationsRecordForm;
+use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Forms\VersionedPollRelationsRecordForm;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollNote;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\PollPost;
 use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Models\Post;
@@ -174,6 +175,68 @@ test('the large timestamp-free fallback still detects relation cardinality chang
     $page->call('syncAutosave');
 
     expect($page->get('data.notes'))->toHaveCount(3);
+});
+
+test('exact timestamp-free fingerprints detect an edit outside the row limit', function () {
+    config([
+        'filament-autosave.poll_relationships' => true,
+        'filament-autosave.poll_relationship_max_rows' => 1,
+        'filament-autosave.poll_relationship_fingerprint_mode' => 'exact',
+    ]);
+    $post = PollPost::create(['title' => 'Post']);
+    $first = PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'First']);
+    $second = PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'Second']);
+    $page = Livewire::test(PollRelationsRecordForm::class, ['record' => $post]);
+
+    $second->update(['body' => 'Second remotely']);
+    $page->call('syncAutosave');
+
+    expect($page->get('data.notes'))->toHaveCount(2)
+        ->and(collect($page->get('data.notes'))->pluck('body')->all())->toContain('Second remotely')
+        ->and($first->fresh()->body)->toBe('First');
+});
+
+test('conservative timestamp-free polling never hides a large relation change', function () {
+    config([
+        'filament-autosave.poll_relationships' => true,
+        'filament-autosave.poll_relationship_max_rows' => 1,
+        'filament-autosave.poll_relationship_fingerprint_mode' => 'conservative',
+    ]);
+    $post = PollPost::create(['title' => 'Post']);
+    $first = PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'First']);
+    PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'Second']);
+    $page = Livewire::test(PollRelationsRecordForm::class, ['record' => $post]);
+
+    $key = array_key_first($page->get('data.notes'));
+    $page->set("data.notes.{$key}.body", 'Local edit');
+    $page->call('syncAutosave');
+
+    $stale = false;
+    $page->assertDispatched('autosave-status', function (string $event, array $params) use (&$stale): bool {
+        $stale = in_array('notes', $params['stale'] ?? [], true);
+
+        return true;
+    });
+
+    expect($stale)->toBeTrue()
+        ->and($first->fresh()->body)->toBe('First');
+});
+
+test('a host fingerprint detects large timestamp-free relation edits without exact row scanning', function () {
+    config([
+        'filament-autosave.poll_relationships' => true,
+        'filament-autosave.poll_relationship_max_rows' => 1,
+        'filament-autosave.poll_relationship_fingerprint_mode' => 'bounded',
+    ]);
+    $post = PollPost::create(['title' => 'Post']);
+    PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'First']);
+    $second = PollNote::create(['poll_post_id' => $post->getKey(), 'body' => 'Second']);
+    $page = Livewire::test(VersionedPollRelationsRecordForm::class, ['record' => $post]);
+
+    $second->update(['body' => 'Second remotely']);
+    $page->call('syncAutosave');
+
+    expect(collect($page->get('data.notes'))->pluck('body')->all())->toContain('Second remotely');
 });
 
 test('a poll that refills a changed relation reads that relation, not the others', function () {

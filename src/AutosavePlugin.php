@@ -110,6 +110,31 @@ class AutosavePlugin implements Plugin
         return (bool) (config('filament-autosave.poll_relationships') ?? self::shippedDefault('poll_relationships'));
     }
 
+    protected string|Closure|null $pollRelationshipFingerprintMode = null;
+
+    /**
+     * How large timestamp-free relationships are fingerprinted during polling.
+     * `bounded` uses the cheap key/count fallback, `exact` hashes every row,
+     * and `conservative` treats overflow as potentially changed.
+     */
+    public function pollRelationshipFingerprintMode(string|Closure $mode): static
+    {
+        $this->pollRelationshipFingerprintMode = $mode;
+
+        return $this;
+    }
+
+    public function getPollRelationshipFingerprintMode(): string
+    {
+        if ($this->pollRelationshipFingerprintMode !== null) {
+            return (string) $this->evaluate($this->pollRelationshipFingerprintMode);
+        }
+
+        return (string) (config('filament-autosave.poll_relationship_fingerprint_mode')
+            ?? self::shippedDefault('poll_relationship_fingerprint_mode')
+            ?? 'bounded');
+    }
+
     /** @var array<string>|Closure|null */
     protected array|Closure|null $mergeFields = null;
 

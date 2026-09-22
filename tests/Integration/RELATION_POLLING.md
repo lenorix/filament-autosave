@@ -21,8 +21,13 @@ key (plus morph type or pivot identity where applicable). Never use transient
 Repeater UUIDs or row positions as database identities. A remote insertion,
 deletion, reorder or pivot change must affect the enclosing field fingerprint.
 Hash persisted attributes for timestamp-free nodes up to
-`poll_relationship_max_rows`. Larger relations use key/count aggregates;
-timestamp columns are recommended when exact edits must be detected at scale.
+`poll_relationship_max_rows`. Larger relations use
+`poll_relationship_fingerprint_mode`: `bounded` (default) uses key/count
+aggregates and can miss existing-row edits, `exact` hashes every row, and
+`conservative` always treats overflow as potentially changed. A host may
+override `getAutosavePollFingerprint($path, $relation)` with a stable version
+token; timestamps or such a token are recommended for exact detection at
+scale.
 
 Load by relationship path and parent key sets, not one query per rendered row.
 The implementation batches clean rendered parents at each relationship level,

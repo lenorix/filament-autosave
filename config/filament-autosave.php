@@ -37,10 +37,14 @@ return [
     // rendered by the form. Set to 0 to keep direct relationships only.
     'poll_relationship_depth' => 3,
 
-    // Exact fingerprints for timestamp-free relations hydrate this many rows
-    // at most per relation. Larger relations use a cheap key/count fallback;
-    // add timestamps when exact remote edits must be detected at scale.
+    // Bounded and conservative fingerprints inspect at most this many rows
+    // per timestamp-free relation before applying the selected overflow mode.
     'poll_relationship_max_rows' => 500,
+
+    // How to handle timestamp-free relations larger than the row limit:
+    // bounded uses count/min/max keys, exact hashes every row, and
+    // conservative treats the relation as potentially changed on every poll.
+    'poll_relationship_fingerprint_mode' => 'bounded',
 
     // Top-level text fields whose concurrent edits are merged instead of
     // last-write-wins: TextInput, Textarea and MarkdownEditor word by word

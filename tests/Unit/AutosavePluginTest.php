@@ -95,6 +95,14 @@ test('plugin debounce and draft lifetime fall back to the configuration', functi
         ->and(autosavePlugin()->getCacheTtl())->toBe(48);
 });
 
+test('relationship fingerprint mode follows configuration and plugin precedence', function () {
+    config(['filament-autosave.poll_relationship_fingerprint_mode' => 'exact']);
+
+    expect(autosavePlugin()->getPollRelationshipFingerprintMode())->toBe('exact')
+        ->and(autosavePlugin()->pollRelationshipFingerprintMode('conservative')->getPollRelationshipFingerprintMode())
+        ->toBe('conservative');
+});
+
 test('resolve() serves configuration outside any mounted panel', function () {
     config(['filament-autosave.debounce' => 2500]);
 

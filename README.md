@@ -193,9 +193,13 @@ Polling requires `refresh_unchanged_fields` and is available on Edit pages and r
 Polling updates untouched columns, repeaters, uploads, and media. Locally edited fields are marked `stale` instead of
 being overwritten. Nested relationship fields are fingerprinted up to `poll_relationship_depth` (3 by default), so
 deep child changes no longer require `$touches` on the parent. Set the depth to `0` for direct relationships only.
-Timestamp-free relations hash their rows up to `poll_relationship_max_rows` (500 by default); larger relations use a
-cheap key/count check, so timestamp columns are recommended for large collections. Timestamped relations fingerprint
-their sorted keys as text, which also supports UUID and string primary keys.
+Timestamp-free relations hash their rows up to `poll_relationship_max_rows` (500 by default). Larger relations use the
+`bounded` mode by default, which checks only count and key bounds and can miss an edit to an existing row. Set
+`poll_relationship_fingerprint_mode` to `exact` to hash every row, or to `conservative` to refresh clean fields and
+mark dirty fields as stale whenever a large relation is polled. Timestamps, a version column, or a custom fingerprint
+are better for large collections. A page or form can provide `getAutosavePollFingerprint($path, $relation)` to return
+a stable token that changes whenever that relation changes. Timestamped relations fingerprint their sorted keys as
+text, which also supports UUID and string primary keys.
 Nested rows are checked in batches per parent relationship, so polling does not issue one detector query per rendered
 repeater row. Only relationships rendered by the form are checked; cycles and deeper graphs stay bounded by
 `poll_relationship_depth`.
@@ -292,6 +296,7 @@ Plugin settings override the published config, and page settings override the pl
 AutosavePlugin::make()
     ->debounce(2_000)
     ->pollInterval(10_000)
+    ->pollRelationshipFingerprintMode('exact')
     ->pollRelationships(false)
     ->mergeFields(['title'])
     ->except(['internal_notes'])
@@ -301,6 +306,7 @@ AutosavePlugin::make()
 
 Publish the config to change options without a plugin method, such as `dirty_only`, `refresh_unchanged_fields`,
 `poll_interval`, `poll_relationships`, `poll_relationship_depth`, `poll_relationship_max_rows`,
+`poll_relationship_fingerprint_mode`,
 `relationship_undo_depth`, and `require_form_context`.
 
 ## Translations and indicator

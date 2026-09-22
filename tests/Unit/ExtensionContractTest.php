@@ -22,6 +22,7 @@ const AUTOSAVE_API = [
     'autosavePollInterval',
     'beforeAutosave',
     'getAutosaveFormContext',
+    'getAutosavePollFingerprint',
     'getAutosaveStatePath',
     'getAutosaveValidationRules',
     'getUndoTtlMinutes',

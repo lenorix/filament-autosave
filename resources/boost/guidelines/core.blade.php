@@ -129,12 +129,20 @@ Relations without timestamps compare persisted row/pivot content hashes, adding
 reads per relation. Nested relationship components are fingerprinted up to
 `poll_relationship_depth` (3 by default); set it to 0 for direct relations
 only. Timestamp-free relations hash at most `poll_relationship_max_rows` rows
-(500 by default); larger collections use key/count detection, so timestamps are
-recommended at scale. Timestamped relations fingerprint sorted keys as text in
-PHP, so UUID and string primary keys are safe across supported databases.
+(500 by default). Larger collections use `poll_relationship_fingerprint_mode`:
+`bounded` (default) compares count and key bounds and may miss edits to existing
+rows; `exact` hashes every row; `conservative` treats overflow as potentially
+changed, refreshing clean fields and marking dirty fields stale. Prefer a
+timestamp, version column, or the host hook
+`getAutosavePollFingerprint($path, $relation)` for large collections. The hook
+must return a stable token that changes whenever the persisted relation state
+changes and takes precedence over the automatic mode. Timestamped relations
+fingerprint sorted keys as text in PHP, so UUID and string primary keys are safe
+across supported databases.
 Nested parents at each rendered relationship level are eager-loaded as a batch
 when a poll needs to fingerprint or refill them. Timestamp-free batches keep
-the configured per-parent row limit; larger sets use the key/count fallback.
+the configured per-parent row limit; larger sets follow the selected
+fingerprint mode.
 Polling follows only relationship components rendered by the form; it does
 not walk arbitrary Eloquent graphs, so cycles are bounded automatically.
 A locally dirty field changed remotely is reported as `stale` and remains

@@ -57,8 +57,9 @@ trait HasAutosaveBase
     public array $autosaveSyncedAttributeHashes = [];
 
     /**
-     * Fingerprint of each polled relation (sorted keys + latest updated_at)
-     * as this component last observed it, by top-level path. Only kept while
+     * Fingerprint of each polled relation as this component last observed it,
+     * by top-level path. Depending on the configured mode this is a timestamp
+     * summary, row-content hash, or host-provided token. Only kept while
      * `poll_relationships` is on.
      *
      * @var array<string, string>
@@ -2806,24 +2807,31 @@ trait HasAutosaveBase
      * related key and update stamp for each row, compared against what the
      * last poll saw. Keys are cast to text by the active grammar and hashed in
      * PHP, so UUID and string keys never pass through numeric SQL aggregates.
-     * Relations without timestamps hash their persisted rows and pivot
-     * attributes on every poll instead, up to the configured row limit.
+     * Relations without timestamps use the configured bounded, exact, or
+     * conservative fingerprint mode. Hosts can provide a stable token with
+     * getAutosavePollFingerprint().
      *
-     * @return array{fingerprints: array<string, string>, unfingerprinted: list<string>}
+     * @return array{fingerprints: array<string, string>, unfingerprinted: list<string>, uncertain: list<string>}
      */
     protected function autosaveRelationFingerprints(object $record): array
     {
         $fields = $this->autosavePolledRelationFields($record, withComponents: false);
 
         if ($fields === [] || ! $record instanceof Model) {
-            return ['fingerprints' => [], 'unfingerprinted' => []];
+            return ['fingerprints' => [], 'unfingerprinted' => [], 'uncertain' => []];
         }
 
         $union = null;
         $fingerprints = [];
         $unfingerprinted = [];
+        $uncertain = [];
         $keyRows = [];
-        $preloaded = $this->preloadAutosavePolledRelations($fields);
+        // Exact mode reads each timestamp-free relation in full below. Avoid
+        // first issuing the bounded nested preload, which would only be
+        // discarded and would double the detector cost for deep forms.
+        $preloaded = $this->autosavePollRelationshipFingerprintMode() === 'exact'
+            ? []
+            : $this->preloadAutosavePolledRelations($fields);
         $preloaded = [...$preloaded, ...$this->preloadAutosavePolledRelations(
             $fields,
             timestampFreeOnly: false,
@@ -2831,9 +2839,27 @@ trait HasAutosaveBase
         )];
 
         foreach ($fields as $path => ['relation' => $relation]) {
+            $custom = $this->getAutosavePollFingerprint((string) $path, $relation);
+
+            if ($custom !== null) {
+                $fingerprints[$path] = $this->autosaveStore()->snapshotHash(['custom' => $custom]);
+
+                continue;
+            }
+
             $stamp = $this->autosaveRelationStampColumn($relation);
 
             if ($stamp === null) {
+                $mode = $this->autosavePollRelationshipFingerprintMode();
+
+                if ($mode === 'exact') {
+                    $fingerprints[$path] = $this->autosaveTimestampFreeRelationFingerprintFromRows(
+                        (clone $relation)->get(),
+                    );
+
+                    continue;
+                }
+
                 // Without timestamps, compare persisted contents rather than
                 // silently ignoring remote changes while the field is dirty.
                 $rows = $preloaded[$path] ?? (clone $relation)->limit($this->autosavePollRelationshipRowLimit() + 1)->get();
@@ -2841,6 +2867,12 @@ trait HasAutosaveBase
                 $rowCount = is_array($rows) ? count($rows) : $rows->count();
 
                 if ($rowCount > $this->autosavePollRelationshipRowLimit()) {
+                    if ($mode === 'conservative') {
+                        $uncertain[] = (string) $path;
+
+                        continue;
+                    }
+
                     $query = (clone $relation->getQuery())->toBase();
                     $query->columns = null;
                     $query->orders = null;
@@ -2859,42 +2891,7 @@ trait HasAutosaveBase
                     continue;
                 }
 
-                $rowHashes = [];
-
-                foreach ($rows as $row) {
-                    if (! is_object($row) || ! method_exists($row, 'getAttributes') || ! method_exists($row, 'getRelations')) {
-                        continue;
-                    }
-
-                    $state = call_user_func([$row, 'getAttributes']);
-
-                    if (! is_array($state)) {
-                        continue;
-                    }
-
-                    ksort($state);
-
-                    $pivots = [];
-                    $relations = call_user_func([$row, 'getRelations']);
-
-                    if (! is_array($relations)) {
-                        continue;
-                    }
-
-                    foreach ($relations as $name => $related) {
-                        if ($related instanceof Pivot) {
-                            $pivots[$name] = $related->getAttributes();
-                            ksort($pivots[$name]);
-                        }
-                    }
-                    ksort($pivots);
-
-                    $rowHashes[] = $this->autosaveStore()->snapshotHash(['attributes' => $state, 'pivots' => $pivots]);
-                }
-
-                sort($rowHashes);
-                $rows = $rowHashes;
-                $fingerprints[$path] = $this->autosaveStore()->snapshotHash(['rows' => $rows]);
+                $fingerprints[$path] = $this->autosaveTimestampFreeRelationFingerprintFromRows($rows);
 
                 continue;
             }
@@ -2961,7 +2958,70 @@ trait HasAutosaveBase
             ]);
         }
 
-        return ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted];
+        return ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted, 'uncertain' => $uncertain];
+    }
+
+    /**
+     * Build an exact content fingerprint for timestamp-free rows, including
+     * primary keys and pivot attributes so replacements and pivot edits are
+     * distinguishable even when the row count stays the same.
+     *
+     * @param  iterable<int, mixed>  $rows
+     */
+    protected function autosaveTimestampFreeRelationFingerprintFromRows(iterable $rows): string
+    {
+        $rowHashes = [];
+
+        foreach ($rows as $row) {
+            if (! $row instanceof Model) {
+                continue;
+            }
+
+            $state = $row->getAttributes();
+            unset($state['laravel_through_key']);
+            ksort($state);
+
+            $pivots = [];
+
+            foreach ($row->getRelations() as $name => $related) {
+                if ($related instanceof Pivot) {
+                    $pivots[$name] = $related->getAttributes();
+                    ksort($pivots[$name]);
+                }
+            }
+
+            ksort($pivots);
+            $rowHashes[] = $this->autosaveStore()->snapshotHash([
+                'key' => (string) $row->getKey(),
+                'attributes' => $state,
+                'pivots' => $pivots,
+            ]);
+        }
+
+        sort($rowHashes, SORT_STRING);
+
+        return $this->autosaveStore()->snapshotHash(['rows' => $rowHashes]);
+    }
+
+    /**
+     * Return a host-provided stable token for a polled relationship. A token
+     * can be a parent revision, an aggregate version, or another value that
+     * changes whenever the relation's persisted state changes.
+     *
+     * @api
+     *
+     * @param  Relation<Model, Model, *>  $relation
+     */
+    protected function getAutosavePollFingerprint(string $path, Relation $relation): ?string
+    {
+        return null;
+    }
+
+    protected function autosavePollRelationshipFingerprintMode(): string
+    {
+        $mode = AutosavePlugin::resolve()->getPollRelationshipFingerprintMode();
+
+        return in_array($mode, ['bounded', 'exact', 'conservative'], true) ? $mode : 'bounded';
     }
 
     /**
@@ -3060,9 +3120,13 @@ trait HasAutosaveBase
             return [];
         }
 
-        ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted] = $this->autosaveRelationFingerprints($record);
+        ['fingerprints' => $fingerprints, 'unfingerprinted' => $unfingerprinted, 'uncertain' => $uncertain] = $this->autosaveRelationFingerprints($record);
         $this->autosaveReadRelationFingerprints = $fingerprints;
         $changed = array_fill_keys($unfingerprinted, false);
+
+        foreach ($uncertain as $path) {
+            $changed[$path] = true;
+        }
 
         foreach ($fingerprints as $path => $hash) {
             if (($this->autosaveSyncedRelationHashes[$path] ?? null) !== $hash) {
