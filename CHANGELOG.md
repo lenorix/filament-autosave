@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added `FilesystemUndoAdapter`, a ready-to-use `AutosaveExternalUndoAdapter`
+  for a plain `FileUpload` field backed by a Laravel filesystem disk. Register
+  it in `external_undo_adapters` to make file Undo work without writing an
+  adapter from scratch.
+
 - Clarified compatibility skip messages for supported Filament versions and
   covered the bounded fallback used by large timestamp-free relations.
 
