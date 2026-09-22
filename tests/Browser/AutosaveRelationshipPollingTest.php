@@ -8,13 +8,11 @@ use Lenorix\FilamentAutosave\Tests\Fixtures\Integration\Resources\Cycle\CycleNod
 
 /**
  * Real-browser coverage for polling relationship, self-referential and
- * through-relation fields: the "browser polls racing with typing, autosave
- * and Undo" item tests/Integration/RELATION_POLLING.md still listed as
- * outstanding. The underlying detection/batching is pinned at the
- * Integration level (AutosaveNestedRelationshipsTest,
- * AutosaveNestedRelationshipCycleAndThroughTest, AutosavePollRelationshipsTest);
- * these confirm it survives a real Livewire request/response cycle, a real
- * debounce and a real poll timer.
+ * through-relation fields. The underlying detection and batching are pinned at
+ * the integration level (AutosaveNestedRelationshipsTest,
+ * AutosaveNestedRelationshipCycleAndThroughTest,
+ * AutosavePollRelationshipsTest); these tests confirm the same behavior
+ * survives a real Livewire request/response cycle, debounce and poll timer.
  *
  * `syncAutosave()` stays renderless for idle and scalar-only polls. When a
  * clean relationship actually changes, it lets Filament render once so new

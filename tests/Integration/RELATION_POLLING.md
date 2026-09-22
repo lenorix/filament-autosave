@@ -1,4 +1,4 @@
-# Deep relationship polling: implementation decision
+# Deep relationship polling: implementation status
 
 Status: implemented for rendered relationship components, with bounded depth
 and row-cost controls.
@@ -10,7 +10,7 @@ configurable to keep polling bounded. Builder/Repeater siblings, remote
 parents, morphMany, through fingerprints, self-referential cycles, UUID keys,
 and query budgets are covered by integration fixtures.
 
-## Proposed contract
+## Implemented contract
 
 Independent fingerprints are created for nested relationships declared in the
 form schema. Traversal is bounded by `poll_relationship_depth`; it does not
@@ -42,22 +42,29 @@ retain the entire local field and mark it stale. Advance the acknowledged
 fingerprint only after successful refill; repeated polls must retain stale
 warnings. Polling must not persist anything or modify Undo snapshots.
 
-## Required regression coverage before enabling
+## Coverage in the test suite
 
-- Edit pages and record-backed generic forms with two or more rows at each level.
-- Child edits/additions/deletions/reorders without `$touches` or parent timestamps.
-- Mixed Builder/Repeater schemas, empty relations, morphs, pivots and through paths.
-- Remote insertion under a newly added parent absent from the local schema.
-- Dirty deep sibling preservation and persistent stale state across repeated polls.
-- Failed refill retries, exclusions, depth limits, cycles, and query budgets.
-- Browser polls racing with typing, autosave and Undo.
+The suite covers the contract above for edit pages and record-backed forms:
+
+- Multiple rows at each level, including mixed Builder/Repeater schemas.
+- Remote edits, additions, deletions and reorders without `$touches` or parent timestamps.
+- Morph relations, pivots, through relations and self-referential cycles.
+- UUID and string keys, remote insertion under a newly added parent, and empty relations.
+- Dirty deep-sibling preservation and stale state across repeated polls.
+- Failed refill retries, exclusions, depth limits and query budgets.
+- Browser polls racing with typing, autosave, relationship insertion and Undo.
+
+These cases are regression coverage, not pending implementation work. New relation
+types or deeper traversal rules should add fixtures and tests before changing the
+contract.
 
 ## Other boundaries
 
 Filament `RecordSaved`/`RecordUpdated` require a Page host; use package events in
 Relation Managers and generic components rather than fabricating a Page.
-Mounted action form-validation and `before`/`after` hooks run during autosave. The action's submit callback remains
-submit-only; success notifications and redirects run only after an explicit `flushAutosave()` commits.
+Mounted action form validation and `before`/`after` hooks run during autosave. The
+action's submit callback does not run during autosave; its success notification,
+redirect and other submit effects run only after an explicit `flushAutosave()`.
 External Undo continues to require reversible adapters; generic file rollback
 cannot restore deleted external content. Nested merge needs stable row identity
 and deletion/reorder semantics before expanding beyond top-level text fields.
