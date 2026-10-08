@@ -106,11 +106,28 @@ class AutosaveFieldRules
 
     public static function passesOptionRules(mixed $value, array $rules): bool
     {
+        // State filled from an enum cast holds enum instances, which Laravel's
+        // `in` rule casts to string; compare their option keys instead.
+        $value = self::enumOptionKeys($value);
+
         $constraints = is_array($value)
             ? ['value' => ['array'], 'value.*' => $rules]
             : ['value' => $rules];
 
         return Validator::make(['value' => $value], $constraints)->passes();
+    }
+
+    private static function enumOptionKeys(mixed $value): mixed
+    {
+        if ($value instanceof \BackedEnum) {
+            return $value->value;
+        }
+
+        if ($value instanceof \UnitEnum) {
+            return $value->name;
+        }
+
+        return is_array($value) ? array_map(self::enumOptionKeys(...), $value) : $value;
     }
 
     /**

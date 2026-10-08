@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Fixed autosave failing with "Object of class … could not be converted to
+  string" when an option field (Select, Radio, CheckboxList, …) holds a PHP
+  enum instance and its options give an `in` rule: the option check now
+  compares a backed enum by its value and a pure enum by its name.
+
 ## 0.7.0 - 2026-09-22
 
 - A poll that actually refills a clean relationship (a new, removed, or
