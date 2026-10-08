@@ -1,6 +1,8 @@
 <?php
 
 use Lenorix\FilamentAutosave\AutosaveFieldRules;
+use Lenorix\FilamentAutosave\Tests\Fixtures\AutosaveRulesBackedKind;
+use Lenorix\FilamentAutosave\Tests\Fixtures\AutosaveRulesUnitKind;
 
 function autosaveRuleField(?string $rule = null): object
 {
@@ -72,4 +74,25 @@ test('validation ignores rules that pass', function () {
     $fields = ['title' => 'Hello'];
 
     expect(AutosaveFieldRules::applyRules($fields, ['title' => 'required']))->toBe(['title' => 'Hello']);
+});
+
+test('enforce option rules compares enum state by its option key', function () {
+    $data = [
+        'kind' => AutosaveRulesBackedKind::Page,
+        'kinds' => [AutosaveRulesBackedKind::Article, AutosaveRulesBackedKind::Page],
+        'unit' => AutosaveRulesUnitKind::Page,
+        'stale' => AutosaveRulesBackedKind::Page,
+    ];
+    $fields = [
+        'kind' => [autosaveRuleField('in:article,page')],
+        'kinds' => [autosaveRuleField('in:article,page')],
+        'unit' => [autosaveRuleField('in:Article,Page')],
+        'stale' => [autosaveRuleField('in:article')],
+    ];
+
+    expect(AutosaveFieldRules::enforceOptionRules($data, $fields))->toBe([
+        'kind' => AutosaveRulesBackedKind::Page,
+        'kinds' => [AutosaveRulesBackedKind::Article, AutosaveRulesBackedKind::Page],
+        'unit' => AutosaveRulesUnitKind::Page,
+    ]);
 });
